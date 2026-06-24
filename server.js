@@ -1,0 +1,985 @@
+const http = require("http");
+const https = require("https");
+const fs = require("fs/promises");
+const os = require("os");
+const path = require("path");
+const { spawn } = require("child_process");
+const { URL } = require("url");
+
+const PORT = process.env.PORT ? Number(process.env.PORT) : 8787;
+const MAX_BYTES = 1_000_000;
+const TIMEOUT_MS = 15000;
+const EXPORT_DIR = path.join(os.tmpdir(), "phottix-customer-agent-exports");
+
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp"
+};
+
+async function serveStaticFile(res, filePath) {
+  try {
+    const data = await fs.readFile(filePath);
+    const type = MIME_TYPES[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+    res.writeHead(200, {
+      "Content-Type": type,
+      "Access-Control-Allow-Origin": "*"
+    });
+    res.end(data);
+  } catch {
+    res.writeHead(404, {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Access-Control-Allow-Origin": "*"
+    });
+    res.end("Not found.");
+  }
+}
+
+function sendJson(res, statusCode, payload, extraHeaders = {}) {
+  const body = JSON.stringify(payload);
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    ...extraHeaders
+  });
+  res.end(body);
+}
+
+function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+
+    req.on("data", (chunk) => {
+      total += chunk.length;
+      if (total > 10 * 1024 * 1024) {
+        reject(new Error("Request body too large."));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    req.on("end", () => {
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    });
+
+    req.on("error", reject);
+  });
+}
+
+function sanitizeText(value) {
+  return String(value || "")
+    .replace(/<%[\s\S]*?%>/g, " ")
+    .replace(/\b(?:account_circle|sentiment_very_satisfied|person_add|shopping_cart)\b/gi, " ")
+    .replace(/\b(?:Welcome back|View account details|Sign In|Register|Can we help find anything)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripHtml(html) {
+  return String(html || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6|tr)>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'");
+}
+
+function extractMeta(html, name) {
+  const patterns = [
+    new RegExp(`<meta[^>]+property=["']${name}["'][^>]+content=["']([^"']+)["']`, "i"),
+    new RegExp(`<meta[^>]+name=["']${name}["'][^>]+content=["']([^"']+)["']`, "i")
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match) return sanitizeText(match[1]);
+  }
+
+  return "";
+}
+
+function extractTitle(html) {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return match ? sanitizeText(stripHtml(match[1])) : "";
+}
+
+function extractText(html) {
+  const cleaned = stripHtml(html);
+  return sanitizeText(cleaned)
+    .replace(/\s*\n\s*/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+function summarizeLines(lines) {
+  const unique = [];
+  const seen = new Set();
+  for (const line of lines) {
+    if (/<%|%>|firstname|totalItem|isLogged|account_circle|sentiment_very_satisfied|person_add|shopping_cart/i.test(line)) continue;
+    const normalized = line.toLowerCase();
+    if (line.length < 20) continue;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(line);
+    if (unique.length >= 120) break;
+  }
+  return unique;
+}
+
+function fetchUrl(targetUrl, redirects = 0) {
+  return new Promise((resolve, reject) => {
+    if (redirects > 5) {
+      reject(new Error("Too many redirects."));
+      return;
+    }
+
+    const urlObj = new URL(targetUrl);
+    const client = urlObj.protocol === "https:" ? https : http;
+
+    const request = client.get(
+      urlObj,
+      {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        }
+      },
+      (response) => {
+        const status = response.statusCode || 0;
+
+        if ([301, 302, 303, 307, 308].includes(status) && response.headers.location) {
+          response.resume();
+          const nextUrl = new URL(response.headers.location, urlObj).toString();
+          resolve(fetchUrl(nextUrl, redirects + 1));
+          return;
+        }
+
+        if (status < 200 || status >= 300) {
+          response.resume();
+          reject(new Error(`Request failed with status ${status}.`));
+          return;
+        }
+
+        let total = 0;
+        const chunks = [];
+
+        response.on("data", (chunk) => {
+          total += chunk.length;
+          if (total > MAX_BYTES) {
+            request.destroy(new Error("Response too large."));
+            return;
+          }
+          chunks.push(chunk);
+        });
+
+        response.on("end", () => {
+          resolve(Buffer.concat(chunks).toString("utf8"));
+        });
+
+        response.on("error", reject);
+      }
+    );
+
+    request.setTimeout(TIMEOUT_MS, () => {
+      request.destroy(new Error("Request timed out."));
+    });
+
+    request.on("error", reject);
+  });
+}
+
+function parseExcelRowsFromPython(filePath) {
+  return new Promise((resolve, reject) => {
+    const py = spawn('python', ['-c', `
+import json, sys
+from pathlib import Path
+from openpyxl import load_workbook
+
+path = Path(sys.argv[1])
+wb = load_workbook(path, data_only=True)
+ws = wb.active
+rows = list(ws.iter_rows(values_only=True))
+if not rows:
+    print(json.dumps({'headers': [], 'rows': []}, ensure_ascii=False))
+    raise SystemExit(0)
+
+headers = [str(c).strip() if c is not None else '' for c in rows[0]]
+output = []
+for row in rows[1:]:
+    item = {}
+    for idx, header in enumerate(headers):
+        if not header:
+            continue
+        value = row[idx] if idx < len(row) else None
+        if value is None:
+            continue
+        item[header] = str(value).strip()
+    if any(item.values()):
+        output.append(item)
+
+print(json.dumps({'headers': headers, 'rows': output}, ensure_ascii=False))
+`, filePath], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let stdout = '';
+    let stderr = '';
+    py.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+    py.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+    py.on('error', reject);
+    py.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `Excel parser exited with code ${code}.`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+function parsePhottixProductRowsFromPython(filePath) {
+  return new Promise((resolve, reject) => {
+    const py = spawn('python', ['-c', `
+import json, re, sys
+from pathlib import Path
+from openpyxl import load_workbook
+
+path = Path(sys.argv[1])
+wb = load_workbook(path, data_only=True)
+
+def normalize(value):
+    return str(value or "").replace("\\xa0", " ").replace("\\u200b", " ").strip()
+
+def infer_category(name, sheet_title=""):
+    text = f"{sheet_title} {name}".lower()
+    rules = [
+        ("Lighting", [r"\\bled\\b", "light", "tube", "kali", "nuada", "kiran", "indra", "vled", "led"]),
+        ("Flash & Trigger", ["flash", "trigger", "receiver", "transmitter", "odin", "ste3", "atlas", "strato", "mitros", "juno"]),
+        ("Modifiers", ["softbox", "umbrella", "reflector", "snoot", "diffuser", "backdrop", "grid", "capsule", "raja", "rex", "premio", "q-drop"]),
+        ("Support & Accessories", ["stand", "bag", "clamp", "ballhead", "adapter", "arm", "boom", "tripod", "holder", "mount", "grip", "wheel", "rack", "tray", "spigot", "roller", "background"]),
+        ("Power & Video", ["battery", "charger", "power", "webcam", "usb-c", "video", "slider", "creator", "rig", "audio", "mobile"])
+    ]
+    for category, keywords in rules:
+        for keyword in keywords:
+            if keyword in text:
+                return category
+    return "Support & Accessories"
+
+def split_tags(value):
+    text = normalize(value)
+    if not text:
+        return []
+    return [part.strip() for part in re.split(r"[|,，/]+", text) if part.strip()]
+
+preferred_sheet = None
+for name in wb.sheetnames:
+    lower = name.lower()
+    if "classic" in lower and "auto" in lower:
+        preferred_sheet = name
+        break
+
+sheet_names = [preferred_sheet] if preferred_sheet else [name for name in wb.sheetnames if wb[name].sheet_state == "visible"]
+rows = []
+seen = set()
+
+for sheet_name in sheet_names:
+    ws = wb[sheet_name]
+    for row in ws.iter_rows(values_only=True):
+        values = [normalize(cell) for cell in row]
+        if not any(values):
+            continue
+
+        sku = ""
+        name = ""
+
+        if len(values) >= 2 and values[0] and values[1]:
+            sku = values[0]
+            name = values[1]
+        else:
+            for idx in range(0, min(6, len(values) - 1)):
+                if values[idx] and values[idx + 1]:
+                    sku = values[idx]
+                    name = values[idx + 1]
+                    break
+
+        if not sku or not name:
+            continue
+
+        if not re.match(r"^[0-9A-Za-z-]+$", sku):
+            continue
+
+        lowered = name.lower()
+        if lowered in {"sku", "no.", "product name"}:
+            continue
+        if "remark" in lowered or "discontinued items" in lowered or "new items" in lowered:
+            continue
+
+        category = infer_category(name, sheet_name)
+        key = f"{sku}|{name}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        rows.append({
+            "category": category,
+            "name": name,
+            "description": "",
+            "tags": ", ".join(split_tags(category) + split_tags(name)),
+            "sku": sku,
+            "brand": "Phottix" if "phottix" in lowered else "",
+            "price": "",
+            "sourceType": "excel",
+            "sourceSheet": sheet_name
+        })
+
+print(json.dumps({"rows": rows, "sheetNames": sheet_names}, ensure_ascii=False))
+`, filePath], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let stdout = '';
+    let stderr = '';
+    py.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+    py.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+    py.on('error', reject);
+    py.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `Product Excel parser exited with code ${code}.`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+function exportAnalysisRowsToXlsx(rows, filePath) {
+  return new Promise((resolve, reject) => {
+    const py = spawn('python', ['-c', `
+import json, sys
+from pathlib import Path
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.utils import get_column_letter
+
+rows = json.loads(sys.stdin.read() or "{}").get("rows", [])
+path = Path(sys.argv[1])
+
+headers = [
+    ("company_name", "Company Name"),
+    ("contact_name", "Contact Name"),
+    ("contact_email", "Contact Email"),
+    ("website", "Website"),
+    ("instagram_url", "Instagram"),
+    ("facebook_url", "Facebook"),
+    ("city", "City / Country"),
+    ("business_types", "Business Types"),
+    ("rating", "Rating"),
+    ("score", "Score"),
+    ("rating_focus", "Rating Focus"),
+    ("key_decision", "Key Decision"),
+    ("matched_signals", "Matched Signals"),
+    ("dealer_line", "Dealer Line"),
+    ("end_user_line", "End User Line"),
+    ("email_subject", "Email Subject"),
+    ("email_body", "Email Body"),
+    ("email_preview", "Email Preview"),
+    ("suggestions", "Suggestions"),
+    ("save_bucket", "Save Bucket"),
+    ("saved_at", "Saved At")
+]
+
+wb = Workbook()
+ws = wb.active
+ws.title = "Exported Analysis"
+
+title_fill = PatternFill("solid", fgColor="17203A")
+header_fill = PatternFill("solid", fgColor="23304F")
+header_font = Font(color="FFFFFF", bold=True)
+title_font = Font(color="FFFFFF", bold=True, size=14)
+thin_align = Alignment(vertical="top", wrap_text=True)
+
+ws["A1"] = "Phottix Customer Agent Export"
+ws["A1"].font = title_font
+ws["A1"].fill = title_fill
+ws["A1"].alignment = Alignment(horizontal="left")
+ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
+
+ws.append([label for _, label in headers])
+for cell in ws[2]:
+    cell.font = header_font
+    cell.fill = header_fill
+    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+for row in rows:
+    ws.append([row.get(key, "") for key, _ in headers])
+
+for row in ws.iter_rows(min_row=3, max_row=ws.max_row):
+    for cell in row:
+        cell.alignment = thin_align
+
+widths = {
+    "A": 24, "B": 18, "C": 22, "D": 30, "E": 24, "F": 24,
+    "G": 16, "H": 24, "I": 10, "J": 10, "K": 18, "L": 26,
+    "M": 34, "N": 28, "O": 28, "P": 30, "Q": 46, "R": 46,
+    "S": 36, "T": 14, "U": 22
+}
+for col_letter, width in widths.items():
+    ws.column_dimensions[col_letter].width = width
+
+ws.freeze_panes = "A3"
+ws.auto_filter.ref = f"A2:{get_column_letter(len(headers))}{ws.max_row}"
+
+wb.save(path)
+print(json.dumps({"ok": True, "filePath": str(path)}))
+`, filePath], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+    let stdout = '';
+    let stderr = '';
+    py.stdin.write(JSON.stringify({ rows }, null, 2));
+    py.stdin.end();
+    py.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+    py.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+    py.on('error', reject);
+    py.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `Excel export exited with code ${code}.`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+function isChallengeText(text) {
+  return /just a moment|captcha|cloudflare|access denied|security check|verify you are human|may be requiring captcha|robot check|blocked/i.test(String(text || ""));
+}
+
+function buildExtraction(html, pageUrl) {
+  const title = extractTitle(html);
+  const description = extractMeta(html, "description") || extractMeta(html, "og:description");
+  const siteName = extractMeta(html, "og:site_name");
+  const textLines = summarizeLines(extractText(html));
+  const body = textLines.slice(0, 80).join("\n");
+  const blocked = isChallengeText([title, description, body].join("\n"));
+
+  return {
+    url: pageUrl,
+    title,
+    siteName,
+    description,
+    body,
+    source: "local-fetch",
+    blocked,
+    blockReason: blocked ? "Target returned a challenge or CAPTCHA page instead of usable content." : ""
+  };
+}
+
+function buildTextExtraction(text, pageUrl, source = "text-mirror") {
+  const lines = String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => sanitizeText(line))
+    .filter(Boolean);
+
+  const title = lines[0] || new URL(pageUrl).hostname.replace(/^www\./i, "");
+  const description = lines.slice(1, 3).join(" ").slice(0, 240);
+  const body = summarizeLines(lines).slice(0, 80).join("\n");
+  const blocked = isChallengeText([title, description, body].join("\n"));
+
+  return {
+    url: pageUrl,
+    title,
+    siteName: "",
+    description,
+    body,
+    source,
+    blocked,
+    blockReason: blocked ? "Mirror returned a challenge or CAPTCHA page instead of usable content." : ""
+  };
+}
+
+async function fetchWithTextMirrorFallback(targetUrl) {
+  const parsed = new URL(targetUrl);
+  const hostPath = parsed.toString().replace(/^https?:\/\//i, "");
+  const candidates = [
+    `https://r.jina.ai/https://${hostPath}`,
+    `https://r.jina.ai/http://${hostPath}`
+  ];
+  let lastError = null;
+  let blockedResult = null;
+
+  for (const mirrorUrl of candidates) {
+    try {
+      const text = await fetchUrl(mirrorUrl);
+      const extraction = buildTextExtraction(text, parsed.toString(), "text-mirror");
+      if (!extraction.blocked) return extraction;
+      blockedResult = extraction;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (blockedResult) return blockedResult;
+  throw lastError || new Error("Mirror fetch failed.");
+}
+
+function cleanSearchLines(lines) {
+  return lines.filter((line) => !/duckduckgo|search results|images|videos|news|maps|settings|privacy|bing/i.test(line));
+}
+
+function hasRelevantSearchEvidence(lines, host) {
+  const hostCore = host
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-z0-9]+/gi, "")
+    .toLowerCase();
+  const evidenceLines = lines.filter((line, index) => {
+    if (index === 0 && /search|搜尋|跳至|工具|結果|results/i.test(line)) return false;
+    return !/search|搜尋|跳至內容|協助工具|privacy|隱私權|terms|條款/i.test(line);
+  });
+  const compactEvidence = evidenceLines.join(" ").replace(/[^a-z0-9]+/gi, "").toLowerCase();
+  const evidenceText = evidenceLines.join(" ");
+  if (hostCore && compactEvidence.includes(hostCore)) return true;
+  if (/bhphotovideo/i.test(host) && /bhphoto|b&h|bandh|photo\s*&?\s*video|photography|camera|video|lens|lighting/i.test(evidenceText)) return true;
+  return false;
+}
+
+async function fetchSearchFallback(targetUrl) {
+  const parsed = new URL(targetUrl);
+  const host = parsed.hostname.replace(/^www\./i, "");
+  const pathHint = parsed.pathname.replace(/[\/_-]+/g, " ").trim();
+  const query = [host, pathHint].filter(Boolean).join(" ");
+  const searchUrls = [
+    `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+    `https://www.bing.com/search?q=${encodeURIComponent(query)}`
+  ];
+  let lastError = null;
+
+  for (const searchUrl of searchUrls) {
+    try {
+      const html = await fetchUrl(searchUrl);
+      const lines = cleanSearchLines(summarizeLines(extractText(html)));
+      if (!lines.length) {
+        throw new Error("Search fallback returned no usable text.");
+      }
+      if (!hasRelevantSearchEvidence(lines, host)) {
+        throw new Error("Search fallback returned unrelated text.");
+      }
+      const title = lines[0] || host;
+      const description = lines.slice(1, 3).join(" ").slice(0, 240);
+      return {
+        url: parsed.toString(),
+        title,
+        siteName: "",
+        description,
+        body: lines.slice(0, 80).join("\n"),
+        source: "search-fallback",
+        blocked: false,
+        blockReason: ""
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Search fallback failed.");
+}
+
+async function safeFetchExtraction(targetUrl) {
+  const parsed = new URL(targetUrl);
+  let directExtraction = null;
+
+  try {
+    const html = await fetchUrl(parsed.toString());
+    directExtraction = buildExtraction(html, parsed.toString());
+    if (!directExtraction.blocked) return directExtraction;
+  } catch (error) {
+    directExtraction = {
+      url: parsed.toString(),
+      title: "",
+      siteName: "",
+      description: "",
+      body: "",
+      source: "local-fetch",
+      blocked: true,
+      blockReason: error.message || "Failed to fetch target."
+    };
+  }
+
+  try {
+    const mirrorExtraction = await fetchWithTextMirrorFallback(parsed.toString());
+    if (!mirrorExtraction.blocked) return mirrorExtraction;
+    directExtraction = directExtraction || mirrorExtraction;
+  } catch {
+    // fall through to search fallback
+  }
+
+  try {
+    return await fetchSearchFallback(parsed.toString());
+  } catch {
+    if (directExtraction) return directExtraction;
+    throw new Error("Failed to fetch target.");
+  }
+}
+
+function normalizeHeaderName(name) {
+  return String(name || "")
+    .trim()
+    .toLowerCase();
+}
+
+function rowToCustomer(row) {
+  const normalized = {};
+  for (const [key, value] of Object.entries(row || {})) {
+    normalized[normalizeHeaderName(key)] = value;
+  }
+
+  const splitPipes = (value) => {
+    const text = String(value || "").trim();
+    if (!text) return [];
+    return text.split("|").map((part) => part.trim()).filter(Boolean);
+  };
+
+  const urlFromText = (value) => {
+    const text = String(value || "");
+    const match = text.match(/https?:\/\/[^\s|]+/i);
+    return match ? match[0].trim() : "";
+  };
+
+  const companyNameFromMixed = (value) => {
+    const parts = splitPipes(value);
+    if (parts.length) return parts[0];
+    return String(value || "").trim();
+  };
+
+  const websiteFromMixed = (value) => {
+    const parts = splitPipes(value);
+    const fromPart = parts.find((part) => /^https?:\/\//i.test(part)) || "";
+    return fromPart || urlFromText(value);
+  };
+
+  const tailText = (value) => splitPipes(value).slice(1).join(" | ");
+
+  const get = (...keys) => {
+    for (const key of keys) {
+      const value = normalized[normalizeHeaderName(key)];
+      if (value !== undefined && value !== null && String(value).trim() !== "") {
+        return String(value).trim();
+      }
+    }
+    return "";
+  };
+
+  const rawCompany = get("company_name", "公司名称", "company", "company name", "name");
+  const rawWebsite = get("website", "公司主页", "url", "domain", "website_url", "公司网站", "官网");
+  const companyName = companyNameFromMixed(rawCompany) || companyNameFromMixed(rawWebsite);
+  const website = websiteFromMixed(rawWebsite) || websiteFromMixed(rawCompany);
+  const instagramUrl = get("instagram_url", "instagram", "instagram url", "instagram链接", "instagram链接地址");
+  const facebookUrl = get("facebook_url", "facebook", "facebook url", "facebook链接", "facebook链接地址");
+  const sourceNotes = [get("source_notes", "notes", "source note", "website_notes", "动态挖掘策略", "采购需求分析"), tailText(rawCompany), tailText(rawWebsite)]
+    .filter(Boolean)
+    .join(" | ");
+  const businessNotes = [
+    get("business_notes", "主营产品", "business note", "notes_business", "行业匹配关系", "动态挖掘策略"),
+    tailText(rawCompany),
+    tailText(rawWebsite)
+  ].filter(Boolean).join(" | ");
+
+  return {
+    companyName,
+    website,
+    city: get("city", "国家地区名称", "国家地区"),
+    contactName: get("contact_name", "联系人名称", "contact"),
+    contactEmail: get("contact_email", "联系人邮箱", "email"),
+    instagramUrl,
+    facebookUrl,
+    businessNotes,
+    sourceNotes,
+    websiteBody: "",
+    websiteTitle: "",
+    websiteDescription: "",
+    sourceType: "excel",
+    companyType: get("公司类型", "company_type"),
+    potentialQuality: get("潜客质量", "潜客质量"),
+    potentialStage: get("潜客阶段", "潜客阶段"),
+    industryRelation: get("行业匹配关系", "industry_relation"),
+    purchaseNeedAnalysis: get("采购需求分析", "purchase_need_analysis"),
+    diggingStrategy: get("动态挖掘策略", "dynamic_strategy"),
+    whatsapp: get("联系人whatsapp", "whatsapp")
+  };
+}
+
+function rowToProduct(row) {
+  const normalized = {};
+  for (const [key, value] of Object.entries(row || {})) {
+    normalized[normalizeHeaderName(key)] = value;
+  }
+
+  const get = (...keys) => {
+    for (const key of keys) {
+      const value = normalized[normalizeHeaderName(key)];
+      if (value !== undefined && value !== null && String(value).trim() !== "") {
+        return String(value).trim();
+      }
+    }
+    return "";
+  };
+
+  const splitPipes = (value) => String(value || "").split("|").map((part) => part.trim()).filter(Boolean);
+  const category = get("category", "类别", "产品类别", "分类", "group", "group_name") || "Uncategorized";
+  const name = get("product_name", "产品名称", "name", "产品名", "品名") || splitPipes(get("产品名称", "product_name")).shift() || "Untitled product";
+  const description = get("description", "产品描述", "desc", "说明", "备注");
+  const tags = splitPipes(get("tags", "标签", "tag", "关键词")).join(", ");
+
+  return {
+    category,
+    name,
+    description,
+    tags,
+    sku: get("sku", "编码", "产品编码"),
+    brand: get("brand", "品牌"),
+    price: get("price", "价格", "售价"),
+    sourceType: "excel"
+  };
+}
+
+const server = http.createServer(async (req, res) => {
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
+    });
+    res.end();
+    return;
+  }
+
+  const requestUrl = new URL(req.url, `http://${req.headers.host || `localhost:${PORT}`}`);
+
+  if (requestUrl.pathname === "/") {
+    await serveStaticFile(res, path.join(__dirname, "index.html"));
+    return;
+  }
+
+  if (requestUrl.pathname === "/style.css") {
+    await serveStaticFile(res, path.join(__dirname, "style.css"));
+    return;
+  }
+
+  if (requestUrl.pathname === "/script.js") {
+    await serveStaticFile(res, path.join(__dirname, "script.js"));
+    return;
+  }
+
+  if (requestUrl.pathname === "/health") {
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/fetch") {
+    const target = requestUrl.searchParams.get("url");
+    if (!target) {
+      sendJson(res, 400, { error: "Missing url parameter." });
+      return;
+    }
+
+    let parsed;
+    try {
+      parsed = new URL(target);
+    } catch {
+      sendJson(res, 400, { error: "Invalid url parameter." });
+      return;
+    }
+
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      sendJson(res, 400, { error: "Only http and https URLs are supported." });
+      return;
+    }
+
+    try {
+      const extraction = await safeFetchExtraction(parsed.toString());
+      sendJson(res, 200, extraction);
+    } catch (error) {
+      sendJson(res, 502, { error: error.message || "Failed to fetch target." });
+    }
+    return;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/fetch-multiple") {
+    const urls = ["website", "instagram", "facebook"]
+      .map((key) => requestUrl.searchParams.get(key))
+      .filter(Boolean);
+
+    if (!urls.length) {
+      sendJson(res, 400, { error: "Missing url parameters." });
+      return;
+    }
+
+    const results = [];
+    for (const target of urls) {
+      try {
+        const parsed = new URL(target);
+        if (!["http:", "https:"].includes(parsed.protocol)) continue;
+        const extraction = await safeFetchExtraction(parsed.toString());
+        results.push({
+          ...extraction,
+          sourceUrl: parsed.toString()
+        });
+      } catch (error) {
+        results.push({
+          sourceUrl: target,
+          error: error.message || "Failed to fetch target."
+        });
+      }
+    }
+
+    sendJson(res, 200, { results });
+    return;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/import-excel") {
+    const contentType = String(req.headers["content-type"] || "");
+    const body = await readRequestBody(req);
+
+    try {
+      if (contentType.includes("application/json")) {
+        const payload = JSON.parse(body || "{}");
+        const rows = Array.isArray(payload.rows) ? payload.rows : [];
+        const normalizedRows = rows.map(rowToCustomer).filter((row) => row.companyName || row.website || row.instagramUrl || row.facebookUrl);
+        sendJson(res, 200, { rows: normalizedRows });
+        return;
+      }
+
+      if (contentType.includes("text/csv")) {
+        const lines = body.split(/\r?\n/).filter(Boolean);
+        const headers = (lines.shift() || "").split(",").map((item) => item.trim());
+        const rows = lines.map((line) => {
+          const values = line.split(",");
+          const row = {};
+          headers.forEach((header, index) => {
+            row[header.toLowerCase()] = (values[index] || "").trim();
+          });
+          return row;
+        });
+        const normalizedRows = rows.map(rowToCustomer).filter((row) => row.companyName || row.website || row.instagramUrl || row.facebookUrl);
+        sendJson(res, 200, { rows: normalizedRows });
+        return;
+      }
+
+      const tempPath = path.join(os.tmpdir(), `phottix-import-${Date.now()}.xlsx`);
+      await fs.writeFile(tempPath, Buffer.from(body, "base64"));
+      const parsed = await parseExcelRowsFromPython(tempPath);
+      await fs.unlink(tempPath).catch(() => {});
+      const rows = (parsed.rows || []).map(rowToCustomer).filter((row) => row.companyName || row.website || row.instagramUrl || row.facebookUrl);
+      sendJson(res, 200, { rows });
+    } catch (error) {
+      sendJson(res, 502, { error: error.message || "Failed to import Excel." });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/import-products") {
+    const contentType = String(req.headers["content-type"] || "");
+    const body = await readRequestBody(req);
+
+    try {
+      if (contentType.includes("application/json")) {
+        const payload = JSON.parse(body || "{}");
+        const rows = Array.isArray(payload.rows) ? payload.rows : [];
+        const normalizedRows = rows.map(rowToProduct).filter((row) => row.name);
+        sendJson(res, 200, { rows: normalizedRows, mode: "product" });
+        return;
+      }
+
+      const tempPath = path.join(os.tmpdir(), `phottix-products-${Date.now()}.xlsx`);
+      await fs.writeFile(tempPath, Buffer.from(body, "base64"));
+      const parsed = await parsePhottixProductRowsFromPython(tempPath);
+      await fs.unlink(tempPath).catch(() => {});
+      const rows = (parsed.rows || []).map(rowToProduct).filter((row) => row.name);
+      sendJson(res, 200, { rows, mode: "product", sheetNames: parsed.sheetNames || [] });
+    } catch (error) {
+      sendJson(res, 502, { error: error.message || "Failed to import products." });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/export-analysis") {
+    const contentType = String(req.headers["content-type"] || "");
+    const body = await readRequestBody(req);
+
+    try {
+      let rows = [];
+      if (contentType.includes("application/json")) {
+        const payload = JSON.parse(body || "{}");
+        rows = Array.isArray(payload.rows) ? payload.rows : [];
+      }
+
+      if (!rows.length) {
+        sendJson(res, 400, { error: "No rows provided for export." });
+        return;
+      }
+
+      await fs.mkdir(EXPORT_DIR, { recursive: true });
+      const fileName = `phottix-analysis-${Date.now()}.xlsx`;
+      const filePath = path.join(EXPORT_DIR, fileName);
+      await exportAnalysisRowsToXlsx(rows, filePath);
+      sendJson(res, 200, { ok: true, downloadUrl: `/api/download-export?file=${encodeURIComponent(fileName)}` });
+    } catch (error) {
+      sendJson(res, 502, { error: error.message || "Failed to export Excel." });
+    }
+    return;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/download-export") {
+    const fileName = String(requestUrl.searchParams.get("file") || "");
+    if (!fileName || fileName.includes("..") || fileName.includes("/") || fileName.includes("\\")) {
+      sendJson(res, 400, { error: "Invalid file parameter." });
+      return;
+    }
+    const filePath = path.join(EXPORT_DIR, fileName);
+    try {
+      const data = await fs.readFile(filePath);
+      res.writeHead(200, {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="${fileName}"`,
+        "Access-Control-Allow-Origin": "*"
+      });
+      res.end(data);
+    } catch (error) {
+      sendJson(res, 404, { error: error.message || "Export file not found." });
+    }
+    return;
+  }
+
+  sendJson(res, 404, { error: "Not found." });
+});
+
+server.listen(PORT, "127.0.0.1", () => {
+  console.log(`Phottix local fetch server listening on http://127.0.0.1:${PORT}`);
+});

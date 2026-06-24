@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phottix Customer Agent | Deep Research + Outreach</title>
+  <meta name="description" content="Phottix Customer Agent - local static tool for customer analysis, product suggestions, and outreach emails.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero panel">
+      <div class="hero-copy">
+        <div class="eyebrow">Phottix Customer Agent</div>
+        <h1>Deep Research + Outreach / 客户分析 + 开发信</h1>
+        <p class="hero-lead">
+          本地静态工具，双击打开 <code>index.html</code> 即可使用。输入公司名或官网，再补充官网或社媒摘录，系统就会生成客户深度分析、产品推荐和英文开发信。
+        </p>
+      </div>
+    </header>
+
+    <nav class="module-nav panel">
+      <button class="module-tab active" type="button" data-module="analysis">客户分析 / Analysis</button>
+      <button class="module-tab" type="button" data-module="products">产品资料库 / Products</button>
+      <button class="module-tab" type="button" data-module="prospects">潜在客户 / Prospects</button>
+      <button class="module-tab" type="button" data-module="customers">旧客户 / Existing Customers</button>
+    </nav>
+
+    <main class="layout">
+      <section class="panel form-panel module-section" data-module-section="analysis">
+        <div class="section-head">
+          <div>
+            <h2>输入客户资料 / Input Customer Data</h2>
+            <p>建议把官网正文、产品页文字或社媒摘录一起贴进来，这样评分和开发信会更接近真实深研结果。</p>
+          </div>
+          <button id="fillDemoBtn" class="ghost-button" type="button">填入示例 / Demo</button>
+        </div>
+
+        <form id="agentForm" class="agent-form" autocomplete="off">
+          <div class="form-grid">
+            <label class="field">
+              <span>公司名 / Company</span>
+              <input id="companyName" name="companyName" type="text" placeholder="e.g. ABC Photo Studio">
+            </label>
+            <label class="field">
+              <span>联系人 / Contact</span>
+              <input id="contactName" name="contactName" type="text" placeholder="e.g. Ms. Lee">
+            </label>
+            <label class="field">
+              <span>官网 / Website</span>
+              <input id="website" name="website" type="url" placeholder="https://example.com">
+            </label>
+            <label class="field">
+              <span>城市 / City</span>
+              <input id="city" name="city" type="text" placeholder="e.g. Hong Kong">
+            </label>
+            <label class="field">
+              <span>Instagram</span>
+              <input id="instagramUrl" name="instagramUrl" type="url" placeholder="https://instagram.com/xxxx">
+            </label>
+            <label class="field">
+              <span>Facebook</span>
+              <input id="facebookUrl" name="facebookUrl" type="url" placeholder="https://facebook.com/xxxx">
+            </label>
+          </div>
+
+          <label class="field field-wide">
+            <span>业务备注 / Business Notes</span>
+            <textarea id="businessNotes" name="businessNotes" rows="4" placeholder="e.g. wholesale, retail, studio, content creator, video gear..."></textarea>
+          </label>
+
+          <label class="field field-wide">
+            <span>官网 / 社媒摘录 / Website & Social Extract</span>
+            <textarea id="sourceNotes" name="sourceNotes" rows="6" placeholder="Paste website text, service intro, captions, product descriptions, or third-party gear signals here."></textarea>
+          </label>
+
+          <div class="form-actions">
+            <button id="generateBtn" class="primary-button" type="submit">生成分析 / Generate</button>
+            <button id="saveBtn" class="secondary-button" type="button" disabled>保存到潜在客户 / Save</button>
+            <button id="copyReportBtn" class="ghost-button" type="button" disabled>复制分析 / Copy Report</button>
+            <button id="copyEmailBtn" class="secondary-button" type="button" disabled>复制开发信 / Copy Email</button>
+            <button id="exportBtn" class="ghost-button" type="button" disabled>导出 Excel / Export XLSX</button>
+            <button id="resetBtn" class="danger-button" type="button">清空 / Reset</button>
+          </div>
+
+          <p class="hint">说明：这是一个本地静态工具，不会自动联网抓取网页内容。若你把官网或社媒摘录贴进来，分析会更接近真实深研结果。</p>
+        </form>
+      </section>
+
+      <section id="analysisResultPanel" class="panel result-panel hidden" aria-live="polite">
+        <div class="section-head result-head">
+          <div>
+            <h2>分析结果 / Analysis Result</h2>
+            <p>这里会显示客户信息、业务判断、评级标准、产品推荐和开发信。</p>
+          </div>
+          <div class="result-toolbar">
+            <span id="resultStatus" class="status-pill">Ready</span>
+          </div>
+        </div>
+
+        <div id="resultArea" class="result-area hidden">
+          <section class="result-block">
+            <div class="block-head">
+              <h3>客户信息 / Company Info</h3>
+            </div>
+            <div id="companyTable" class="table-shell"></div>
+          </section>
+
+          <div class="two-column">
+            <section class="result-block">
+              <div class="block-head">
+                <h3>关键判断 / Key Decision</h3>
+              </div>
+              <div class="bullet-list">
+                <div id="keyDecisionRating" class="bullet-item"></div>
+                <div id="keyDecisionFocus" class="bullet-item"></div>
+              </div>
+            </section>
+
+            <section class="result-block">
+              <div class="block-head">
+                <h3>评分规则 / Scoring Rules</h3>
+              </div>
+              <div id="judgingStandardList" class="bullet-list"></div>
+            </section>
+          </div>
+
+          <div class="two-column">
+            <section class="result-block">
+              <div class="block-head">
+                <h3>业务范围提取 / Business Scope</h3>
+              </div>
+              <div id="scopeList" class="bullet-list"></div>
+            </section>
+
+            <section class="result-block">
+              <div class="block-head">
+                <h3>评级拆解 / Rating Breakdown</h3>
+              </div>
+              <div id="ratingList" class="bullet-list"></div>
+            </section>
+          </div>
+
+          <div class="two-column">
+            <section class="result-block">
+              <div class="block-head">
+                <h3>经销商线推荐 / Dealer Line</h3>
+              </div>
+              <div id="dealerProducts" class="product-grid"></div>
+            </section>
+
+            <section class="result-block">
+              <div class="block-head">
+                <h3>终端用户线推荐 / End User Line</h3>
+              </div>
+              <div id="endUserProducts" class="product-grid"></div>
+            </section>
+          </div>
+
+          <section class="result-block">
+            <div class="block-head">
+              <h3>完整英文开发信 / Outreach Email</h3>
+            </div>
+            <pre id="emailPreview" class="email-preview"></pre>
+          </section>
+
+          <section class="result-block">
+            <div class="block-head">
+              <h3>操作建议 / Suggestions</h3>
+            </div>
+            <div id="suggestionList" class="bullet-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="panel module-section" data-module-section="products">
+        <div data-product-library class="result-area"></div>
+      </section>
+
+      <section class="panel crm-panel module-section" data-module-section="prospects">
+        <div class="section-head">
+          <div>
+            <h2>潜在客户 / Prospects</h2>
+            <p>导入后会保存在这里，和旧客户分开管理。</p>
+          </div>
+          <div class="crm-tools">
+            <button id="prospectImportBtn" class="secondary-button" type="button">批量导入潜在客户 Excel / Import</button>
+            <input id="prospectFileInput" type="file" accept=".xlsx,.xlsm,.csv" hidden>
+          </div>
+        </div>
+        <p id="prospectImportStatus" class="hint"></p>
+        <div id="prospectList" class="crm-list"></div>
+      </section>
+
+      <section class="panel crm-panel module-section" data-module-section="customers">
+        <div class="section-head">
+          <div>
+            <h2>旧客户 / Existing Customers</h2>
+            <p>旧客户只保留你确认过的客户，导入后也可以继续用同一套分析和开发信逻辑。</p>
+          </div>
+          <div class="crm-tools">
+            <button id="customerImportBtn" class="secondary-button" type="button">批量导入旧客户 Excel / Import</button>
+            <input id="customerFileInput" type="file" accept=".xlsx,.xlsm,.csv" hidden>
+          </div>
+        </div>
+        <p id="customerImportStatus" class="hint"></p>
+        <div id="customerList" class="crm-list"></div>
+      </section>
+    </main>
+
+    <footer class="page-footer panel" aria-label="Usage instructions">
+      <p>Usage / 使用说明: 输入公司名或官网，补充官网或社媒摘录，然后点击 Generate 生成分析和开发信。</p>
+    </footer>
+
+    <script src="script.js"></script>
+  </div>
+</body>
+</html>
