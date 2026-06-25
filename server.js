@@ -622,6 +622,30 @@ function knownFetchFallback(targetUrl) {
   };
 }
 
+function buildUrlCandidates(targetUrl) {
+  const parsed = new URL(targetUrl);
+  const host = parsed.hostname.replace(/^www\./i, "");
+  const pathAndSearch = `${parsed.pathname || "/"}${parsed.search || ""}` || "/";
+  const rawCandidates = [
+    parsed.toString(),
+    `https://${host}${pathAndSearch}`,
+    `https://www.${host}${pathAndSearch}`,
+    `http://${host}${pathAndSearch}`,
+    `http://www.${host}${pathAndSearch}`
+  ];
+  const seen = new Set();
+  return rawCandidates.filter((url) => {
+    try {
+      const normalized = new URL(url).toString();
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
 async function fetchWithTextMirrorFallback(targetUrl) {
   const parsed = new URL(targetUrl);
   const hostPath = parsed.toString().replace(/^https?:\/\//i, "");
@@ -708,42 +732,191 @@ async function fetchSearchFallback(targetUrl) {
   throw lastError || new Error("Search fallback failed.");
 }
 
+function decodeHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function normalizeCompanyToken(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\b(?:ltd|limited|inc|llc|gmbh|sarl|s\.?a\.?|co|company|corp|corporation|the|and|&)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function resolveSearchHref(href, baseUrl) {
+  const decoded = decodeHtmlEntities(href);
+  try {
+    const url = new URL(decoded, baseUrl);
+    const uddg = url.searchParams.get("uddg");
+    if (uddg) return new URL(uddg).toString();
+    if (/^https?:$/i.test(url.protocol)) return url.toString();
+  } catch {
+    // Ignore malformed search-result links.
+  }
+  return "";
+}
+
+function extractSearchCandidates(html, baseUrl) {
+  const candidates = [];
+  const linkPattern = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = linkPattern.exec(String(html || "")))) {
+    const url = resolveSearchHref(match[1], baseUrl);
+    if (!url) continue;
+    const text = sanitizeText(stripHtml(match[2]));
+    candidates.push({ url, text });
+    if (candidates.length >= 80) break;
+  }
+  return candidates;
+}
+
+function isLikelyOfficialWebsite(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./i, "").toLowerCase();
+    if (/\b(?:google|bing|duckduckgo|yahoo|facebook|instagram|linkedin|youtube|tiktok|twitter|x|wikipedia|yelp|trustpilot|zoominfo|dnb|opencorporates|bloomberg|mapquest|yellowpages|crunchbase|glassdoor|indeed)\./i.test(host)) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function scoreWebsiteCandidate(candidate, companyName, country = "") {
+  const companyToken = normalizeCompanyToken(companyName).replace(/\s+/g, "");
+  const countryToken = normalizeCompanyToken(country);
+  const url = new URL(candidate.url);
+  const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+  const hostToken = host.replace(/\.[^.]+$/, "").replace(/[^a-z0-9]+/g, "");
+  const textToken = normalizeCompanyToken(candidate.text);
+  let score = 20;
+  if (companyToken && hostToken.includes(companyToken.slice(0, Math.min(companyToken.length, 14)))) score += 45;
+  if (companyToken && normalizeCompanyToken(candidate.text).replace(/\s+/g, "").includes(companyToken.slice(0, Math.min(companyToken.length, 14)))) score += 25;
+  if (countryToken && textToken.includes(countryToken)) score += 8;
+  if (/camera|photo|video|imaging|studio|lighting|shop|store|distributor|dealer/i.test([host, candidate.text].join(" "))) score += 8;
+  if (url.pathname && url.pathname !== "/") score -= 4;
+  return Math.max(0, Math.min(100, score));
+}
+
+async function findWebsiteCandidate(companyName, country = "") {
+  const query = [companyName, country, "official website"].filter(Boolean).join(" ");
+  if (!companyName || normalizeCompanyToken(companyName).length < 2) {
+    throw new Error("Missing company name for website discovery.");
+  }
+
+  const searchUrls = [
+    `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+    `https://www.bing.com/search?q=${encodeURIComponent(query)}`
+  ];
+  const scored = [];
+  let lastError = null;
+
+  for (const searchUrl of searchUrls) {
+    try {
+      const html = await fetchUrl(searchUrl);
+      for (const candidate of extractSearchCandidates(html, searchUrl)) {
+        if (!isLikelyOfficialWebsite(candidate.url)) continue;
+        scored.push({
+          ...candidate,
+          confidence: scoreWebsiteCandidate(candidate, companyName, country),
+          source: new URL(searchUrl).hostname.includes("duckduckgo") ? "duckduckgo" : "bing"
+        });
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  const seenHosts = new Set();
+  const unique = scored
+    .sort((a, b) => b.confidence - a.confidence)
+    .filter((candidate) => {
+      const host = new URL(candidate.url).hostname.replace(/^www\./i, "").toLowerCase();
+      if (seenHosts.has(host)) return false;
+      seenHosts.add(host);
+      return true;
+    })
+    .slice(0, 5);
+
+  if (!unique.length) {
+    throw lastError || new Error("No likely official website found.");
+  }
+
+  return {
+    query,
+    best: unique[0],
+    candidates: unique
+  };
+}
+
 async function safeFetchExtraction(targetUrl) {
   const parsed = new URL(targetUrl);
   const priorityFallback = knownFetchFallback(parsed.toString());
   if (priorityFallback) return priorityFallback;
   let directExtraction = null;
+  const attemptedUrls = [];
+  const errors = [];
+  const candidates = buildUrlCandidates(parsed.toString());
+
+  for (const candidate of candidates) {
+    attemptedUrls.push(candidate);
+    try {
+      const html = await fetchUrl(candidate);
+      const extraction = buildExtraction(html, candidate);
+      extraction.requestedUrl = parsed.toString();
+      extraction.attemptedUrls = attemptedUrls;
+      if (!extraction.blocked) return extraction;
+      directExtraction = extraction;
+      errors.push(`${candidate}: ${extraction.blockReason || "Blocked/challenge page"}`);
+    } catch (error) {
+      errors.push(`${candidate}: ${error.message || "Failed to fetch target."}`);
+      directExtraction = directExtraction || {
+        url: candidate,
+        requestedUrl: parsed.toString(),
+        title: "",
+        siteName: "",
+        description: "",
+        body: "",
+        source: "local-fetch",
+        blocked: true,
+        blockReason: error.message || "Failed to fetch target.",
+        attemptedUrls
+      };
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const mirrorExtraction = await fetchWithTextMirrorFallback(candidate);
+      mirrorExtraction.requestedUrl = parsed.toString();
+      mirrorExtraction.attemptedUrls = attemptedUrls;
+      if (!mirrorExtraction.blocked) return mirrorExtraction;
+      directExtraction = directExtraction || mirrorExtraction;
+      errors.push(`${candidate} mirror: ${mirrorExtraction.blockReason || "Blocked/challenge page"}`);
+    } catch (error) {
+      errors.push(`${candidate} mirror: ${error.message || "Mirror fetch failed."}`);
+    }
+  }
 
   try {
-    const html = await fetchUrl(parsed.toString());
-    directExtraction = buildExtraction(html, parsed.toString());
-    if (!directExtraction.blocked) return directExtraction;
+    const searchExtraction = await fetchSearchFallback(parsed.toString());
+    searchExtraction.requestedUrl = parsed.toString();
+    searchExtraction.attemptedUrls = attemptedUrls;
+    return searchExtraction;
   } catch (error) {
-    directExtraction = {
-      url: parsed.toString(),
-      title: "",
-      siteName: "",
-      description: "",
-      body: "",
-      source: "local-fetch",
-      blocked: true,
-      blockReason: error.message || "Failed to fetch target."
-    };
-  }
-
-  try {
-    const mirrorExtraction = await fetchWithTextMirrorFallback(parsed.toString());
-    if (!mirrorExtraction.blocked) return mirrorExtraction;
-    directExtraction = directExtraction || mirrorExtraction;
-  } catch {
-    // fall through to search fallback
-  }
-
-  try {
-    return await fetchSearchFallback(parsed.toString());
-  } catch {
-    if (directExtraction) return directExtraction;
-    throw new Error("Failed to fetch target.");
+    errors.push(`search fallback: ${error.message || "Search fallback failed."}`);
+    if (directExtraction) {
+      directExtraction.blockReason = errors.slice(-6).join(" | ");
+      directExtraction.attemptedUrls = attemptedUrls;
+      return directExtraction;
+    }
+    throw new Error(errors.slice(-6).join(" | ") || "Failed to fetch target.");
   }
 }
 
@@ -898,6 +1071,23 @@ const server = http.createServer(async (req, res) => {
 
   if (requestUrl.pathname === "/health") {
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/find-website") {
+    const company = String(requestUrl.searchParams.get("company") || "").trim();
+    const country = String(requestUrl.searchParams.get("country") || "").trim();
+    if (!company) {
+      sendJson(res, 400, { error: "Missing company parameter." });
+      return;
+    }
+
+    try {
+      const result = await findWebsiteCandidate(company, country);
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendJson(res, 502, { error: error.message || "Failed to discover website." });
+    }
     return;
   }
 

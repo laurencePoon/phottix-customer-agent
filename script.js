@@ -303,11 +303,11 @@
   }
 
   function normalizeUrl(input) {
-    const text = normalizeText(input);
+    const text = normalizeText(input).replace(/[<>"']/g, "").replace(/[),.;\]]+$/g, "");
     if (!text) return "";
     if (/^https?:\/\//i.test(text)) return text;
     if (/^www\./i.test(text)) return `https://${text}`;
-    if (/^[a-z0-9.-]+\.[a-z]{2,}(?:[/?#].*)?$/i.test(text)) return `https://${text}`;
+    if (/^[a-z0-9.-]+\.[a-z]{2,}(?::\d+)?(?:[/?#].*)?$/i.test(text)) return `https://${text}`;
     return "";
   }
 
@@ -602,6 +602,16 @@
     }
   }
 
+  async function findWebsite(companyName, country = "") {
+    const company = normalizeText(companyName);
+    if (!company) return null;
+    try {
+      return await fetchJson(`/api/find-website?company=${encodeURIComponent(company)}&country=${encodeURIComponent(country || "")}`);
+    } catch {
+      return null;
+    }
+  }
+
   function extractUrlsFromText(text) {
     return (String(text || "").match(/https?:\/\/[^\s"'<>]+/gi) || []).map(cleanUrl).filter(Boolean);
   }
@@ -715,12 +725,18 @@
     const blocked = sources.filter((source) => isBlockedExtraction(source.raw || source));
     const failed = sources.filter((source) => source.error);
     const usable = sources.filter((source) => normalizeText([source.title, source.description, source.body].filter(Boolean).join(" ")));
+    const websiteHasText = Boolean(website && normalizeText([website.title, website.description, website.body].filter(Boolean).join(" ")));
+    const websiteFailed = Boolean(website && (website.error || !websiteHasText || isBlockedExtraction(website.raw || website)));
     return {
-      websiteBlocked: Boolean(website && isBlockedExtraction(website.raw || website)),
+      websiteBlocked: websiteFailed,
       blockedCount: blocked.length,
       failedCount: failed.length,
       usableCount: usable.length,
-      message: blocked.length
+      message: websiteFailed && website?.error
+        ? `官网抓取失败：${website.error}`
+        : websiteFailed
+          ? "官网没有抓到足够有效正文，当前结果不代表真实客户价值。"
+          : blocked.length
         ? "部分网页返回 CAPTCHA / Cloudflare / access denied，评分只使用抓到的有效文字。"
         : failed.length
           ? "部分网页抓取失败，评分只使用已抓到的有效文字。"
@@ -1140,6 +1156,9 @@
     if (analysis.fallbackNote) {
       items.push(`<strong>已知客户兜底 / Known Account:</strong> ${escapeHtml(analysis.fallbackNote)}`);
     }
+    if (analysis.discoveredWebsite?.best?.url) {
+      items.push(`<strong>自动官网候选 / Website Candidate:</strong> ${escapeHtml(analysis.discoveredWebsite.best.url)} · confidence ${escapeHtml(String(analysis.discoveredWebsite.best.confidence || 0))}% · source ${escapeHtml(analysis.discoveredWebsite.best.source || "search")}`);
+    }
     if (input.website) {
       if (analysis.websiteMeta.title) items.push(renderEvidenceWithMeaning("Title", analysis.websiteMeta.title, 120));
       if (analysis.websiteMeta.description) items.push(renderEvidenceWithMeaning("Description", analysis.websiteMeta.description, 160));
@@ -1449,11 +1468,22 @@
 
   async function analyzeCurrentForm() {
     const input = getFormValues();
-    const websiteForDisplay = input.website || "";
+    let discoveredWebsite = null;
+    let websiteForDisplay = input.website || "";
     const companyFallback = input.companyName || humanizeDomain(input.website) || "";
     if (!input.companyName && !input.website && !input.businessNotes && !input.sourceNotes) {
       setStatus("Please enter a company name, website, or some evidence text first.", "warn");
       return;
+    }
+
+    if (!websiteForDisplay && input.companyName) {
+      setStatus("Finding official website candidate...", "warn");
+      discoveredWebsite = await findWebsite(input.companyName, input.city);
+      const candidateUrl = normalizeUrl(discoveredWebsite?.best?.url || "");
+      if (candidateUrl) {
+        websiteForDisplay = candidateUrl;
+        DOM.website.value = candidateUrl;
+      }
     }
 
     setStatus("Fetching website and social evidence...", "warn");
@@ -1462,10 +1492,11 @@
     DOM.exportBtn.disabled = true;
     DOM.saveBtn.disabled = true;
 
-    const collected = await collectSources({ ...input, website: websiteForDisplay, companyName: companyFallback });
+    const effectiveInput = { ...input, website: websiteForDisplay, companyName: companyFallback };
+    const collected = await collectSources(effectiveInput);
     setStatus("Analyzing signals...", "warn");
 
-    const evidenceBlocks = evidenceBlocksFromInput(input, collected.sources);
+    const evidenceBlocks = evidenceBlocksFromInput(effectiveInput, collected.sources);
     const categoryScores = CATEGORY_DEFS.map((def) => scoreCategory(def, evidenceBlocks));
     const categoryMap = {};
     for (const item of categoryScores) categoryMap[item.id] = item;
@@ -1487,6 +1518,7 @@
     const endUserProducts = pickProducts(baseCatalog, ["Lighting", "Modifiers", "Flash & Trigger", "Power & Video", "Support & Accessories"], ["creator", "studio", "video", "rgb", "light", "softbox", "mobile", "stream", "content", "photo"], "endUser").map((product) => ({ ...product, reason: buildProductReason(product, { categoryMap }, "endUser") }));
     const analysis = {
       input,
+      discoveredWebsite,
       websiteMeta: collected.sources.find((source) => source.platform === "website") || { title: "", description: "" },
       socialTargets: collected.socialTargets,
       categoryScores,
@@ -1508,11 +1540,11 @@
     };
 
     analysis.keyDecision = buildKeyDecision(analysis);
-    analysis.email = buildEmail(analysis, input);
+    analysis.email = buildEmail(analysis, effectiveInput);
     analysis.reportText = buildReportText(analysis, {
       companyName: input.companyName || companyFallback,
       contactName: input.contactName,
-      website: input.website,
+      website: websiteForDisplay,
       city: input.city,
       instagramUrl: input.instagramUrl || collected.socialTargets.instagram,
       facebookUrl: input.facebookUrl || collected.socialTargets.facebook,
@@ -1521,7 +1553,7 @@
     });
 
     state.currentAnalysis = analysis;
-    renderAnalysis(analysis, input);
+    renderAnalysis(analysis, effectiveInput);
     switchModule("analysis");
     setSaveButtonLabel();
   }
