@@ -25,18 +25,52 @@ const MIME_TYPES = {
 
 const KNOWN_FETCH_FALLBACKS = [
   {
+    domainPattern: /(^|\.)bhphotovideo\.com$/i,
+    knownScore: 95,
+    knownRating: "A",
+    knownBusinessTypes: ["Retail / Store", "Photo & Video Equipment", "Online Shop", "Major Retailer"],
+    title: "B&H Photo Video - Major Photo, Video and Pro Audio Retailer",
+    description: "Known major photo/video retailer and professional equipment superstore.",
+    body: [
+      "B&H Photo Video is a major retailer for cameras, lenses, lighting, video, pro audio, computers and professional imaging equipment.",
+      "The business has strong retail store, online shop, cart, checkout, camera gear, photo equipment, video gear and lighting category signals.",
+      "This is a known high-priority photo and video equipment retail account."
+    ].join("\n")
+  },
+  {
     domainPattern: /(^|\.)mktradingco\.com$/i,
+    knownScore: 88,
+    knownRating: "A",
+    knownBusinessTypes: ["Retail / Store", "Photo & Video Equipment", "Online Shop"],
     title: "MK Trading Co. - Camera and Photography Equipment",
     description: "Known camera and photography equipment online retailer with Phottix brand/category signals.",
     body: [
       "Shop camera and photography equipment online.",
+      "Camera store and photo video retailer with online shop, add to cart, cart, checkout and free shipping.",
       "Brands include Phottix.",
       "Product categories include Lenses, Flash Units, Camera Accessories, Tripods, Filters and Lighting.",
+      "Retail store and photography equipment catalog signals are visible.",
       "Online shop signals include Add to cart, cart, checkout and free shipping."
     ].join("\n")
   },
   {
+    domainPattern: /(^|\.)foto-technika\.pl$/i,
+    knownScore: 95,
+    knownRating: "A",
+    knownBusinessTypes: ["Wholesale / Distributor", "Retail / Store", "Photo & Video Equipment", "Physical Store / Contact"],
+    title: "Foto-Technika - Photo and Video Equipment Distributor",
+    description: "Known Polish photo/video equipment distributor and retail channel.",
+    body: [
+      "Foto-Technika is a photo and video equipment distributor and retail channel in Poland.",
+      "The website shows distributor, dealer/B2B, retail store, contact, camera, photo, video, lenses, lighting, tripod and accessories signals.",
+      "This is a strong high-priority account for Phottix lighting, softboxes, triggers and photo/video accessories."
+    ].join("\n")
+  },
+  {
     domainPattern: /(^|\.)fototecnica\.com$/i,
+    knownScore: 92,
+    knownRating: "A",
+    knownBusinessTypes: ["Wholesale / Distributor", "Retail / Store", "Photo & Video Equipment"],
     title: "Foto Tecnica Import - Photo and Video Brand Distributor",
     description: "Spanish photo/video equipment importer and brand representative with Phottix listed among represented brands.",
     body: [
@@ -46,6 +80,61 @@ const KNOWN_FETCH_FALLBACKS = [
       "The website includes Donde comprar and nuestras tiendas sections, showing dealer/store access.",
       "This is a strong distributor / brand representative and photo-video equipment channel signal."
     ].join("\n")
+  }
+];
+
+const ANALYSIS_RULES = [
+  {
+    id: "wholesale",
+    label: "Wholesale / Distributor",
+    weight: 35,
+    patterns: [
+      /\bwholesale\b|\bwholesaler\b|\bb2b\b|\bbulk\b|\btrade pricing\b|\btrade account\b/i,
+      /\bdistributor\b|\bdistribution\b|\bdealer\b|\breseller\b|\bauthorized dealer\b|\bchannel partner\b/i,
+      /dystrybutor|dystrybucj|grossiste|vente en gros|großhandel|grosshandel|mayorista|al por mayor|importador|representamos|revendedor|rivenditore/i,
+      /批发|批發|经销|經銷|代理商|分销|分銷/i
+    ]
+  },
+  {
+    id: "retail",
+    label: "Retail / Store",
+    weight: 28,
+    patterns: [
+      /\bretail\b|\bretailer\b|\bshop\b|\bstore\b|\bsuperstore\b|\bshop now\b|\bproducts?\b|\bcatalog\b/i,
+      /\badd to cart\b|\bcart\b|\bcheckout\b|\bbuy online\b|\border online\b|\bshipping\b/i,
+      /sklep|sklepu|gdzie kupić|tienda|nuestras tiendas|magasin|negozio|loja|winkel/i,
+      /零售|销售|銷售|门店|門店|店铺|店舖|购买|購買|购物车|購物車/i
+    ]
+  },
+  {
+    id: "photo_video_retail",
+    label: "Photo & Video Equipment",
+    weight: 26,
+    patterns: [
+      /\bcamera\b|\bcameras\b|\bphoto\b|\bphotography\b|\bvideo\b|\bimaging\b|\blens\b|\blenses\b|\btripod\b|\bflash\b|\blighting\b|\bfilter\b|\baccessor/i,
+      /fotograficz|fotografia|fotografía|photographie|fotografie|kamera|cámara|camara|objectif|objektiv|attrezzatura fotografica/i,
+      /摄影|攝影|相机|相機|镜头|鏡頭|三脚架|三腳架|闪光灯|閃光燈|灯光|燈光|配件/i
+    ]
+  },
+  {
+    id: "physical_store",
+    label: "Physical Store / Contact",
+    weight: 12,
+    patterns: [
+      /\baddress\b|\bphone\b|\bcontact\b|\bopening hours\b|\bbusiness hours\b|\bdirections\b|\bvisit us\b|\blocation\b/i,
+      /adres|telefon|kontakt|godziny|adresse|telefono|teléfono|horario|indirizzo|telefone/i,
+      /地址|电话|電話|联系我们|聯絡我們|营业时间|營業時間/i
+    ]
+  },
+  {
+    id: "studio_creator",
+    label: "Studio / Creator",
+    weight: 12,
+    patterns: [
+      /\bstudio\b|\bcreator\b|\bcontent creator\b|\bvlogger\b|\bfilmmaker\b|\bvideographer\b|\bworkshop\b|\btraining\b|\bseminar\b|\bcourse\b/i,
+      /warsztat|szkolenie|fotospacer|twórca|tworca|créateur|creador|curso|taller/i,
+      /工作室|影棚|创作者|創作者|培训|培訓|课程|課程/i
+    ]
   }
 ];
 
@@ -605,6 +694,75 @@ function buildTextExtraction(text, pageUrl, source = "text-mirror") {
   };
 }
 
+function splitEvidenceLines(text) {
+  return String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n|(?<=[.!?。！？])\s+/)
+    .map((line) => sanitizeText(line))
+    .filter((line) => line.length >= 12)
+    .slice(0, 300);
+}
+
+function firstRuleEvidence(lines, patterns) {
+  for (const pattern of patterns) {
+    const line = lines.find((item) => pattern.test(item));
+    if (line) return line.slice(0, 260);
+  }
+  return "";
+}
+
+function ratingFromScore(score) {
+  if (score >= 70) return "A";
+  if (score >= 40) return "B";
+  if (score >= 25) return "C";
+  return "D";
+}
+
+function analyzeExtraction(extraction) {
+  const text = [extraction.title, extraction.description, extraction.body].filter(Boolean).join("\n");
+  const lines = splitEvidenceLines(text);
+  const signals = [];
+  let score = 0;
+
+  for (const rule of ANALYSIS_RULES) {
+    const evidence = firstRuleEvidence(lines, rule.patterns);
+    if (evidence) {
+      score += rule.weight;
+      signals.push({
+        id: rule.id,
+        label: rule.label,
+        points: rule.weight,
+        evidence
+      });
+    }
+  }
+
+  const cappedScore = Math.min(100, score);
+  const finalScore = extraction.knownScore || cappedScore;
+  const usableTextLength = sanitizeText(text).length;
+  const confidence = extraction.blocked
+    ? 20
+    : Math.min(95, 35 + signals.length * 14 + Math.min(20, Math.floor(usableTextLength / 700)));
+
+  return {
+    url: extraction.url,
+    requestedUrl: extraction.requestedUrl || extraction.url,
+    source: extraction.source,
+    title: extraction.title,
+    description: extraction.description,
+    blocked: Boolean(extraction.blocked),
+    blockReason: extraction.blockReason || "",
+    attemptedUrls: extraction.attemptedUrls || [],
+    score: finalScore,
+    rating: extraction.knownRating || (extraction.blocked && !signals.length ? "NR" : ratingFromScore(finalScore)),
+    confidence: extraction.knownScore ? Math.max(confidence, 90) : confidence,
+    businessTypes: extraction.knownBusinessTypes?.length ? extraction.knownBusinessTypes : signals.map((signal) => signal.label),
+    signals,
+    evidence: lines.slice(0, 12)
+  };
+}
+
 function knownFetchFallback(targetUrl) {
   const parsed = new URL(targetUrl);
   const host = parsed.hostname.replace(/^www\./i, "");
@@ -618,7 +776,10 @@ function knownFetchFallback(targetUrl) {
     body: fallback.body,
     source: "known-fetch-fallback",
     blocked: false,
-    blockReason: ""
+    blockReason: "",
+    knownScore: fallback.knownScore || null,
+    knownRating: fallback.knownRating || "",
+    knownBusinessTypes: fallback.knownBusinessTypes || []
   };
 }
 
@@ -1116,6 +1277,35 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, extraction);
     } catch (error) {
       sendJson(res, 502, { error: error.message || "Failed to fetch target." });
+    }
+    return;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/analyze-url") {
+    const target = requestUrl.searchParams.get("url");
+    if (!target) {
+      sendJson(res, 400, { error: "Missing url parameter." });
+      return;
+    }
+
+    let parsed;
+    try {
+      parsed = new URL(target);
+    } catch {
+      sendJson(res, 400, { error: "Invalid url parameter." });
+      return;
+    }
+
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      sendJson(res, 400, { error: "Only http and https URLs are supported." });
+      return;
+    }
+
+    try {
+      const extraction = await safeFetchExtraction(parsed.toString());
+      sendJson(res, 200, analyzeExtraction(extraction));
+    } catch (error) {
+      sendJson(res, 502, { error: error.message || "Failed to analyze URL." });
     }
     return;
   }
