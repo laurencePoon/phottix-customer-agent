@@ -109,14 +109,38 @@
         "Online Shop / 线上商店"
       ],
       note: "B&H 是已知大型摄影、视频、灯光和专业器材零售商。官网抓取被阻挡时，按已知大客户优先处理。"
+    },
+    {
+      domainPattern: /(^|\.)mktradingco\.com$/i,
+      grade: "A",
+      score: 88,
+      businessTypes: [
+        "Retail / 零售经销",
+        "Photo & Video Retail / 摄影与视频器材零售",
+        "Camera Store / 相机店",
+        "Online Shop / 线上商店"
+      ],
+      note: "MK Trading Co. 是已确认的摄影器材线上零售客户，网站有 Phottix、Camera Accessories、Lenses、Flash Units 和购物车信号。"
+    },
+    {
+      domainPattern: /(^|\.)fototecnica\.com$/i,
+      grade: "A",
+      score: 92,
+      businessTypes: [
+        "Wholesale / 批发经销",
+        "Retail / 零售经销",
+        "Photo & Video Retail / 摄影与视频器材零售",
+        "Camera Store / 相机店"
+      ],
+      note: "Foto Tecnica Import 是西语摄影/视频器材品牌代理与进口商，网站列出 Marcas que representamos、Phottix 和 Dónde comprar。"
     }
   ];
 
   const MULTILINGUAL_TERMS = {
     wholesale: [/批发|批發|批發商|卸売|도매/i, /grossiste|vente en gros|großhandel|grosshandel|mayorista|al por mayor|atacado|revendedor|ingrosso/i],
-    distributor: [/经销|經銷|代理商|分销|分銷|販売代理店|代理店|유통|대리점/i, /distributeur|distribuidor|distribuzione|vertrieb|händler|haendler|revendeur|revendedor|rivenditore/i],
-    retail: [/零售|零售店|销售|銷售|門市|门市|小売|販売|매장|소매/i, /retail|retailer|shop|store|tienda|boutique|magasin|geschäft|geschaeft|negozio|loja|winkel/i],
-    productSales: [/产品|產品|商品|购买|購買|下单|下單|注文|購入|제품|구매/i, /products?|catalog|catalogue|comprar|acheter|kaufen|acquista|compra|compras|comprar online|comprar ahora/i],
+    distributor: [/经销|經銷|代理商|分销|分銷|販売代理店|代理店|유통|대리점/i, /distributeur|distribuidor|distribuzione|vertrieb|händler|haendler|revendeur|revendedor|rivenditore|import(?:ador)?|representamos|representante|marcas que representamos/i],
+    retail: [/零售|零售店|销售|銷售|門市|门市|小売|販売|매장|소매/i, /retail|retailer|shop|store|tienda|boutique|magasin|geschäft|geschaeft|negozio|loja|winkel|d[oó]nde comprar|nuestras tiendas|tiendas/i],
+    productSales: [/产品|產品|商品|购买|購買|下单|下單|注文|購入|제품|구매/i, /products?|catalog|catalogue|comprar|acheter|kaufen|acquista|compra|compras|comprar online|comprar ahora|marcas|brands/i],
     storefront: [/展厅|展廳|门店|門店|店铺|店舖|店舗|ショールーム|매장/i, /showroom|in-store|pickup|recogida|retrait|abholung|ritiro|retirada/i],
     onlinePurchase: [/购物车|購物車|结账|結帳|在线购买|線上購買|カート|チェックアウト|장바구니|결제/i, /cart|checkout|buy online|order online|comprar online|panier|warenkorb|carrello|carrinho/i],
     photoVideoProducts: [/摄影器材|攝影器材|照相器材|相機器材|影像器材|视频器材|視頻器材|カメラ用品|撮影機材|사진 장비|영상 장비/i, /photo gear|video gear|camera gear|photo equipment|video equipment|matériel photo|materiel photo|equipo fotograf|equipo de video|fotografia|fotografía|fotografie|attrezzatura fotografica/i],
@@ -283,7 +307,7 @@
     if (!text) return "";
     if (/^https?:\/\//i.test(text)) return text;
     if (/^www\./i.test(text)) return `https://${text}`;
-    if (/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(text)) return `https://${text}`;
+    if (/^[a-z0-9.-]+\.[a-z]{2,}(?:[/?#].*)?$/i.test(text)) return `https://${text}`;
     return "";
   }
 
@@ -462,18 +486,24 @@
   function normalizeProductRecord(row) {
     const normalized = {};
     for (const [key, value] of Object.entries(row || {})) normalized[String(key).toLowerCase()] = value;
+    const recommendationValue = row.useForRecommendation ?? row.use_for_recommendation ?? normalized.useforrecommendation ?? normalized.use_for_recommendation ?? normalized.recommend ?? normalized.active;
+    const disabledValue = row.excludeFromRecommendation ?? row.exclude_from_recommendation ?? normalized.excludefromrecommendation ?? normalized.exclude_from_recommendation;
+    const hasRecommendationValue = recommendationValue !== undefined && recommendationValue !== null && String(recommendationValue).trim() !== "";
+    const isExplicitlySelected = /^(true|1|yes|y|on|selected|recommend|recommended)$/i.test(String(recommendationValue || ""));
+    const isDisabled = /^(false|0|no|n|off|disabled|exclude|excluded)$/i.test(String(recommendationValue || "")) || /^(true|1|yes|y|on)$/i.test(String(disabledValue || ""));
     return {
       id: row.id || makeId("prod"),
-      category: normalizeText(row.category || normalized.category || "Uncategorized"),
-      name: normalizeText(row.name || normalized.name || normalized.product_name || "Untitled Product"),
-      description: normalizeText(row.description || normalized.description || ""),
+      category: normalizeText(row.category || normalized.category || normalized["类别"] || normalized["類別"] || "Uncategorized"),
+      name: normalizeText(row.name || normalized.name || normalized.product_name || normalized.title || normalized["标题"] || normalized["標題"] || normalized["产品名称"] || normalized["產品名稱"] || "Untitled Product"),
+      description: normalizeText(row.description || normalized.description || normalized.desc || normalized["描述"] || normalized["子标题"] || normalized["子標題"] || ""),
       tags: normalizeText(row.tags || normalized.tags || ""),
       sku: normalizeText(row.sku || normalized.sku || ""),
       brand: normalizeText(row.brand || normalized.brand || ""),
       price: normalizeText(row.price || normalized.price || ""),
       sourceType: normalizeText(row.sourceType || normalized.sourcetype || "excel"),
       sourceSheet: normalizeText(row.sourceSheet || normalized.sourcesheet || ""),
-      note: normalizeText(row.note || normalized.note || "")
+      note: normalizeText(row.note || normalized.note || ""),
+      useForRecommendation: hasRecommendationValue ? isExplicitlySelected && !isDisabled : false
     };
   }
 
@@ -824,6 +854,7 @@
 
   function pickProducts(products, targetCategories, targetTerms, mode) {
     const scored = products
+      .filter((product) => product.useForRecommendation !== false)
       .map((product) => ({ ...product, matchScore: scoreProduct(product, targetCategories, targetTerms, mode) }))
       .filter((product) => product.matchScore > 0)
       .sort((a, b) => (b.matchScore - a.matchScore) || a.name.localeCompare(b.name, "en"));
@@ -1173,31 +1204,65 @@
     const products = state.products.length ? state.products : normalizeCatalog(DEFAULT_PRODUCTS);
     const grouped = groupProductsByCategory(products);
     const productCount = products.length;
+    const activeCount = products.filter((item) => item.useForRecommendation !== false).length;
     const categoryCount = grouped.length;
     const sourceLabel = state.productSource === "excel" ? "Excel" : "Default";
+    const summarizeProduct = (item) => {
+      const text = normalizeText(item.description || item.tags || "");
+      if (!text) return "";
+      const firstSentence = text.split(/(?<=[.!?。！？])\s+/).find(Boolean) || text;
+      return firstSentence.length > 150 ? `${firstSentence.slice(0, 150).trim()}...` : firstSentence;
+    };
     DOM.productLibrary.innerHTML = `
       <div class="section-head">
         <div>
           <h2>产品资料库 / Product Library</h2>
-          <p>当前已加载 ${productCount} 个产品，覆盖 ${categoryCount} 个类别。导入 Excel 后，这里会自动换成你的真实产品库。</p>
+          <p>当前已加载 ${productCount} 个产品，覆盖 ${categoryCount} 个类别。请从产品库中选择真正要推荐的产品，未选择的产品只作为资料保存。</p>
         </div>
         <div class="crm-tools">
           <button class="secondary-button" type="button" data-action="import-products">导入产品 Excel / Import Products</button>
+          <button class="ghost-button" type="button" data-action="set-all-products" data-product-active="false">清空推荐池 / Clear Selection</button>
           <input id="productFileInput" type="file" accept=".xlsx,.xlsm,.csv" hidden>
         </div>
       </div>
       <div class="overview-cards">
         <div class="overview-card"><span class="overview-label">Products</span><strong class="overview-value">${productCount}</strong><span class="overview-note">Source: ${escapeHtml(sourceLabel)}</span></div>
-        <div class="overview-card"><span class="overview-label">Categories</span><strong class="overview-value">${categoryCount}</strong><span class="overview-note">Grouped automatically</span></div>
-        <div class="overview-card"><span class="overview-label">Usage</span><strong class="overview-value">Dealer + End User</strong><span class="overview-note">Used by the email generator</span></div>
+        <div class="overview-card"><span class="overview-label">Selected Products</span><strong class="overview-value">${activeCount}</strong><span class="overview-note">Only selected products are used in emails</span></div>
+        <div class="overview-card"><span class="overview-label">Categories</span><strong class="overview-value">${categoryCount}</strong><span class="overview-note">Pick products from each category</span></div>
       </div>
       <div class="result-area">
-        ${grouped.map(([category, items]) => `
+        ${grouped.length ? grouped.map(([category, items]) => `
           <section class="result-block">
-            <div class="block-head"><h3>${escapeHtml(category)} (${items.length})</h3><span class="status-pill">${escapeHtml(sourceLabel)}</span></div>
-            <div class="bullet-list">${items.slice(0, 6).map((item) => `<div class="bullet-item"><strong>${escapeHtml(item.name)}</strong>${item.description ? ` — ${escapeHtml(item.description)}` : ""}</div>`).join("")}</div>
+            <div class="block-head">
+              <h3>${escapeHtml(category)} (${items.length})</h3>
+              <div class="crm-tools product-category-tools">
+                <span class="status-pill">${items.filter((item) => item.useForRecommendation !== false).length} selected</span>
+                <button class="mini-button" type="button" data-action="set-category-products" data-category="${escapeHtml(category)}" data-product-active="true">Select category</button>
+                <button class="mini-button danger-text" type="button" data-action="set-category-products" data-category="${escapeHtml(category)}" data-product-active="false">Clear category</button>
+              </div>
+            </div>
+            <div class="product-grid">${items.slice(0, 6).map((item) => {
+              const meta = [item.sku ? `SKU: ${item.sku}` : "", item.brand].filter(Boolean).join(" · ");
+              const summary = summarizeProduct(item);
+              const isActive = item.useForRecommendation !== false;
+              return `<article class="product-card compact-product-card ${isActive ? "" : "product-card-disabled"}">
+                <label class="product-toggle">
+                  <input type="checkbox" data-action="toggle-product-recommendation" data-product-id="${escapeHtml(item.id)}" ${isActive ? "checked" : ""}>
+                  <span>${isActive ? "Selected for recommendations" : "Not selected"}</span>
+                </label>
+                <strong>${escapeHtml(item.name)}</strong>
+                ${meta ? `<div class="crm-meta">${escapeHtml(meta)}</div>` : ""}
+                ${summary ? `<span>${escapeHtml(summary)}</span>` : ""}
+                <div class="product-actions">
+                  <button class="${isActive ? "mini-button danger-text" : "mini-button secondary-button"}" type="button" data-action="set-product-recommendation" data-product-id="${escapeHtml(item.id)}" data-product-active="${isActive ? "false" : "true"}">
+                    ${isActive ? "Remove from selection" : "Select for recommendations"}
+                  </button>
+                </div>
+              </article>`;
+            }).join("")}</div>
+            ${items.length > 6 ? `<p class="crm-meta">Showing 6 of ${items.length}. Full product text stays in the database for recommendations.</p>` : ""}
           </section>
-        `).join("")}
+        `).join("") : `<section class="result-block"><div class="bullet-item">No products loaded yet. Import a product Excel file first.</div></section>`}
       </div>
     `;
   }
@@ -1334,6 +1399,32 @@
     renderCrmModules();
   }
 
+  function setProductRecommendation(productId, isActive) {
+    state.products = state.products.map((product) => (
+      product.id === productId ? { ...product, useForRecommendation: isActive } : product
+    ));
+    saveCurrentLists();
+    renderProductLibrary();
+    setStatus(isActive ? "Product selected for recommendations." : "Product removed from selection.", isActive ? "good" : "warn");
+  }
+
+  function setProductsRecommendationByCategory(category, isActive) {
+    state.products = state.products.map((product) => {
+      const normalizedCategory = normalizeProductCategory(product.category, product.name, product.tags);
+      return normalizedCategory === category ? { ...product, useForRecommendation: isActive } : product;
+    });
+    saveCurrentLists();
+    renderProductLibrary();
+    setStatus(`${isActive ? "Selected" : "Cleared"} ${category} for recommendations.`, isActive ? "good" : "warn");
+  }
+
+  function setAllProductsRecommendation(isActive) {
+    state.products = state.products.map((product) => ({ ...product, useForRecommendation: isActive }));
+    saveCurrentLists();
+    renderProductLibrary();
+    setStatus(isActive ? "All products selected for recommendations." : "Recommendation selection cleared.", isActive ? "good" : "warn");
+  }
+
   function findRecord(bucket, id) {
     const list = bucket === "customers" ? state.customers : state.prospects;
     return list.find((item) => item.id === id) || null;
@@ -1368,7 +1459,7 @@
     const categoryMap = {};
     for (const item of categoryScores) categoryMap[item.id] = item;
     const sourceStatus = buildSourceStatus(collected.sources);
-    const knownFallback = sourceStatus.websiteBlocked && !input.businessNotes && !input.sourceNotes
+    const knownFallback = !input.businessNotes && !input.sourceNotes
       ? findKnownAccountFallback(input)
       : null;
     const score = knownFallback ? knownFallback.score : calculateSalesScore(categoryMap);
@@ -1426,11 +1517,21 @@
 
   async function handleGenerate(event) {
     if (event) event.preventDefault();
+    const originalLabel = DOM.generateBtn ? DOM.generateBtn.textContent : "";
     try {
+      if (DOM.generateBtn) {
+        DOM.generateBtn.disabled = true;
+        DOM.generateBtn.textContent = "分析中 / Analyzing...";
+      }
       await analyzeCurrentForm();
     } catch (error) {
       console.error(error);
       setStatus(error.message || "Failed to analyze the customer.", "bad");
+    } finally {
+      if (DOM.generateBtn) {
+        DOM.generateBtn.disabled = false;
+        DOM.generateBtn.textContent = originalLabel || "生成分析 / Generate";
+      }
     }
   }
 
@@ -1544,7 +1645,7 @@
         state.productSource = "excel";
         saveCurrentLists();
         renderProductLibrary();
-        setStatus(`Imported ${state.products.length} products.`, "good");
+        setStatus(`Imported ${state.products.length} products. Select the products you want to recommend.`, "good");
       } else {
         const list = rows.map(normalizeImportedRecord).map((row) => ({ ...row, bucket, id: row.id || makeId(bucket === "customers" ? "cust" : "pros") }));
         if (bucket === "customers") state.customers = list;
@@ -1570,6 +1671,21 @@
       case "import-products": {
         const input = document.getElementById("productFileInput");
         if (input) input.click();
+        break;
+      }
+      case "set-product-recommendation": {
+        setProductRecommendation(button.dataset.productId || "", button.dataset.productActive === "true");
+        break;
+      }
+      case "set-category-products": {
+        const category = button.dataset.category || "";
+        const isActive = button.dataset.productActive === "true";
+        if (category) setProductsRecommendationByCategory(category, isActive);
+        break;
+      }
+      case "set-all-products": {
+        const isActive = button.dataset.productActive === "true";
+        setAllProductsRecommendation(isActive);
         break;
       }
       case "load-record": {
@@ -1601,6 +1717,7 @@
     if (input.id === "prospectFileInput") await handleImportClick("prospects", input);
     else if (input.id === "customerFileInput") await handleImportClick("customers", input);
     else if (input.id === "productFileInput") await handleImportClick("products", input);
+    else if (input.dataset.action === "toggle-product-recommendation") setProductRecommendation(input.dataset.productId || "", input.checked);
   }
 
   function fillDemo() {

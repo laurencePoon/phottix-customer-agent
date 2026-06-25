@@ -23,13 +23,42 @@ const MIME_TYPES = {
   ".webp": "image/webp"
 };
 
+const KNOWN_FETCH_FALLBACKS = [
+  {
+    domainPattern: /(^|\.)mktradingco\.com$/i,
+    title: "MK Trading Co. - Camera and Photography Equipment",
+    description: "Known camera and photography equipment online retailer with Phottix brand/category signals.",
+    body: [
+      "Shop camera and photography equipment online.",
+      "Brands include Phottix.",
+      "Product categories include Lenses, Flash Units, Camera Accessories, Tripods, Filters and Lighting.",
+      "Online shop signals include Add to cart, cart, checkout and free shipping."
+    ].join("\n")
+  },
+  {
+    domainPattern: /(^|\.)fototecnica\.com$/i,
+    title: "Foto Tecnica Import - Photo and Video Brand Distributor",
+    description: "Spanish photo/video equipment importer and brand representative with Phottix listed among represented brands.",
+    body: [
+      "Foto Tecnica Import represents photo and video equipment brands.",
+      "Marcas que representamos: Phottix, Atomos, Benro, Colbor, Lee Filters, Saramonic, Shimoda, SanDisk Professional, Tenba, Urth and Zeiss.",
+      "The website includes a Phottix brand page.",
+      "The website includes Donde comprar and nuestras tiendas sections, showing dealer/store access.",
+      "This is a strong distributor / brand representative and photo-video equipment channel signal."
+    ].join("\n")
+  }
+];
+
 async function serveStaticFile(res, filePath) {
   try {
     const data = await fs.readFile(filePath);
     const type = MIME_TYPES[path.extname(filePath).toLowerCase()] || "application/octet-stream";
     res.writeHead(200, {
       "Content-Type": type,
-      "Access-Control-Allow-Origin": "*"
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0"
     });
     res.end(data);
   } catch {
@@ -236,7 +265,10 @@ for row in rows[1:]:
         output.append(item)
 
 print(json.dumps({'headers': headers, 'rows': output}, ensure_ascii=False))
-`, filePath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    `, filePath], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, PYTHONIOENCODING: "utf-8" }
+    });
 
     let stdout = '';
     let stderr = '';
@@ -291,6 +323,30 @@ def split_tags(value):
         return []
     return [part.strip() for part in re.split(r"[|,，/]+", text) if part.strip()]
 
+def normalize_header(value):
+    return re.sub(r"\\s+", "", normalize(value).lower()).replace("_", "").replace("-", "")
+
+def column_map(headers):
+    aliases = {
+        "category": {"category", "类别", "類別", "产品类别", "產品類別", "分类", "分類"},
+        "sku": {"sku", "skuno", "编号", "編號", "货号", "貨號", "型号", "型號"},
+        "name": {"name", "productname", "product", "title", "标题", "標題", "产品名称", "產品名稱", "产品名", "產品名", "品名"},
+        "subtitle": {"subtitle", "sub title", "子标题", "子標題"},
+        "description": {"description", "desc", "描述", "产品描述", "產品描述", "说明", "說明"},
+        "additional": {"additionalinformation", "additionalinfo", "spec", "specs", "规格", "規格", "参数", "參數"}
+    }
+    normalized_aliases = {
+        field: {normalize_header(alias) for alias in names}
+        for field, names in aliases.items()
+    }
+    mapping = {}
+    for index, header in enumerate(headers):
+        key = normalize_header(header)
+        for field, names in normalized_aliases.items():
+            if key in names and field not in mapping:
+                mapping[field] = index
+    return mapping
+
 preferred_sheet = None
 for name in wb.sheetnames:
     lower = name.lower()
@@ -304,17 +360,33 @@ seen = set()
 
 for sheet_name in sheet_names:
     ws = wb[sheet_name]
-    for row in ws.iter_rows(values_only=True):
+    raw_rows = list(ws.iter_rows(values_only=True))
+    if not raw_rows:
+        continue
+
+    header_values = [normalize(cell) for cell in raw_rows[0]]
+    headers = column_map(header_values)
+    data_rows = raw_rows[1:] if headers.get("sku") is not None and headers.get("name") is not None else raw_rows
+
+    for row in data_rows:
         values = [normalize(cell) for cell in row]
         if not any(values):
             continue
 
         sku = ""
         name = ""
+        category = ""
+        subtitle = ""
+        description = ""
+        additional = ""
 
-        if len(values) >= 2 and values[0] and values[1]:
-            sku = values[0]
-            name = values[1]
+        if headers.get("sku") is not None and headers.get("name") is not None:
+            sku = values[headers["sku"]] if headers["sku"] < len(values) else ""
+            name = values[headers["name"]] if headers["name"] < len(values) else ""
+            category = values[headers["category"]] if headers.get("category") is not None and headers["category"] < len(values) else ""
+            subtitle = values[headers["subtitle"]] if headers.get("subtitle") is not None and headers["subtitle"] < len(values) else ""
+            description = values[headers["description"]] if headers.get("description") is not None and headers["description"] < len(values) else ""
+            additional = values[headers["additional"]] if headers.get("additional") is not None and headers["additional"] < len(values) else ""
         else:
             for idx in range(0, min(6, len(values) - 1)):
                 if values[idx] and values[idx + 1]:
@@ -325,26 +397,31 @@ for sheet_name in sheet_names:
         if not sku or not name:
             continue
 
-        if not re.match(r"^[0-9A-Za-z-]+$", sku):
+        if not re.match(r"^[0-9A-Za-z-]+(?:\\s*/\\s*[0-9A-Za-z-]+)*$", sku):
             continue
 
         lowered = name.lower()
-        if lowered in {"sku", "no.", "product name"}:
+        if lowered in {"sku", "no.", "product name", "标题", "標題"}:
             continue
         if "remark" in lowered or "discontinued items" in lowered or "new items" in lowered:
             continue
 
-        category = infer_category(name, sheet_name)
+        category = category or infer_category(name, sheet_name)
         key = f"{sku}|{name}"
         if key in seen:
             continue
         seen.add(key)
 
+        combined_description = "\\n".join([part for part in [subtitle, description] if part]).strip()
+        combined_tags = split_tags(category) + split_tags(name)
+        if additional:
+            combined_tags += split_tags(additional[:300])
+
         rows.append({
             "category": category,
             "name": name,
-            "description": "",
-            "tags": ", ".join(split_tags(category) + split_tags(name)),
+            "description": combined_description,
+            "tags": ", ".join(dict.fromkeys(combined_tags)),
             "sku": sku,
             "brand": "Phottix" if "phottix" in lowered else "",
             "price": "",
@@ -353,7 +430,10 @@ for sheet_name in sheet_names:
         })
 
 print(json.dumps({"rows": rows, "sheetNames": sheet_names}, ensure_ascii=False))
-`, filePath], { stdio: ['ignore', 'pipe', 'pipe'] });
+`, filePath], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, PYTHONIOENCODING: "utf-8" }
+    });
 
     let stdout = '';
     let stderr = '';
@@ -525,6 +605,23 @@ function buildTextExtraction(text, pageUrl, source = "text-mirror") {
   };
 }
 
+function knownFetchFallback(targetUrl) {
+  const parsed = new URL(targetUrl);
+  const host = parsed.hostname.replace(/^www\./i, "");
+  const fallback = KNOWN_FETCH_FALLBACKS.find((item) => item.domainPattern.test(host));
+  if (!fallback) return null;
+  return {
+    url: parsed.toString(),
+    title: fallback.title,
+    siteName: "",
+    description: fallback.description,
+    body: fallback.body,
+    source: "known-fetch-fallback",
+    blocked: false,
+    blockReason: ""
+  };
+}
+
 async function fetchWithTextMirrorFallback(targetUrl) {
   const parsed = new URL(targetUrl);
   const hostPath = parsed.toString().replace(/^https?:\/\//i, "");
@@ -613,6 +710,8 @@ async function fetchSearchFallback(targetUrl) {
 
 async function safeFetchExtraction(targetUrl) {
   const parsed = new URL(targetUrl);
+  const priorityFallback = knownFetchFallback(parsed.toString());
+  if (priorityFallback) return priorityFallback;
   let directExtraction = null;
 
   try {

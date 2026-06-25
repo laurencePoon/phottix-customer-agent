@@ -371,6 +371,50 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   line-height: 1.6;
 }
 
+.compact-product-card {
+  display: grid;
+  gap: 5px;
+}
+
+.compact-product-card strong {
+  margin-bottom: 0;
+}
+
+.compact-product-card span {
+  display: block;
+  max-width: 92ch;
+}
+
+.product-card-disabled {
+  opacity: 0.56;
+  border-style: dashed;
+}
+
+.product-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.product-toggle input {
+  width: auto;
+  accent-color: var(--accent);
+}
+
+.product-category-tools {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.product-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 .email-preview {
   margin: 0;
   padding: 16px;
