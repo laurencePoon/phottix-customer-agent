@@ -998,11 +998,21 @@
     return `Phottix works with photo and video partners on products such as ${dedupeLines(productAreas).slice(0, 3).join(", ")}.`;
   }
 
+  function buildEmailProductLine(analysis) {
+    const products = dedupeLines([
+      ...analysis.dealerProducts.map((product) => product.name),
+      ...analysis.endUserProducts.map((product) => product.name)
+    ]).slice(0, 3);
+    if (!products.length) return "";
+    return `A few Phottix products that may be relevant for your store include: ${products.join(", ")}.`;
+  }
+
   function buildEmail(analysis, input) {
     const contact = input.contactName || "there";
     const company = input.companyName || humanizeDomain(input.website) || "your team";
     const leadSentence = buildLeadSentence(analysis);
     const fitLine = buildSoftFitLine(analysis);
+    const productLine = buildEmailProductLine(analysis);
     const subject = buildEmailSubject(analysis, input);
     const body = [
       `Hi ${contact},`,
@@ -1013,6 +1023,7 @@
       "",
       fitLine,
       "",
+      ...(productLine ? [productLine, ""] : []),
       "No pressure at all, but would it be alright if I sent over a short product overview for the right person on your team?",
       "",
       "If there is a better contact for new brand or product line discussions, I would also appreciate being pointed in the right direction.",
