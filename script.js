@@ -826,6 +826,10 @@
   }
 
   function calculateSalesScore(categoryMap) {
+    return calculateSalesScoreDetails(categoryMap).score;
+  }
+
+  function calculateSalesScoreDetails(categoryMap) {
     const wholesale = categoryMap.wholesale?.score || 0;
     const retail = categoryMap.retail?.score || 0;
     const photoVideo = categoryMap.photoVideoRetail?.score || 0;
@@ -841,7 +845,58 @@
     const salesAccess = Math.min(25, online + physical);
     const serviceDepth = Math.min(15, studio + services + education);
     const creatorDepth = Math.min(5, creator);
-    return Math.min(100, channelCore + salesAccess + serviceDepth + creatorDepth);
+    const score = Math.min(100, channelCore + salesAccess + serviceDepth + creatorDepth);
+    return {
+      score,
+      components: [
+        { label: "Core channel fit", points: channelCore, cap: 55, detail: "Wholesale + retail + photo/video + camera-store signals" },
+        { label: "Sales access", points: salesAccess, cap: 25, detail: "Online shop + physical store/contact signals" },
+        { label: "Service depth", points: serviceDepth, cap: 15, detail: "Studio + services + education signals" },
+        { label: "Creator depth", points: creatorDepth, cap: 5, detail: "Creator/social-content signals" }
+      ],
+      categoryTotals: [
+        { label: "Wholesale", points: wholesale },
+        { label: "Retail", points: retail },
+        { label: "Photo & Video Retail", points: photoVideo },
+        { label: "Camera Store", points: cameraStore },
+        { label: "Online Shop", points: online },
+        { label: "Physical Store", points: physical },
+        { label: "Studio", points: studio },
+        { label: "Services", points: services },
+        { label: "Events & Education", points: education },
+        { label: "Creator", points: creator }
+      ].filter((item) => item.points > 0)
+    };
+  }
+
+  function buildScoreDetails({ localScoreDetails, websiteAnalysis, websiteScore, localScore, finalScore, ratingBand, sourceStatus }) {
+    const websiteSource = websiteAnalysis?.source || "";
+    const websiteConfidence = Number(websiteAnalysis?.confidence || 0) || 0;
+    const source = ratingBand.grade === "NR"
+      ? "Not rated"
+      : websiteAnalysis?.rating && websiteScore >= localScore
+        ? websiteSource === "known-fetch-fallback" ? "Known account fallback" : "Website analysis API"
+        : "Local evidence scoring";
+    const summary = ratingBand.grade === "NR"
+      ? "No reliable score is shown because the website could not be read and no usable evidence was available."
+      : `Final rating ${ratingBand.grade} uses ${source}. Final score ${finalScore}; local evidence score ${localScore}; website score ${websiteScore || 0}.`;
+    const reportLines = [
+      summary,
+      `Rating thresholds: A 70+, B 40-69, C 25-39, D below 25, NR means not enough reliable evidence.`,
+      websiteAnalysis
+        ? `Website analysis: ${websiteAnalysis.rating || "NR"} / ${websiteScore || 0}, source ${websiteSource || "backend"}, confidence ${websiteConfidence}%.`
+        : "Website analysis: not available.",
+      `Local evidence score: ${localScore}.`,
+      sourceStatus?.websiteBlocked ? "Fetch warning: website text was blocked or insufficient, so the result should be treated as evidence-limited." : "Fetch status: usable evidence was available."
+    ];
+    return {
+      source,
+      summary,
+      thresholds: "A 70+, B 40-69, C 25-39, D <25, NR = not enough reliable evidence",
+      components: localScoreDetails.components,
+      categoryTotals: localScoreDetails.categoryTotals,
+      reportLines
+    };
   }
 
   function normalizeProductCategory(category, name = "", tags = "") {
@@ -1082,6 +1137,11 @@
     lines.push(`Rating: ${analysis.grade} / ${analysis.score}`);
     lines.push(`Key decision: ${analysis.keyDecision}`);
     lines.push(`Focus: ${analysis.focus}`);
+    if (analysis.scoreDetails?.reportLines?.length) {
+      lines.push("");
+      lines.push("Scoring explanation:");
+      for (const line of analysis.scoreDetails.reportLines) lines.push(`- ${line}`);
+    }
     lines.push("");
     lines.push("Matched signals:");
     for (const signal of analysis.topSignals.slice(0, 6)) lines.push(`- ${signal.categoryLabel} / ${signal.label} +${signal.points}: ${signal.evidence}`);
@@ -1118,6 +1178,7 @@
       business_types: analysis.businessTypes.join(" | "),
       rating: analysis.grade,
       score: analysis.score,
+      score_explanation: analysis.scoreDetails?.reportLines?.join(" | ") || "",
       rating_focus: analysis.focus,
       key_decision: analysis.keyDecision,
       matched_signals: analysis.topSignals.map((signal) => `${signal.categoryLabel}: ${signal.label} +${signal.points}`).join(" | "),
@@ -1191,6 +1252,22 @@
     DOM.scopeList.innerHTML = items.map((item) => `<div class="bullet-item">${item}</div>`).join("");
   }
 
+  function renderScoreExplanation(analysis) {
+    const details = analysis?.scoreDetails;
+    if (!details) return "";
+    const components = details.components
+      .map((item) => `<div class="bullet-item"><strong>${escapeHtml(item.label)}:</strong> +${escapeHtml(String(item.points))} / ${escapeHtml(String(item.cap))}<br><span class="crm-meta">${escapeHtml(item.detail)}</span></div>`)
+      .join("");
+    return `
+      <section class="result-subgroup">
+        <h4>Why this rating</h4>
+        <div class="bullet-item"><strong>${escapeHtml(analysis.grade)} / ${escapeHtml(String(analysis.score))}</strong> ${escapeHtml(details.summary)}</div>
+        <div class="bullet-item"><strong>Thresholds:</strong> ${escapeHtml(details.thresholds)}</div>
+        ${components}
+      </section>
+    `;
+  }
+
   function renderRatingList(categoryScores, analysis) {
     if (analysis?.fallbackNote && !categoryScores.some((item) => item.score > 0)) {
       DOM.ratingList.innerHTML = `<div class="bullet-item"><strong>已知客户兜底 / Known Account</strong><br><span class="crm-meta">${escapeHtml(analysis.fallbackNote)}</span></div>`;
@@ -1239,6 +1316,8 @@
     renderJudgingStandardList();
     renderScopeList(analysis.scopeLines, input, analysis);
     renderRatingList(analysis.categoryScores, analysis);
+    const scoreExplanation = renderScoreExplanation(analysis);
+    if (scoreExplanation) DOM.ratingList.insertAdjacentHTML("afterbegin", scoreExplanation);
     renderSignals(analysis.topSignals, analysis);
     DOM.dealerProducts.innerHTML = buildProductCards(analysis.dealerProducts, analysis, "dealer");
     DOM.endUserProducts.innerHTML = buildProductCards(analysis.endUserProducts, analysis, "endUser");
@@ -1528,7 +1607,8 @@
     const knownFallback = !input.businessNotes && !input.sourceNotes
       ? findKnownAccountFallback(input)
       : null;
-    const localScore = calculateSalesScore(categoryMap);
+    const localScoreDetails = calculateSalesScoreDetails(categoryMap);
+    const localScore = localScoreDetails.score;
     const websiteScore = Number(websiteAnalysis?.score || 0) || 0;
     const score = Math.max(localScore, websiteScore);
     const notRateable = sourceStatus.websiteBlocked && score === 0 && !input.businessNotes && !input.sourceNotes;
@@ -1546,6 +1626,7 @@
         : buildBusinessTypes(categoryScores);
     const scopeLines = extractRelevantScope(evidenceBlocks);
     const topSignals = buildMatchedSignals(categoryScores);
+    const scoreDetails = buildScoreDetails({ localScoreDetails, websiteAnalysis, websiteScore, localScore, finalScore: score, ratingBand, sourceStatus });
     const focus = buildDecisionFocus(categoryScores, ratingBand);
     const baseCatalog = state.products.length ? state.products : normalizeCatalog(DEFAULT_PRODUCTS);
     const dealerProducts = pickProducts(baseCatalog, ["Lighting", "Modifiers", "Flash & Trigger", "Support & Accessories", "Power & Video"], ["lighting", "led", "rgb", "softbox", "modifier", "flash", "trigger", "stand", "clamp", "battery", "power", "video"], "dealer").map((product) => ({ ...product, reason: buildProductReason(product, { categoryMap }, "dealer") }));
@@ -1561,10 +1642,11 @@
       score,
       grade: ratingBand.grade,
       ratingLabel: ratingBand.label,
+      scoreDetails,
       businessTypes,
       focus,
       sourceStatus,
-      fallbackNote: knownFallback ? knownFallback.note : "",
+      fallbackNote: ratingBand.fallbackNote || (knownFallback ? knownFallback.note : ""),
       scopeLines,
       topSignals,
       dealerProducts,
