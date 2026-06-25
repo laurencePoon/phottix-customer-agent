@@ -751,6 +751,7 @@ function analyzeExtraction(extraction) {
     source: extraction.source,
     title: extraction.title,
     description: extraction.description,
+    body: extraction.body || "",
     blocked: Boolean(extraction.blocked),
     blockReason: extraction.blockReason || "",
     attemptedUrls: extraction.attemptedUrls || [],

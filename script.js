@@ -602,6 +602,16 @@
     }
   }
 
+  async function analyzeWebsiteUrl(url) {
+    const normalized = normalizeUrl(url);
+    if (!normalized) return null;
+    try {
+      return await fetchJson(`/api/analyze-url?url=${encodeURIComponent(normalized)}`);
+    } catch {
+      return null;
+    }
+  }
+
   async function findWebsite(companyName, country = "") {
     const company = normalizeText(companyName);
     if (!company) return null;
@@ -662,7 +672,17 @@
       if (!normalized || visited.has(normalized)) return null;
       visited.add(normalized);
       try {
-        const data = await fetchExtraction(normalized);
+        let data = platform === "website"
+          ? (await analyzeWebsiteUrl(normalized)) || (await fetchExtraction(normalized))
+          : await fetchExtraction(normalized);
+        if (platform === "website" && (data?.rating === "NR" || data?.blocked || !normalizeText([data?.title, data?.description, data?.body].filter(Boolean).join(" ")))) {
+          try {
+            const fallbackData = await fetchExtraction(normalized);
+            if (fallbackData && !isBlockedExtraction(fallbackData)) data = fallbackData;
+          } catch {
+            // Keep the backend analysis result so the UI can explain the fetch failure.
+          }
+        }
         if (!data) return null;
         const source = {
           platform,
@@ -1149,6 +1169,9 @@
 
   function renderScopeList(scopeLines, input, analysis) {
     const items = [];
+    if (analysis.websiteAnalysis) {
+      items.push(`<strong>Website analysis:</strong> ${escapeHtml(analysis.websiteAnalysis.source || "backend")} · ${escapeHtml(String(analysis.websiteAnalysis.rating || analysis.grade || ""))} / ${escapeHtml(String(analysis.websiteAnalysis.score || 0))} · confidence ${escapeHtml(String(analysis.websiteAnalysis.confidence || 0))}%`);
+    }
     if (analysis.sourceStatus?.message) {
       const tone = analysis.sourceStatus.websiteBlocked ? "抓取状态 / Fetch Status" : "资料来源 / Source Status";
       items.push(`<strong>${tone}:</strong> ${escapeHtml(analysis.sourceStatus.message)}`);
@@ -1501,15 +1524,26 @@
     const categoryMap = {};
     for (const item of categoryScores) categoryMap[item.id] = item;
     const sourceStatus = buildSourceStatus(collected.sources);
+    const websiteAnalysis = collected.sources.find((source) => source.platform === "website")?.raw || null;
     const knownFallback = !input.businessNotes && !input.sourceNotes
       ? findKnownAccountFallback(input)
       : null;
-    const score = knownFallback ? knownFallback.score : calculateSalesScore(categoryMap);
+    const localScore = calculateSalesScore(categoryMap);
+    const websiteScore = Number(websiteAnalysis?.score || 0) || 0;
+    const score = Math.max(localScore, websiteScore);
     const notRateable = sourceStatus.websiteBlocked && score === 0 && !input.businessNotes && !input.sourceNotes;
-    const ratingBand = knownFallback
-      ? { ...getRatingBand(score), grade: knownFallback.grade, fallbackNote: knownFallback.note }
-      : notRateable ? NOT_RATED_BAND : getRatingBand(score);
-    const businessTypes = knownFallback ? knownFallback.businessTypes : buildBusinessTypes(categoryScores);
+    const ratingBand = notRateable
+      ? NOT_RATED_BAND
+      : websiteAnalysis?.rating && websiteScore >= localScore
+        ? { ...getRatingBand(score), grade: websiteAnalysis.rating, fallbackNote: websiteAnalysis.source === "known-fetch-fallback" ? "Known account fallback used for blocked or hard-to-fetch website." : "" }
+        : knownFallback
+          ? { ...getRatingBand(score), grade: knownFallback.grade, fallbackNote: knownFallback.note }
+          : getRatingBand(score);
+    const businessTypes = websiteAnalysis?.businessTypes?.length
+      ? websiteAnalysis.businessTypes
+      : knownFallback
+        ? knownFallback.businessTypes
+        : buildBusinessTypes(categoryScores);
     const scopeLines = extractRelevantScope(evidenceBlocks);
     const topSignals = buildMatchedSignals(categoryScores);
     const focus = buildDecisionFocus(categoryScores, ratingBand);
@@ -1521,6 +1555,7 @@
       discoveredWebsite,
       websiteMeta: collected.sources.find((source) => source.platform === "website") || { title: "", description: "" },
       socialTargets: collected.socialTargets,
+      websiteAnalysis,
       categoryScores,
       categoryMap,
       score,
