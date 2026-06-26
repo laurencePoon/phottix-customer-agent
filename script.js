@@ -246,6 +246,10 @@
     customers: loadStoredList(STORAGE_KEYS.customers),
     products: loadStoredProducts(),
     productSource: loadStoredValue(STORAGE_KEYS.productSource) || "default",
+    productFilters: {
+      query: "",
+      selectedOnly: false
+    },
     pendingStatuses: {
       prospects: "支持 company_name / website / city / contact_name / contact_email / instagram_url / facebook_url / business_notes / source_notes.",
       customers: "旧客户表独立管理，导入后也可以继续用同一套分析和开发信逻辑。",
@@ -932,6 +936,29 @@
     return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0], "en"));
   }
 
+  function productMatchesQuery(product, query) {
+    const normalizedQuery = normalizeText(query).toLowerCase();
+    if (!normalizedQuery) return true;
+    const haystack = normalizeText([
+      product.name,
+      product.category,
+      product.description,
+      product.tags,
+      product.sku,
+      product.brand,
+      product.note
+    ].join(" ")).toLowerCase();
+    return normalizedQuery.split(/\s+/).filter(Boolean).every((term) => haystack.includes(term));
+  }
+
+  function filterProductsForLibrary(products) {
+    const query = state.productFilters.query;
+    return products.filter((product) => {
+      if (state.productFilters.selectedOnly && !isProductSelected(product)) return false;
+      return productMatchesQuery(product, query);
+    });
+  }
+
   function scoreProduct(product, targetCategories, targetTerms, mode) {
     const haystack = normalizeText([product.name, product.description, product.tags, product.brand, product.category].join(" ")).toLowerCase();
     let score = 0;
@@ -943,9 +970,13 @@
     return score;
   }
 
+  function isProductSelected(product) {
+    return product?.useForRecommendation === true;
+  }
+
   function pickProducts(products, targetCategories, targetTerms, mode) {
     const scored = products
-      .filter((product) => product.useForRecommendation !== false)
+      .filter(isProductSelected)
       .map((product) => ({ ...product, matchScore: scoreProduct(product, targetCategories, targetTerms, mode) }))
       .filter((product) => product.matchScore > 0)
       .sort((a, b) => (b.matchScore - a.matchScore) || a.name.localeCompare(b.name, "en"));
@@ -1095,7 +1126,7 @@
       ...analysis.endUserProducts.map((product) => product.name)
     ]).slice(0, 3);
     if (!products.length) return "";
-    return `A few Phottix products that may be relevant for your store include: ${products.join(", ")}.`;
+    return `If useful, I can include a few relevant Phottix items in the overview, such as ${products.join(", ")}.`;
   }
 
   function buildEmail(analysis, input) {
@@ -1334,10 +1365,12 @@
   function renderProductLibrary() {
     if (!DOM.productLibrary) return;
     const products = state.products.length ? state.products : normalizeCatalog(DEFAULT_PRODUCTS);
-    const grouped = groupProductsByCategory(products);
+    const filteredProducts = filterProductsForLibrary(products);
+    const grouped = groupProductsByCategory(filteredProducts);
     const productCount = products.length;
-    const activeCount = products.filter((item) => item.useForRecommendation !== false).length;
-    const categoryCount = grouped.length;
+    const activeCount = products.filter(isProductSelected).length;
+    const visibleCount = filteredProducts.length;
+    const categoryCount = groupProductsByCategory(products).length;
     const sourceLabel = state.productSource === "excel" ? "Excel" : "Default";
     const summarizeProduct = (item) => {
       const text = normalizeText(item.description || item.tags || "");
@@ -1357,10 +1390,20 @@
           <input id="productFileInput" type="file" accept=".xlsx,.xlsm,.csv" hidden>
         </div>
       </div>
+      <div class="product-filter-bar">
+        <label class="field product-search-field">
+          <span>搜索产品 / Search Products</span>
+          <input id="productSearchInput" type="search" placeholder="e.g. Kali, softbox, RGB, flash" value="${escapeHtml(state.productFilters.query)}">
+        </label>
+        <label class="product-toggle product-selected-filter">
+          <input id="productSelectedOnlyInput" type="checkbox" ${state.productFilters.selectedOnly ? "checked" : ""}>
+          <span>只看已选 / Selected only</span>
+        </label>
+      </div>
       <div class="overview-cards">
         <div class="overview-card"><span class="overview-label">Products</span><strong class="overview-value">${productCount}</strong><span class="overview-note">Source: ${escapeHtml(sourceLabel)}</span></div>
         <div class="overview-card"><span class="overview-label">Selected Products</span><strong class="overview-value">${activeCount}</strong><span class="overview-note">Only selected products are used in emails</span></div>
-        <div class="overview-card"><span class="overview-label">Categories</span><strong class="overview-value">${categoryCount}</strong><span class="overview-note">Pick products from each category</span></div>
+        <div class="overview-card"><span class="overview-label">Visible / Categories</span><strong class="overview-value">${visibleCount} / ${categoryCount}</strong><span class="overview-note">Search and select what you want to recommend</span></div>
       </div>
       <div class="result-area">
         ${grouped.length ? grouped.map(([category, items]) => `
@@ -1368,15 +1411,15 @@
             <div class="block-head">
               <h3>${escapeHtml(category)} (${items.length})</h3>
               <div class="crm-tools product-category-tools">
-                <span class="status-pill">${items.filter((item) => item.useForRecommendation !== false).length} selected</span>
+                <span class="status-pill">${items.filter(isProductSelected).length} selected</span>
                 <button class="mini-button" type="button" data-action="set-category-products" data-category="${escapeHtml(category)}" data-product-active="true">Select category</button>
                 <button class="mini-button danger-text" type="button" data-action="set-category-products" data-category="${escapeHtml(category)}" data-product-active="false">Clear category</button>
               </div>
             </div>
-            <div class="product-grid">${items.slice(0, 6).map((item) => {
+            <div class="product-grid">${items.map((item) => {
               const meta = [item.sku ? `SKU: ${item.sku}` : "", item.brand].filter(Boolean).join(" · ");
               const summary = summarizeProduct(item);
-              const isActive = item.useForRecommendation !== false;
+              const isActive = isProductSelected(item);
               return `<article class="product-card compact-product-card ${isActive ? "" : "product-card-disabled"}">
                 <label class="product-toggle">
                   <input type="checkbox" data-action="toggle-product-recommendation" data-product-id="${escapeHtml(item.id)}" ${isActive ? "checked" : ""}>
@@ -1392,9 +1435,8 @@
                 </div>
               </article>`;
             }).join("")}</div>
-            ${items.length > 6 ? `<p class="crm-meta">Showing 6 of ${items.length}. Full product text stays in the database for recommendations.</p>` : ""}
           </section>
-        `).join("") : `<section class="result-block"><div class="bullet-item">No products loaded yet. Import a product Excel file first.</div></section>`}
+        `).join("") : `<section class="result-block"><div class="bullet-item">${products.length ? "No products match the current filter." : "No products loaded yet. Import a product Excel file first."}</div></section>`}
       </div>
     `;
   }
@@ -1555,6 +1597,12 @@
     saveCurrentLists();
     renderProductLibrary();
     setStatus(isActive ? "All products selected for recommendations." : "Recommendation selection cleared.", isActive ? "good" : "warn");
+  }
+
+  function updateProductFilters({ query, selectedOnly } = {}) {
+    if (query !== undefined) state.productFilters.query = query;
+    if (selectedOnly !== undefined) state.productFilters.selectedOnly = selectedOnly;
+    renderProductLibrary();
   }
 
   function findRecord(bucket, id) {
@@ -1877,7 +1925,14 @@
     if (input.id === "prospectFileInput") await handleImportClick("prospects", input);
     else if (input.id === "customerFileInput") await handleImportClick("customers", input);
     else if (input.id === "productFileInput") await handleImportClick("products", input);
+    else if (input.id === "productSelectedOnlyInput") updateProductFilters({ selectedOnly: input.checked });
     else if (input.dataset.action === "toggle-product-recommendation") setProductRecommendation(input.dataset.productId || "", input.checked);
+  }
+
+  function handleDelegatedInput(event) {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement)) return;
+    if (input.id === "productSearchInput") updateProductFilters({ query: input.value });
   }
 
   function fillDemo() {
@@ -1910,6 +1965,7 @@
     DOM.customerImportBtn.addEventListener("click", () => DOM.customerFileInput?.click());
     document.addEventListener("click", handleDelegatedClick);
     document.addEventListener("change", handleDelegatedChange);
+    document.addEventListener("input", handleDelegatedInput);
   }
 
   function init() {

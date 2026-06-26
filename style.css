@@ -408,6 +408,24 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   gap: 8px;
 }
 
+.product-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+.product-search-field {
+  margin: 0;
+}
+
+.product-selected-filter {
+  min-height: 46px;
+  padding: 0 12px 10px;
+  justify-content: flex-end;
+}
+
 .product-actions {
   display: flex;
   flex-wrap: wrap;
@@ -522,7 +540,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   .form-grid,
   .two-column,
   .crm-list,
-  .overview-cards { grid-template-columns: 1fr; }
+  .overview-cards,
+  .product-filter-bar { grid-template-columns: 1fr; }
 
   .section-head,
   .block-head,
