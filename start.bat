@@ -26,11 +26,16 @@ echo.
 netstat -ano | findstr /R /C:"127\.0\.0\.1:8787 .*LISTENING" >nul 2>nul
 if not errorlevel 1 (
   echo The local server already seems to be running.
-  echo Open http://127.0.0.1:8787/ in your browser.
+  echo Opening browser now...
   echo.
+  start "" "http://127.0.0.1:8787/"
   pause
   exit /b 0
 )
+
+echo Opening browser now...
+start "" "http://127.0.0.1:8787/"
+echo.
 
 node server.js
 
