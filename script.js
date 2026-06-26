@@ -491,11 +491,11 @@
     const normalized = {};
     for (const [key, value] of Object.entries(row || {})) normalized[String(key).toLowerCase()] = value;
     const recommendationValue = row.useForRecommendation ?? row.use_for_recommendation ?? normalized.useforrecommendation ?? normalized.use_for_recommendation ?? normalized.recommend ?? normalized.active;
-    const forceEmailValue = row.forceIncludeInEmail ?? row.force_include_in_email ?? normalized.forceincludeinemail ?? normalized.force_include_in_email ?? normalized.email_include ?? normalized.include_in_email;
+    const globalPushValue = row.globalPush ?? row.global_push ?? row.forceIncludeInEmail ?? row.force_include_in_email ?? normalized.globalpush ?? normalized.global_push ?? normalized.forceincludeinemail ?? normalized.force_include_in_email ?? normalized.email_include ?? normalized.include_in_email;
     const disabledValue = row.excludeFromRecommendation ?? row.exclude_from_recommendation ?? normalized.excludefromrecommendation ?? normalized.exclude_from_recommendation;
     const hasRecommendationValue = recommendationValue !== undefined && recommendationValue !== null && String(recommendationValue).trim() !== "";
     const isExplicitlySelected = /^(true|1|yes|y|on|selected|recommend|recommended)$/i.test(String(recommendationValue || ""));
-    const isForceIncluded = /^(true|1|yes|y|on|selected|include|included|force)$/i.test(String(forceEmailValue || ""));
+    const isGlobalPush = /^(true|1|yes|y|on|selected|include|included|force|push|priority)$/i.test(String(globalPushValue || ""));
     const isDisabled = /^(false|0|no|n|off|disabled|exclude|excluded)$/i.test(String(recommendationValue || "")) || /^(true|1|yes|y|on)$/i.test(String(disabledValue || ""));
     return {
       id: row.id || makeId("prod"),
@@ -510,7 +510,7 @@
       sourceSheet: normalizeText(row.sourceSheet || normalized.sourcesheet || ""),
       note: normalizeText(row.note || normalized.note || ""),
       useForRecommendation: hasRecommendationValue ? isExplicitlySelected && !isDisabled : false,
-      forceIncludeInEmail: isForceIncluded
+      globalPush: isGlobalPush
     };
   }
 
@@ -968,6 +968,7 @@
     if (targetCategories.includes(product.category)) score += 8;
     if (mode === "dealer" && ["Lighting", "Modifiers", "Flash & Trigger", "Support & Accessories", "Power & Video"].includes(product.category)) score += 5;
     if (mode === "endUser" && ["Lighting", "Modifiers", "Flash & Trigger", "Power & Video"].includes(product.category)) score += 5;
+    if (isProductGlobalPush(product)) score += 10;
     for (const term of targetTerms) if (haystack.includes(term)) score += 2;
     if (product.sourceType === "excel") score += 1;
     return score;
@@ -977,12 +978,12 @@
     return product?.useForRecommendation === true;
   }
 
-  function isProductForceIncluded(product) {
-    return product?.forceIncludeInEmail === true;
+  function isProductGlobalPush(product) {
+    return product?.globalPush === true || product?.forceIncludeInEmail === true;
   }
 
-  function getForceIncludedProducts(products) {
-    return products.filter(isProductForceIncluded);
+  function getGlobalPushProducts(products) {
+    return products.filter(isProductGlobalPush);
   }
 
   function pickProducts(products, targetCategories, targetTerms, mode) {
@@ -1131,14 +1132,19 @@
     return `Phottix works with photo and video partners on products such as ${dedupeLines(productAreas).slice(0, 3).join(", ")}.`;
   }
 
+  function getEmailType(analysis) {
+    return analysis.recordBucket === "customers" ? "existingCustomer" : "firstTouch";
+  }
+
   function buildEmailProductLine(analysis) {
+    if (getEmailType(analysis) === "firstTouch") return "";
     const products = dedupeLines([
-      ...(analysis.forceEmailProducts || []).map((product) => product.name),
+      ...(analysis.globalPushProducts || []).map((product) => product.name),
       ...analysis.dealerProducts.map((product) => product.name),
       ...analysis.endUserProducts.map((product) => product.name)
     ]).slice(0, 3);
     if (!products.length) return "";
-    return `If useful, I can include a few relevant Phottix items in the overview, such as ${products.join(", ")}.`;
+    return `For your team, the most relevant Phottix items to review first would be ${products.join(", ")}.`;
   }
 
   function buildEmail(analysis, input) {
@@ -1148,19 +1154,29 @@
     const fitLine = buildSoftFitLine(analysis);
     const productLine = buildEmailProductLine(analysis);
     const subject = buildEmailSubject(analysis, input);
+    const isExistingCustomer = getEmailType(analysis) === "existingCustomer";
+    const opener = isExistingCustomer
+      ? `I wanted to follow up with ${company} and share a quick Phottix update.`
+      : `I came across ${company} and wanted to briefly introduce Phottix.`;
+    const cta = isExistingCustomer
+      ? "Would it be helpful if I sent over the latest product update, pricing, or a short replenishment suggestion?"
+      : "No pressure at all, but would it be alright if I sent over a short product overview for the right person on your team?";
+    const routingLine = isExistingCustomer
+      ? "If there are any categories you are currently refreshing or restocking, I can also tailor the suggestion around that."
+      : "If there is a better contact for new brand or product line discussions, I would also appreciate being pointed in the right direction.";
     const body = [
       `Hi ${contact},`,
       "",
-      `I came across ${company} and wanted to briefly introduce Phottix.`,
+      opener,
       "",
       leadSentence,
       "",
       fitLine,
       "",
       ...(productLine ? [productLine, ""] : []),
-      "No pressure at all, but would it be alright if I sent over a short product overview for the right person on your team?",
+      cta,
       "",
-      "If there is a better contact for new brand or product line discussions, I would also appreciate being pointed in the right direction.",
+      routingLine,
       "",
       "Best regards,",
       "[Your Name]",
@@ -1192,8 +1208,8 @@
     lines.push("Business scope:");
     for (const scope of analysis.scopeLines.slice(0, 6)) lines.push(`- ${scope.source}: ${scope.text}`);
     lines.push("");
-    lines.push("Force include in email:");
-    for (const product of (analysis.forceEmailProducts || []).slice(0, 4)) lines.push(`- ${product.name} (${product.category})`);
+    lines.push("Global push products:");
+    for (const product of (analysis.globalPushProducts || []).slice(0, 4)) lines.push(`- ${product.name} (${product.category})`);
     lines.push("");
     lines.push("Dealer line:");
     for (const product of analysis.dealerProducts.slice(0, 4)) lines.push(`- ${product.name} (${product.category}) — ${product.reason}`);
@@ -1228,7 +1244,8 @@
       rating_focus: analysis.focus,
       key_decision: analysis.keyDecision,
       matched_signals: analysis.topSignals.map((signal) => `${signal.categoryLabel}: ${signal.label} +${signal.points}`).join(" | "),
-      force_email_line: (analysis.forceEmailProducts || []).map((product) => product.name).join(" | "),
+      global_push_line: (analysis.globalPushProducts || []).map((product) => product.name).join(" | "),
+      force_email_line: "",
       dealer_line: analysis.dealerProducts.map((product) => `${product.name} (${product.reason})`).join(" | "),
       end_user_line: analysis.endUserProducts.map((product) => `${product.name} (${product.reason})`).join(" | "),
       email_subject: analysis.email.subject,
@@ -1385,7 +1402,7 @@
     const grouped = groupProductsByCategory(filteredProducts);
     const productCount = products.length;
     const activeCount = products.filter(isProductSelected).length;
-    const forcedCount = products.filter(isProductForceIncluded).length;
+    const globalPushCount = products.filter(isProductGlobalPush).length;
     const visibleCount = filteredProducts.length;
     const categoryCount = groupProductsByCategory(products).length;
     const sourceLabel = state.productSource === "excel" ? "Excel" : "Default";
@@ -1420,7 +1437,7 @@
       <div class="overview-cards">
         <div class="overview-card"><span class="overview-label">Products</span><strong class="overview-value">${productCount}</strong><span class="overview-note">Source: ${escapeHtml(sourceLabel)}</span></div>
         <div class="overview-card"><span class="overview-label">Recommendation Pool</span><strong class="overview-value">${activeCount}</strong><span class="overview-note">AI recommends from this pool only</span></div>
-        <div class="overview-card"><span class="overview-label">Force Include</span><strong class="overview-value">${forcedCount}</strong><span class="overview-note">Always appears in the email</span></div>
+        <div class="overview-card"><span class="overview-label">Global Push</span><strong class="overview-value">${globalPushCount}</strong><span class="overview-note">Higher priority, not forced into first email</span></div>
         <div class="overview-card"><span class="overview-label">Visible / Categories</span><strong class="overview-value">${visibleCount} / ${categoryCount}</strong><span class="overview-note">Search and select what you want to recommend</span></div>
       </div>
       <div class="result-area">
@@ -1438,15 +1455,15 @@
               const meta = [item.sku ? `SKU: ${item.sku}` : "", item.brand].filter(Boolean).join(" · ");
               const summary = summarizeProduct(item);
               const isActive = isProductSelected(item);
-              const isForced = isProductForceIncluded(item);
-              return `<article class="product-card compact-product-card ${isActive || isForced ? "" : "product-card-disabled"}">
+              const isGlobalPush = isProductGlobalPush(item);
+              return `<article class="product-card compact-product-card ${isActive || isGlobalPush ? "" : "product-card-disabled"}">
                 <label class="product-toggle">
                   <input type="checkbox" data-action="toggle-product-recommendation" data-product-id="${escapeHtml(item.id)}" ${isActive ? "checked" : ""}>
                   <span>${isActive ? "In Recommendation Pool" : "Not in Pool"}</span>
                 </label>
-                <label class="product-toggle force-email-toggle">
-                  <input type="checkbox" data-action="toggle-product-force-email" data-product-id="${escapeHtml(item.id)}" ${isForced ? "checked" : ""}>
-                  <span>${isForced ? "Will be written into email" : "Do not force into email"}</span>
+                <label class="product-toggle global-push-toggle">
+                  <input type="checkbox" data-action="toggle-product-global-push" data-product-id="${escapeHtml(item.id)}" ${isGlobalPush ? "checked" : ""}>
+                  <span>${isGlobalPush ? "Global Push priority" : "Normal priority"}</span>
                 </label>
                 <strong>${escapeHtml(item.name)}</strong>
                 ${meta ? `<div class="crm-meta">${escapeHtml(meta)}</div>` : ""}
@@ -1455,8 +1472,8 @@
                   <button class="${isActive ? "mini-button danger-text" : "mini-button secondary-button"}" type="button" data-action="set-product-recommendation" data-product-id="${escapeHtml(item.id)}" data-product-active="${isActive ? "false" : "true"}">
                     ${isActive ? "Remove from pool" : "Add to pool"}
                   </button>
-                  <button class="${isForced ? "mini-button danger-text" : "mini-button secondary-button"}" type="button" data-action="set-product-force-email" data-product-id="${escapeHtml(item.id)}" data-product-force="${isForced ? "false" : "true"}">
-                    ${isForced ? "Do not force email" : "Force into email"}
+                  <button class="${isGlobalPush ? "mini-button danger-text" : "mini-button secondary-button"}" type="button" data-action="set-product-global-push" data-product-id="${escapeHtml(item.id)}" data-product-push="${isGlobalPush ? "false" : "true"}">
+                    ${isGlobalPush ? "Remove global push" : "Set global push"}
                   </button>
                 </div>
               </article>`;
@@ -1577,7 +1594,8 @@
       matchedSignals: analysis.topSignals.map((signal) => `${signal.categoryLabel}: ${signal.label} +${signal.points}`).join(" | "),
       dealerLine: analysis.dealerProducts.map((product) => product.name).join(" | "),
       endUserLine: analysis.endUserProducts.map((product) => product.name).join(" | "),
-      forceEmailLine: (analysis.forceEmailProducts || []).map((product) => product.name).join(" | "),
+      globalPushLine: (analysis.globalPushProducts || []).map((product) => product.name).join(" | "),
+      forceEmailLine: "",
       suggestions: analysis.suggestions.join(" | "),
       savedAt: new Date().toISOString()
     };
@@ -1609,13 +1627,13 @@
     setStatus(isActive ? "Product added to Recommendation Pool." : "Product removed from Recommendation Pool.", isActive ? "good" : "warn");
   }
 
-  function setProductForceEmail(productId, isForced) {
+  function setProductGlobalPush(productId, isGlobalPush) {
     state.products = state.products.map((product) => (
-      product.id === productId ? { ...product, forceIncludeInEmail: isForced } : product
+      product.id === productId ? { ...product, globalPush: isGlobalPush, forceIncludeInEmail: false } : product
     ));
     saveCurrentLists();
     renderProductLibrary();
-    setStatus(isForced ? "Product will be written into the email." : "Product removed from forced email include.", isForced ? "good" : "warn");
+    setStatus(isGlobalPush ? "Product set as Global Push priority." : "Product removed from Global Push priority.", isGlobalPush ? "good" : "warn");
   }
 
   function setProductsRecommendationByCategory(category, isActive) {
@@ -1713,7 +1731,7 @@
     const scoreDetails = buildScoreDetails({ localScoreDetails, websiteAnalysis, websiteScore, localScore, finalScore: score, ratingBand, sourceStatus });
     const focus = buildDecisionFocus(categoryScores, ratingBand);
     const baseCatalog = state.products.length ? state.products : normalizeCatalog(DEFAULT_PRODUCTS);
-    const forceEmailProducts = getForceIncludedProducts(baseCatalog);
+    const globalPushProducts = getGlobalPushProducts(baseCatalog);
     const dealerProducts = pickProducts(baseCatalog, ["Lighting", "Modifiers", "Flash & Trigger", "Support & Accessories", "Power & Video"], ["lighting", "led", "rgb", "softbox", "modifier", "flash", "trigger", "stand", "clamp", "battery", "power", "video"], "dealer").map((product) => ({ ...product, reason: buildProductReason(product, { categoryMap }, "dealer") }));
     const endUserProducts = pickProducts(baseCatalog, ["Lighting", "Modifiers", "Flash & Trigger", "Power & Video", "Support & Accessories"], ["creator", "studio", "video", "rgb", "light", "softbox", "mobile", "stream", "content", "photo"], "endUser").map((product) => ({ ...product, reason: buildProductReason(product, { categoryMap }, "endUser") }));
     const analysis = {
@@ -1735,7 +1753,8 @@
       scopeLines,
       topSignals,
       baseCatalog,
-      forceEmailProducts,
+      recordBucket: state.activeRecord.bucket === "customers" ? "customers" : "prospects",
+      globalPushProducts,
       dealerProducts,
       endUserProducts,
       suggestions: buildSuggestionList({ categoryMap, businessTypes }),
@@ -1924,8 +1943,8 @@
         setProductRecommendation(button.dataset.productId || "", button.dataset.productActive === "true");
         break;
       }
-      case "set-product-force-email": {
-        setProductForceEmail(button.dataset.productId || "", button.dataset.productForce === "true");
+      case "set-product-global-push": {
+        setProductGlobalPush(button.dataset.productId || "", button.dataset.productPush === "true");
         break;
       }
       case "set-category-products": {
@@ -1970,7 +1989,7 @@
     else if (input.id === "productFileInput") await handleImportClick("products", input);
     else if (input.id === "productSelectedOnlyInput") updateProductFilters({ selectedOnly: input.checked });
     else if (input.dataset.action === "toggle-product-recommendation") setProductRecommendation(input.dataset.productId || "", input.checked);
-    else if (input.dataset.action === "toggle-product-force-email") setProductForceEmail(input.dataset.productId || "", input.checked);
+    else if (input.dataset.action === "toggle-product-global-push") setProductGlobalPush(input.dataset.productId || "", input.checked);
   }
 
   function handleDelegatedInput(event) {
