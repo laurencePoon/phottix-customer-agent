@@ -571,13 +571,22 @@ headers = [
     ("facebook_url", "Facebook"),
     ("city", "City / Country"),
     ("email_purpose", "Email Purpose"),
+    ("follow_up_status", "Follow-up Status"),
+    ("next_follow_up_date", "Next Follow-up Date"),
+    ("last_contacted_at", "Last Contacted At"),
     ("business_types", "Business Types"),
     ("rating", "Rating"),
     ("score", "Score"),
+    ("customer_priority_score", "Customer Priority Score"),
+    ("product_fit_score", "Product Fit Score"),
+    ("data_confidence_score", "Data Confidence Score"),
+    ("outreach_readiness_score", "Outreach Readiness Score"),
+    ("score_explanation", "Score Explanation"),
     ("rating_focus", "Rating Focus"),
     ("key_decision", "Key Decision"),
     ("matched_signals", "Matched Signals"),
     ("global_push_line", "Global Push Products"),
+    ("force_email_line", "Selected Email Products"),
     ("dealer_line", "Dealer Line"),
     ("end_user_line", "End User Line"),
     ("email_subject", "Email Subject"),
@@ -617,14 +626,12 @@ for row in ws.iter_rows(min_row=3, max_row=ws.max_row):
     for cell in row:
         cell.alignment = thin_align
 
-widths = {
-    "A": 24, "B": 18, "C": 22, "D": 30, "E": 24, "F": 24,
-    "G": 16, "H": 24, "I": 10, "J": 10, "K": 18, "L": 26,
-    "M": 34, "N": 28, "O": 28, "P": 30, "Q": 46, "R": 46,
-    "S": 36, "T": 14, "U": 22
-}
-for col_letter, width in widths.items():
-    ws.column_dimensions[col_letter].width = width
+wide_keys = {"website", "instagram_url", "facebook_url", "business_types", "rating_focus", "key_decision", "matched_signals", "dealer_line", "end_user_line", "email_subject", "email_body", "email_preview", "suggestions"}
+for index, (key, label) in enumerate(headers, start=1):
+    width = 46 if key in wide_keys else 22
+    if key in {"rating", "score", "save_bucket"} or key.endswith("_score"):
+        width = 14
+    ws.column_dimensions[get_column_letter(index)].width = width
 
 ws.freeze_panes = "A3"
 ws.auto_filter.ref = f"A2:{get_column_letter(len(headers))}{ws.max_row}"

@@ -428,6 +428,21 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   justify-content: flex-end;
 }
 
+.product-status-field {
+  margin: 2px 0 0;
+  gap: 5px;
+}
+
+.product-status-field span {
+  font-size: 0.78rem;
+  color: var(--faint);
+}
+
+.product-status-field select {
+  padding: 9px 10px;
+  font-size: 0.86rem;
+}
+
 .product-actions {
   display: flex;
   flex-wrap: wrap;
@@ -484,6 +499,59 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 .crm-grade { white-space: nowrap; }
+
+.crm-follow-row {
+  display: grid;
+  grid-template-columns: 1fr 0.9fr;
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.crm-follow-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.crm-follow-field select,
+.crm-follow-field input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(5, 12, 24, 0.72);
+  color: var(--text);
+}
+
+.score-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.score-mini-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  display: grid;
+  gap: 6px;
+}
+
+.score-mini-card span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.score-mini-card strong {
+  font-size: 1.55rem;
+}
+
+.score-mini-card small {
+  color: var(--faint);
+  line-height: 1.45;
+}
 
 .good { color: var(--good); border-color: rgba(89, 211, 162, 0.28); }
 .warn { color: var(--warn); border-color: rgba(255, 204, 102, 0.28); }
