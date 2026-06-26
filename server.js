@@ -555,6 +555,13 @@ from openpyxl.utils import get_column_letter
 rows = json.loads(sys.stdin.read() or "{}").get("rows", [])
 path = Path(sys.argv[1])
 
+def clean_cell(value):
+    text = "" if value is None else str(value)
+    return "".join(
+        ch for ch in text
+        if (ch in "\\t\\n\\r") or (ord(ch) >= 32 and not 0xD800 <= ord(ch) <= 0xDFFF)
+    )
+
 headers = [
     ("company_name", "Company Name"),
     ("contact_name", "Contact Name"),
@@ -563,12 +570,14 @@ headers = [
     ("instagram_url", "Instagram"),
     ("facebook_url", "Facebook"),
     ("city", "City / Country"),
+    ("email_purpose", "Email Purpose"),
     ("business_types", "Business Types"),
     ("rating", "Rating"),
     ("score", "Score"),
     ("rating_focus", "Rating Focus"),
     ("key_decision", "Key Decision"),
     ("matched_signals", "Matched Signals"),
+    ("global_push_line", "Global Push Products"),
     ("dealer_line", "Dealer Line"),
     ("end_user_line", "End User Line"),
     ("email_subject", "Email Subject"),
@@ -602,7 +611,7 @@ for cell in ws[2]:
     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 for row in rows:
-    ws.append([row.get(key, "") for key, _ in headers])
+    ws.append([clean_cell(row.get(key, "")) for key, _ in headers])
 
 for row in ws.iter_rows(min_row=3, max_row=ws.max_row):
     for cell in row:

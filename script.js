@@ -216,6 +216,7 @@
     agentForm: document.getElementById("agentForm"),
     companyName: document.getElementById("companyName"),
     contactName: document.getElementById("contactName"),
+    emailPurpose: document.getElementById("emailPurpose"),
     website: document.getElementById("website"),
     city: document.getElementById("city"),
     instagramUrl: document.getElementById("instagramUrl"),
@@ -413,10 +414,22 @@
     return out;
   }
 
+  function inferEmailPurposeFromBucket(bucket) {
+    return bucket === "customers" ? "existingCustomerUpdate" : "firstTouch";
+  }
+
+  function normalizeEmailPurpose(value, fallbackBucket = "prospects") {
+    const purpose = normalizeText(value);
+    return ["firstTouch", "productFollowUp", "existingCustomerUpdate", "reactivation"].includes(purpose)
+      ? purpose
+      : inferEmailPurposeFromBucket(fallbackBucket);
+  }
+
   function getFormValues() {
     return {
       companyName: normalizeText(DOM.companyName.value),
       contactName: normalizeText(DOM.contactName.value),
+      emailPurpose: DOM.emailPurpose?.value || "",
       website: normalizeUrl(DOM.website.value),
       city: normalizeText(DOM.city.value),
       instagramUrl: normalizeUrl(DOM.instagramUrl.value),
@@ -429,6 +442,7 @@
   function setFormValues(record) {
     DOM.companyName.value = record.companyName || "";
     DOM.contactName.value = record.contactName || "";
+    if (DOM.emailPurpose) DOM.emailPurpose.value = record.emailPurpose || inferEmailPurposeFromBucket(record.bucket);
     DOM.website.value = record.website || "";
     DOM.city.value = record.city || "";
     DOM.instagramUrl.value = record.instagramUrl || "";
@@ -470,6 +484,7 @@
       id: row.id || makeId("row"),
       companyName: normalizeText(row.companyName || normalized.company_name || normalized.company || normalized.name),
       contactName: normalizeText(row.contactName || normalized.contact_name || normalized.contact),
+      emailPurpose: normalizeText(row.emailPurpose || normalized.email_purpose || normalized.emailpurpose || inferEmailPurposeFromBucket(row.bucket || normalized.bucket)),
       contactEmail: normalizeText(row.contactEmail || normalized.contact_email || normalized.email),
       website: normalizeUrl(row.website || normalized.website || normalized.domain || normalized.url),
       city: normalizeText(row.city || normalized.city || normalized.country),
@@ -1133,7 +1148,7 @@
   }
 
   function getEmailType(analysis) {
-    return analysis.recordBucket === "customers" ? "existingCustomer" : "firstTouch";
+    return normalizeEmailPurpose(analysis.emailPurpose, analysis.recordBucket);
   }
 
   function buildEmailProductLine(analysis) {
@@ -1154,29 +1169,39 @@
     const fitLine = buildSoftFitLine(analysis);
     const productLine = buildEmailProductLine(analysis);
     const subject = buildEmailSubject(analysis, input);
-    const isExistingCustomer = getEmailType(analysis) === "existingCustomer";
-    const opener = isExistingCustomer
-      ? `I wanted to follow up with ${company} and share a quick Phottix update.`
-      : `I came across ${company} and wanted to briefly introduce Phottix.`;
-    const cta = isExistingCustomer
-      ? "Would it be helpful if I sent over the latest product update, pricing, or a short replenishment suggestion?"
-      : "No pressure at all, but would it be alright if I sent over a short product overview for the right person on your team?";
-    const routingLine = isExistingCustomer
-      ? "If there are any categories you are currently refreshing or restocking, I can also tailor the suggestion around that."
-      : "If there is a better contact for new brand or product line discussions, I would also appreciate being pointed in the right direction.";
+    const purpose = getEmailType(analysis);
+    const isFirstTouch = purpose === "firstTouch";
+    const openerByPurpose = {
+      firstTouch: `I came across ${company} and wanted to briefly introduce Phottix.`,
+      productFollowUp: `I wanted to follow up with a slightly more specific Phottix product direction for ${company}.`,
+      existingCustomerUpdate: `I wanted to follow up with ${company} and share a quick Phottix update.`,
+      reactivation: `It has been a while, so I wanted to reconnect and see whether a quick Phottix update would be useful.`
+    };
+    const ctaByPurpose = {
+      firstTouch: "No pressure at all, but would it be alright if I sent over a short product overview for the right person on your team?",
+      productFollowUp: "Would it be useful if I sent over a short product overview with pricing for the most relevant items?",
+      existingCustomerUpdate: "Would it be helpful if I sent over the latest product update, pricing, or a short replenishment suggestion?",
+      reactivation: "Would it be alright if I sent a short update and you can let me know whether it is still relevant for your current plans?"
+    };
+    const routingByPurpose = {
+      firstTouch: "If there is a better contact for new brand or product line discussions, I would also appreciate being pointed in the right direction.",
+      productFollowUp: "If another colleague handles product selection or purchasing, I would be grateful if you could point me in the right direction.",
+      existingCustomerUpdate: "If there are any categories you are currently refreshing or restocking, I can also tailor the suggestion around that.",
+      reactivation: "If now is not the right timing, no problem at all; I can follow up later with a more relevant update."
+    };
     const body = [
       `Hi ${contact},`,
       "",
-      opener,
+      openerByPurpose[purpose],
       "",
       leadSentence,
       "",
       fitLine,
       "",
-      ...(productLine ? [productLine, ""] : []),
-      cta,
+      ...(!isFirstTouch && productLine ? [productLine, ""] : []),
+      ctaByPurpose[purpose],
       "",
-      routingLine,
+      routingByPurpose[purpose],
       "",
       "Best regards,",
       "[Your Name]",
@@ -1193,6 +1218,7 @@
     lines.push(`City: ${input.city || "—"}`);
     lines.push(`Instagram: ${input.instagramUrl || analysis.socialTargets.instagram || "—"}`);
     lines.push(`Facebook: ${input.facebookUrl || analysis.socialTargets.facebook || "—"}`);
+    lines.push(`Email purpose: ${analysis.emailPurpose || "firstTouch"}`);
     lines.push(`Rating: ${analysis.grade} / ${analysis.score}`);
     lines.push(`Key decision: ${analysis.keyDecision}`);
     lines.push(`Focus: ${analysis.focus}`);
@@ -1237,6 +1263,7 @@
       instagram_url: input.instagramUrl || analysis.socialTargets.instagram || "",
       facebook_url: input.facebookUrl || analysis.socialTargets.facebook || "",
       city: input.city || "",
+      email_purpose: analysis.emailPurpose || "",
       business_types: analysis.businessTypes.join(" | "),
       rating: analysis.grade,
       score: analysis.score,
@@ -1574,6 +1601,7 @@
       bucket,
       companyName: input.companyName || humanizeDomain(input.website) || "",
       contactName: input.contactName || "",
+      emailPurpose: analysis.emailPurpose || input.emailPurpose || inferEmailPurposeFromBucket(bucket),
       contactEmail: "",
       website: input.website || "",
       city: input.city || "",
@@ -1731,6 +1759,7 @@
     const scoreDetails = buildScoreDetails({ localScoreDetails, websiteAnalysis, websiteScore, localScore, finalScore: score, ratingBand, sourceStatus });
     const focus = buildDecisionFocus(categoryScores, ratingBand);
     const baseCatalog = state.products.length ? state.products : normalizeCatalog(DEFAULT_PRODUCTS);
+    const emailPurpose = normalizeEmailPurpose(input.emailPurpose, state.activeRecord.bucket);
     const globalPushProducts = getGlobalPushProducts(baseCatalog);
     const dealerProducts = pickProducts(baseCatalog, ["Lighting", "Modifiers", "Flash & Trigger", "Support & Accessories", "Power & Video"], ["lighting", "led", "rgb", "softbox", "modifier", "flash", "trigger", "stand", "clamp", "battery", "power", "video"], "dealer").map((product) => ({ ...product, reason: buildProductReason(product, { categoryMap }, "dealer") }));
     const endUserProducts = pickProducts(baseCatalog, ["Lighting", "Modifiers", "Flash & Trigger", "Power & Video", "Support & Accessories"], ["creator", "studio", "video", "rgb", "light", "softbox", "mobile", "stream", "content", "photo"], "endUser").map((product) => ({ ...product, reason: buildProductReason(product, { categoryMap }, "endUser") }));
@@ -1754,6 +1783,7 @@
       topSignals,
       baseCatalog,
       recordBucket: state.activeRecord.bucket === "customers" ? "customers" : "prospects",
+      emailPurpose,
       globalPushProducts,
       dealerProducts,
       endUserProducts,
@@ -1767,6 +1797,7 @@
     analysis.reportText = buildReportText(analysis, {
       companyName: input.companyName || companyFallback,
       contactName: input.contactName,
+      emailPurpose,
       website: websiteForDisplay,
       city: input.city,
       instagramUrl: input.instagramUrl || collected.socialTargets.instagram,
@@ -1872,7 +1903,7 @@
   }
 
   function resetForm() {
-    setFormValues({ companyName: "", contactName: "", website: "", city: "", instagramUrl: "", facebookUrl: "", businessNotes: "", sourceNotes: "" });
+    setFormValues({ companyName: "", contactName: "", emailPurpose: "firstTouch", website: "", city: "", instagramUrl: "", facebookUrl: "", businessNotes: "", sourceNotes: "" });
     state.currentAnalysis = null;
     state.activeRecord = { bucket: "prospects", id: null };
     DOM.copyReportBtn.disabled = true;
@@ -2002,6 +2033,7 @@
     setFormValues({
       companyName: "B&H Photo Video",
       contactName: "",
+      emailPurpose: "firstTouch",
       website: "https://www.bhphotovideo.com/",
       city: "New York",
       instagramUrl: "",
