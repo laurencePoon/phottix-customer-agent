@@ -108,6 +108,8 @@
     { id: "dormant", label: "Dormant / 暂停跟进", tone: "" }
   ];
 
+  const DEFAULT_PRODUCT_NAMES = new Set(DEFAULT_PRODUCTS.map((product) => product.name.toLowerCase()));
+
   const FOUR_SCORE_DEFS = [
     { key: "customerPriorityScore", label: "Customer Priority / 客户优先级" },
     { key: "productFitScore", label: "Product Fit / 产品匹配度" },
@@ -583,7 +585,7 @@
       sku: normalizeText(row.sku || normalized.sku || ""),
       brand: normalizeText(row.brand || normalized.brand || ""),
       price: normalizeText(row.price || normalized.price || ""),
-      sourceType: normalizeText(row.sourceType || normalized.sourcetype || "excel"),
+      sourceType: normalizeText(row.sourceType || normalized.sourcetype || (DEFAULT_PRODUCT_NAMES.has(normalizeText(row.name || normalized.name || normalized.product_name || normalized.title).toLowerCase()) ? "default" : "excel")),
       sourceSheet: normalizeText(row.sourceSheet || normalized.sourcesheet || ""),
       note: normalizeText(row.note || normalized.note || ""),
       productStatus: normalizeProductStatus(statusValue),
@@ -994,7 +996,7 @@
       input.sourceNotes
     ].filter(Boolean).join(" "));
     const productCount = (dealerProducts || []).length + (endUserProducts || []).length;
-    const selectedProductCount = (state.products.length ? state.products : normalizeCatalog(DEFAULT_PRODUCTS)).filter(isProductSelected).length;
+    const selectedProductCount = getRecommendationCatalog(state.products.length ? state.products : normalizeCatalog(DEFAULT_PRODUCTS)).filter(isProductRecommendable).length;
     const evidenceCount = analysisBase.topSignals?.length || 0;
     const scopeCount = analysisBase.scopeLines?.length || 0;
     const businessTypeCount = analysisBase.businessTypes?.length || 0;
@@ -1121,8 +1123,12 @@
     return product?.useForRecommendation === true;
   }
 
+  function isDefaultProduct(product) {
+    return product?.sourceType === "default" || DEFAULT_PRODUCT_NAMES.has(normalizeText(product?.name).toLowerCase());
+  }
+
   function isProductRecommendable(product) {
-    return isProductSelected(product) && normalizeProductStatus(product?.productStatus) !== "doNotRecommend";
+    return (isProductSelected(product) || isDefaultProduct(product)) && normalizeProductStatus(product?.productStatus) !== "doNotRecommend";
   }
 
   function isProductGlobalPush(product) {
@@ -1151,6 +1157,16 @@
     return deduped;
   }
 
+  function getRecommendationCatalog(products) {
+    const selected = products.filter(isProductRecommendable);
+    if (selected.length) return products;
+    return normalizeCatalog(DEFAULT_PRODUCTS).map((product) => ({
+      ...product,
+      sourceType: "default",
+      useForRecommendation: true
+    }));
+  }
+
   function buildProductReason(product, analysis, mode) {
     const reasons = [];
     const category = product.category;
@@ -1172,7 +1188,7 @@
 
   function buildProductCards(products, analysis, mode) {
     if (!products.length) {
-      return `<div class="bullet-item">No customer-specific product matched yet. Add products to the Recommendation Pool in the Products tab, then generate the analysis again.</div>`;
+      return `<div class="bullet-item">No product matched yet. If you imported an Excel product list, add the products you want to recommend into the Recommendation Pool, then generate again.</div>`;
     }
     return products.map((product) => {
       const reason = buildProductReason(product, analysis, mode);
@@ -2042,10 +2058,11 @@
     const scoreDetails = buildScoreDetails({ localScoreDetails, websiteAnalysis, websiteScore, localScore, finalScore: score, ratingBand, sourceStatus });
     const focus = buildDecisionFocus(categoryScores, ratingBand);
     const baseCatalog = state.products.length ? state.products : normalizeCatalog(DEFAULT_PRODUCTS);
+    const recommendationCatalog = getRecommendationCatalog(baseCatalog);
     const emailPurpose = normalizeEmailPurpose(input.emailPurpose, state.activeRecord.bucket);
-    const globalPushProducts = getGlobalPushProducts(baseCatalog);
-    const dealerProducts = pickProducts(baseCatalog, ["Lighting", "Modifiers", "Flash & Trigger", "Support & Accessories", "Power & Video"], ["lighting", "led", "rgb", "softbox", "modifier", "flash", "trigger", "stand", "clamp", "battery", "power", "video"], "dealer").map((product) => ({ ...product, reason: buildProductReason(product, { categoryMap }, "dealer") }));
-    const endUserProducts = pickProducts(baseCatalog, ["Lighting", "Modifiers", "Flash & Trigger", "Power & Video", "Support & Accessories"], ["creator", "studio", "video", "rgb", "light", "softbox", "mobile", "stream", "content", "photo"], "endUser").map((product) => ({ ...product, reason: buildProductReason(product, { categoryMap }, "endUser") }));
+    const globalPushProducts = getGlobalPushProducts(recommendationCatalog);
+    const dealerProducts = pickProducts(recommendationCatalog, ["Lighting", "Modifiers", "Flash & Trigger", "Support & Accessories", "Power & Video"], ["lighting", "led", "rgb", "softbox", "modifier", "flash", "trigger", "stand", "clamp", "battery", "power", "video"], "dealer").map((product) => ({ ...product, reason: buildProductReason(product, { categoryMap }, "dealer") }));
+    const endUserProducts = pickProducts(recommendationCatalog, ["Lighting", "Modifiers", "Flash & Trigger", "Power & Video", "Support & Accessories"], ["creator", "studio", "video", "rgb", "light", "softbox", "mobile", "stream", "content", "photo"], "endUser").map((product) => ({ ...product, reason: buildProductReason(product, { categoryMap }, "endUser") }));
     const analysis = {
       input,
       discoveredWebsite,
