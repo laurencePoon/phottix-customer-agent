@@ -236,6 +236,7 @@
     agentForm: document.getElementById("agentForm"),
     companyName: document.getElementById("companyName"),
     contactName: document.getElementById("contactName"),
+    contactEmail: document.getElementById("contactEmail"),
     emailPurpose: document.getElementById("emailPurpose"),
     website: document.getElementById("website"),
     city: document.getElementById("city"),
@@ -277,7 +278,7 @@
     },
     bulkRunning: false,
     pendingStatuses: {
-      prospects: "支持 company_name / website / city / contact_name / contact_email / instagram_url / facebook_url / business_notes / source_notes.",
+      prospects: "支持 company_name / website / city / contact_name / contact_email，也支持 主要联系人名称 / 主要联系人邮箱。",
       customers: "旧客户表独立管理，导入后也可以继续用同一套分析和开发信逻辑。",
       products: "产品库支持导入 Excel / CSV，导入后会自动按类别分组。"
     }
@@ -481,10 +482,31 @@
     return parsed.toISOString().slice(0, 10);
   }
 
+  function isUsableContactEmail(email) {
+    const text = normalizeText(email).toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) return false;
+    if (/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(text)) return false;
+    return !/^(no-?reply|donotreply|privacy|legal|abuse|postmaster|webmaster|support\.?bot)@/i.test(text);
+  }
+
+  function extractContactEmails(value) {
+    const text = String(value || "").replace(/\s*\[\s*at\s*\]\s*/gi, "@").replace(/\s*\(\s*at\s*\)\s*/gi, "@");
+    const matches = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+    return dedupeLines(matches.map((email) => email.toLowerCase()).filter(isUsableContactEmail));
+  }
+
+  function preferredContactEmail(...sources) {
+    const emails = dedupeLines(sources.flatMap((source) => extractContactEmails(source)));
+    if (!emails.length) return "";
+    const preferred = emails.find((email) => /^(sales|info|contact|hello|office|business|commercial|trade|dealer|wholesale)@/i.test(email));
+    return preferred || emails[0];
+  }
+
   function getFormValues() {
     return {
       companyName: normalizeText(DOM.companyName.value),
       contactName: normalizeText(DOM.contactName.value),
+      contactEmail: normalizeText(DOM.contactEmail?.value),
       emailPurpose: DOM.emailPurpose?.value || "",
       website: normalizeUrl(DOM.website.value),
       city: normalizeText(DOM.city.value),
@@ -498,6 +520,7 @@
   function setFormValues(record) {
     DOM.companyName.value = record.companyName || "";
     DOM.contactName.value = record.contactName || "";
+    if (DOM.contactEmail) DOM.contactEmail.value = record.contactEmail || "";
     if (DOM.emailPurpose) DOM.emailPurpose.value = record.emailPurpose || inferEmailPurposeFromBucket(record.bucket);
     DOM.website.value = record.website || "";
     DOM.city.value = record.city || "";
@@ -535,13 +558,19 @@
 
   function normalizeImportedRecord(row) {
     const normalized = {};
-    for (const [key, value] of Object.entries(row || {})) normalized[String(key).toLowerCase()] = value;
+    for (const [key, value] of Object.entries(row || {})) {
+      const rawKey = String(key).trim().toLowerCase();
+      normalized[rawKey] = value;
+      normalized[rawKey.replace(/[\s_-]+/g, "")] = value;
+    }
     return {
       id: row.id || makeId("row"),
       companyName: normalizeText(row.companyName || normalized.company_name || normalized.company || normalized.name),
-      contactName: normalizeText(row.contactName || normalized.contact_name || normalized.contact),
+      contactName: normalizeText(row.contactName || normalized.contact_name || normalized.contactname || normalized["联系人名称"] || normalized["主要联系人名称"] || normalized["主要联系人"] || normalized.contact || normalized.primary_contact || normalized.primarycontact),
       emailPurpose: normalizeText(row.emailPurpose || normalized.email_purpose || normalized.emailpurpose || inferEmailPurposeFromBucket(row.bucket || normalized.bucket)),
-      contactEmail: normalizeText(row.contactEmail || normalized.contact_email || normalized.email),
+      contactEmail: normalizeText(row.contactEmail || normalized.contact_email || normalized.contactemail || normalized["联系人邮箱"] || normalized["主要联系人邮箱"] || normalized["主要邮箱"] || normalized.email || normalized.emailaddress || normalized.email_address || normalized["e-mail"] || normalized.mail || normalized.business_email || normalized.businessemail || normalized.primary_email || normalized.primaryemail),
+      primaryContact: normalizeText(row.primaryContact || normalized["主要联系人名称"] || normalized.primary_contact || normalized.primarycontact),
+      primaryEmail: normalizeText(row.primaryEmail || normalized["主要联系人邮箱"] || normalized.primary_email || normalized.primaryemail),
       website: normalizeUrl(row.website || normalized.website || normalized.domain || normalized.url),
       city: normalizeText(row.city || normalized.city || normalized.country),
       instagramUrl: normalizeUrl(row.instagramUrl || normalized.instagram_url || normalized.instagram),
@@ -1204,6 +1233,133 @@
     return normalizeText(label).split("/")[0].trim();
   }
 
+  const EXPORT_BUSINESS_LABELS = [
+    "Wholesale / Distributor",
+    "Retail",
+    "Photo & Video Retail",
+    "Camera Store",
+    "Online Shop",
+    "Physical Store",
+    "Studio",
+    "Services",
+    "Events & Education",
+    "Creator",
+    "Major Retailer",
+    "Photo & Video Equipment"
+  ];
+
+  function englishFollowUpLabel(value) {
+    const status = normalizeFollowUpStatus(value);
+    const labels = {
+      notContacted: "Not Contacted",
+      emailSent: "Email Sent",
+      followUpNeeded: "Follow-up Needed",
+      replied: "Replied",
+      qualified: "Qualified",
+      notFit: "Not Fit",
+      converted: "Converted",
+      dormant: "Dormant"
+    };
+    return labels[status] || "Not Contacted";
+  }
+
+  function containsMojibake(value) {
+    return /[鎵绁闆跺敭缁忛攢瑰彂涓庤嗛櫒鏉愰浂鍞鐩告満搴瀹炰綋闂ㄥ簵绾夸笂鍟嗶湇姒鑱旂郴]/.test(String(value || ""));
+  }
+
+  function canonicalBusinessLabels(value) {
+    const text = normalizeText(value);
+    if (!text) return [];
+    const lower = text.toLowerCase();
+    const labels = [];
+    const add = (label) => {
+      if (!labels.includes(label)) labels.push(label);
+    };
+
+    for (const label of EXPORT_BUSINESS_LABELS) {
+      if (lower.includes(label.toLowerCase())) add(label);
+    }
+    if (/\bwholesale\b|\bdistributor\b|\bdealer\b|\bb2b\b|\btrade\b/i.test(text)) add("Wholesale / Distributor");
+    if (/\bretail\b|\bstore\b|\bshop\b|\bsales\b/i.test(text)) add("Retail");
+    if (/photo\s*&\s*video|photo and video|photo-video|camera gear|photo equipment|video equipment|photography equipment/i.test(text)) add("Photo & Video Retail");
+    if (/camera store|camera shop|camera center|camera centre/i.test(text)) add("Camera Store");
+    if (/online shop|online store|cart|checkout|buy online|order online/i.test(text)) add("Online Shop");
+    if (/physical store|address|phone|showroom|location|contact/i.test(text)) add("Physical Store");
+    if (/studio/i.test(text)) add("Studio");
+    if (/service|rental|repair|support/i.test(text)) add("Services");
+    if (/event|education|workshop|training|course|class/i.test(text)) add("Events & Education");
+    if (/creator|photographer|videographer|filmmaker|youtube|tiktok|social/i.test(text)) add("Creator");
+
+    return labels;
+  }
+
+  function englishBusinessMix(value, fallback = "the strongest visible business signals") {
+    const labels = Array.isArray(value)
+      ? value.flatMap((item) => canonicalBusinessLabels(item))
+      : canonicalBusinessLabels(value);
+    const clean = dedupeLines(labels).slice(0, 3);
+    return clean.length ? clean.join(" / ") : fallback;
+  }
+
+  function cleanExportText(value) {
+    let text = normalizeText(value);
+    if (!text) return "";
+    if (containsMojibake(text)) {
+      const labels = canonicalBusinessLabels(text);
+      const grade = text.match(/\b(A|B|C|D|NR)\b/i)?.[1]?.toUpperCase() || "";
+      const score = text.match(/\b(?:100|[1-9]?\d)\b/)?.[0] || "";
+      const prefix = grade ? `${grade}${score ? ` / ${score}` : ""}` : "";
+      const cleanLabels = labels.length ? labels.slice(0, 3).join(" / ") : "";
+      if (prefix || cleanLabels) return [prefix, cleanLabels].filter(Boolean).join(" · ");
+      text = text.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "");
+    }
+    text = text.replace(/\s*\|\s*/g, " | ");
+    text = text.replace(/\s+/g, " ").trim();
+    return text;
+  }
+
+  function cleanSuggestionText(value, businessSource = "") {
+    const text = normalizeText(value);
+    if (!text) return "";
+    if (/Use the strongest visible mix/i.test(text)) {
+      return `Use the strongest visible mix: ${englishBusinessMix(`${businessSource} ${text}`)}.`;
+    }
+    if (containsMojibake(text)) {
+      return text
+        .replace(/Use the strongest visible mix:[^|.]+[.|]?/i, `Use the strongest visible mix: ${englishBusinessMix(`${businessSource} ${text}`)}.`)
+        .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+    return cleanExportText(text);
+  }
+
+  function cleanSuggestionsForExport(value, businessSource = "") {
+    const parts = String(value || "")
+      .split(/\s*\|\s*|\n+/)
+      .map((part) => cleanSuggestionText(part, businessSource))
+      .filter(Boolean);
+    return dedupeLines(parts).join(" | ");
+  }
+
+  function cleanBusinessTypesForExport(value) {
+    return englishBusinessMix(value, "");
+  }
+
+  function cleanSignalsForExport(value) {
+    return String(value || "")
+      .split(/\s*\|\s*|\n+/)
+      .map((part) => {
+        const labels = canonicalBusinessLabels(part);
+        const cleanPart = containsMojibake(part)
+          ? part.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "")
+          : part;
+        return cleanExportText(labels.length ? `${labels[0]}: ${cleanPart.split(":").pop() || ""}` : cleanPart);
+      })
+      .filter(Boolean)
+      .join(" | ");
+  }
+
   function englishBusinessTypes(analysis, limit = 2) {
     return (analysis.businessTypes || [])
       .map(toEnglishLabel)
@@ -1256,7 +1412,7 @@
     else if (retail > 0 || online > 0) items.push("Lead with retail assortment and one concrete best-selling Phottix bundle.");
     else if (studio > 0 || creator > 0) items.push("Lead with compact lighting + modifier bundles that fit studio or creator workflows.");
     else items.push("Ask for one more website or social excerpt before sending a highly personalized email.");
-    if (analysis.businessTypes.length) items.push(`Use the strongest visible mix: ${analysis.businessTypes.slice(0, 3).join(" / ")}.`);
+    if (analysis.businessTypes.length) items.push(`Use the strongest visible mix: ${englishBusinessMix(analysis.businessTypes)}.`);
     items.push("Include one line of evidence from the website in the opening paragraph.");
     items.push("Keep the CTA simple: catalog, pricing, and a short call to discuss fit.");
     return dedupeLines(items).slice(0, 4);
@@ -1362,6 +1518,7 @@
     const lines = [];
     lines.push(`Company: ${input.companyName || "—"}`);
     lines.push(`Contact: ${input.contactName || "—"}`);
+    lines.push(`Contact email: ${input.contactEmail || "—"}`);
     lines.push(`Website: ${input.website || "—"}`);
     lines.push(`City: ${input.city || "—"}`);
     lines.push(`Instagram: ${input.instagramUrl || analysis.socialTargets.instagram || "—"}`);
@@ -1411,19 +1568,22 @@
   function buildExportRow(analysis, input, bucket) {
     const activeRecord = state.activeRecord.id ? findRecord(bucket, state.activeRecord.id) : null;
     const followUp = followUpStatusMeta(activeRecord?.followUpStatus);
+    const contactName = input.contactName || activeRecord?.contactName || "";
+    const contactEmail = input.contactEmail || activeRecord?.contactEmail || "";
     return {
       company_name: input.companyName || "",
-      contact_name: input.contactName || "",
-      contact_email: "",
+      contact_name: contactName,
+      contact_email: contactEmail,
+      email_ready: contactEmail ? "Ready" : "Missing Contact Email",
       website: input.website || "",
       instagram_url: input.instagramUrl || analysis.socialTargets.instagram || "",
       facebook_url: input.facebookUrl || analysis.socialTargets.facebook || "",
       city: input.city || "",
       email_purpose: analysis.emailPurpose || "",
-      follow_up_status: followUp.label,
+      follow_up_status: englishFollowUpLabel(activeRecord?.followUpStatus),
       next_follow_up_date: formatDateInputValue(activeRecord?.nextFollowUpDate),
       last_contacted_at: activeRecord?.lastContactedAt || "",
-      business_types: analysis.businessTypes.join(" | "),
+      business_types: cleanBusinessTypesForExport(analysis.businessTypes.join(" | ")),
       rating: analysis.grade,
       score: analysis.score,
       customer_priority_score: analysis.fourScores?.customerPriorityScore || 0,
@@ -1431,9 +1591,9 @@
       data_confidence_score: analysis.fourScores?.dataConfidenceScore || 0,
       outreach_readiness_score: analysis.fourScores?.outreachReadinessScore || 0,
       score_explanation: analysis.scoreDetails?.reportLines?.join(" | ") || "",
-      rating_focus: analysis.focus,
-      key_decision: analysis.keyDecision,
-      matched_signals: analysis.topSignals.map((signal) => `${signal.categoryLabel}: ${signal.label} +${signal.points}`).join(" | "),
+      rating_focus: cleanExportText(analysis.focus),
+      key_decision: cleanExportText(analysis.keyDecision),
+      matched_signals: cleanSignalsForExport(analysis.topSignals.map((signal) => `${signal.categoryLabel}: ${signal.label} +${signal.points}`).join(" | ")),
       global_push_line: (analysis.globalPushProducts || []).map((product) => product.name).join(" | "),
       force_email_line: "",
       dealer_line: analysis.dealerProducts.map((product) => `${product.name} (${product.reason})`).join(" | "),
@@ -1461,6 +1621,7 @@
     const rows = [
       ["公司名 / Company", escapeHtml(input.companyName || "—")],
       ["联系人 / Contact", escapeHtml(input.contactName || "—")],
+      ["联系邮箱 / Contact Email", input.contactEmail ? `<a href="mailto:${escapeHtml(input.contactEmail)}">${escapeHtml(input.contactEmail)}</a>` : "—"],
       ["官网 / Website", input.website ? `<a href="${escapeHtml(input.website)}" target="_blank" rel="noreferrer">${escapeHtml(displayUrl(input.website))}</a>` : "—"],
       ["城市 / City", escapeHtml(input.city || "—")],
       ["Instagram", analysis.socialTargets.instagram ? `<a href="${escapeHtml(analysis.socialTargets.instagram)}" target="_blank" rel="noreferrer">${escapeHtml(displayUrl(analysis.socialTargets.instagram))}</a>` : "—"],
@@ -1591,8 +1752,8 @@
   function renderAnalysis(analysis, input) {
     renderCompanyInfo(analysis, input);
     const ratingTitle = analysis.grade === "NR" ? "未评级 / Not Rated" : `${analysis.grade} 级 / ${analysis.score} 分`;
-    DOM.keyDecisionRating.innerHTML = `<div class="bullet-item"><strong>${escapeHtml(ratingTitle)}</strong></div>`;
-    DOM.keyDecisionFocus.innerHTML = `<div class="bullet-item">${escapeHtml(analysis.keyDecision)}</div><div class="bullet-item">${escapeHtml(analysis.focus)}</div>`;
+    DOM.keyDecisionRating.innerHTML = `<strong>${escapeHtml(ratingTitle)}</strong>`;
+    DOM.keyDecisionFocus.innerHTML = `<strong>${escapeHtml(analysis.keyDecision)}</strong><br><span class="crm-meta">${escapeHtml(analysis.focus)}</span>`;
     renderJudgingStandardList();
     renderScopeList(analysis.scopeLines, input, analysis);
     renderRatingList(analysis.categoryScores, analysis);
@@ -1836,9 +1997,9 @@
       id: existingRecordId || makeId(bucket === "customers" ? "cust" : "pros"),
       bucket,
       companyName: input.companyName || humanizeDomain(input.website) || "",
-      contactName: input.contactName || "",
+      contactName: input.contactName || previousRecord?.contactName || "",
       emailPurpose: analysis.emailPurpose || input.emailPurpose || inferEmailPurposeFromBucket(bucket),
-      contactEmail: previousRecord?.contactEmail || "",
+      contactEmail: input.contactEmail || previousRecord?.contactEmail || "",
       website: input.website || "",
       city: input.city || "",
       instagramUrl: input.instagramUrl || analysis.socialTargets.instagram || "",
@@ -1868,7 +2029,7 @@
       endUserLine: analysis.endUserProducts.map((product) => product.name).join(" | "),
       globalPushLine: (analysis.globalPushProducts || []).map((product) => product.name).join(" | "),
       forceEmailLine: "",
-      suggestions: analysis.suggestions.join(" | "),
+      suggestions: cleanSuggestionsForExport(analysis.suggestions.join(" | "), analysis.businessTypes.join(" | ")),
       savedAt: new Date().toISOString()
     };
   }
@@ -1979,6 +2140,7 @@
     return {
       companyName: record.companyName || humanizeDomain(record.website) || "",
       contactName: record.contactName || "",
+      contactEmail: record.contactEmail || "",
       emailPurpose: normalizeEmailPurpose(record.emailPurpose, record.bucket),
       website: record.website || "",
       city: record.city || "",
@@ -2025,6 +2187,21 @@
 
     const effectiveInput = { ...input, website: websiteForDisplay, companyName: companyFallback };
     const collected = await collectSources(effectiveInput);
+    const discoveredEmail = preferredContactEmail(
+      effectiveInput.contactEmail,
+      ...collected.sources.map((source) => [
+        source.raw?.emails?.join(" "),
+        source.title,
+        source.description,
+        source.body
+      ].filter(Boolean).join(" ")),
+      effectiveInput.businessNotes,
+      effectiveInput.sourceNotes
+    );
+    if (!effectiveInput.contactEmail && discoveredEmail) {
+      effectiveInput.contactEmail = discoveredEmail;
+      if (DOM.contactEmail) DOM.contactEmail.value = discoveredEmail;
+    }
     setStatus("Analyzing signals...", "warn");
 
     const evidenceBlocks = evidenceBlocksFromInput(effectiveInput, collected.sources);
@@ -2214,19 +2391,22 @@
 
   function buildExportRowFromRecord(record, bucket) {
     const followUp = followUpStatusMeta(record.followUpStatus);
+    const contactName = record.contactName || record["主要联系人名称"] || record.primaryContact || "";
+    const contactEmail = record.contactEmail || record["主要联系人邮箱"] || record.primaryEmail || "";
     return {
       company_name: record.companyName || "",
-      contact_name: record.contactName || "",
-      contact_email: record.contactEmail || "",
+      contact_name: contactName,
+      contact_email: contactEmail,
+      email_ready: contactEmail ? "Ready" : "Missing Contact Email",
       website: record.website || "",
       instagram_url: record.instagramUrl || "",
       facebook_url: record.facebookUrl || "",
       city: record.city || "",
       email_purpose: record.emailPurpose || inferEmailPurposeFromBucket(bucket),
-      follow_up_status: followUp.label,
+      follow_up_status: englishFollowUpLabel(record.followUpStatus),
       next_follow_up_date: formatDateInputValue(record.nextFollowUpDate),
       last_contacted_at: record.lastContactedAt || "",
-      business_types: record.businessTypes || "",
+      business_types: cleanBusinessTypesForExport(record.businessTypes || ""),
       rating: record.rating || "",
       score: record.score || "",
       customer_priority_score: record.customerPriorityScore || "",
@@ -2234,9 +2414,9 @@
       data_confidence_score: record.dataConfidenceScore || "",
       outreach_readiness_score: record.outreachReadinessScore || "",
       score_explanation: record.scoreExplanation || "",
-      rating_focus: record.keyDecision || record.analysisSummary || "",
-      key_decision: record.keyDecision || "",
-      matched_signals: record.matchedSignals || "",
+      rating_focus: cleanExportText(record.keyDecision || record.analysisSummary || ""),
+      key_decision: cleanExportText(record.keyDecision || ""),
+      matched_signals: cleanSignalsForExport(record.matchedSignals || ""),
       global_push_line: record.globalPushLine || "",
       force_email_line: record.forceEmailLine || "",
       dealer_line: record.dealerLine || "",
@@ -2244,7 +2424,7 @@
       email_subject: record.emailSubject || "",
       email_body: record.emailBody || "",
       email_preview: record.emailPreview || "",
-      suggestions: record.suggestions || "",
+      suggestions: cleanSuggestionsForExport(record.suggestions || "", record.businessTypes || record.keyDecision || record.analysisSummary || ""),
       save_bucket: bucket,
       saved_at: record.savedAt || ""
     };
@@ -2305,6 +2485,8 @@
           const savedRecord = syncRecordFromAnalysis(bucket, record.id, state.currentAnalysis, getFormValues());
           upsertRecord(bucket, {
             ...savedRecord,
+            contactName: savedRecord.contactName || record.contactName || record.primaryContact || "",
+            contactEmail: savedRecord.contactEmail || record.contactEmail || record.primaryEmail || "",
             followUpStatus: normalizeFollowUpStatus(record.followUpStatus),
             nextFollowUpDate: formatDateInputValue(record.nextFollowUpDate),
             lastContactedAt: record.lastContactedAt || ""
@@ -2331,7 +2513,7 @@
   }
 
   function resetForm() {
-    setFormValues({ companyName: "", contactName: "", emailPurpose: "firstTouch", website: "", city: "", instagramUrl: "", facebookUrl: "", businessNotes: "", sourceNotes: "" });
+    setFormValues({ companyName: "", contactName: "", contactEmail: "", emailPurpose: "firstTouch", website: "", city: "", instagramUrl: "", facebookUrl: "", businessNotes: "", sourceNotes: "" });
     state.currentAnalysis = null;
     state.activeRecord = { bucket: "prospects", id: null };
     DOM.copyReportBtn.disabled = true;
@@ -2377,7 +2559,8 @@
         else state.prospects = list;
         saveCurrentLists();
         renderCrmModules();
-        setStatus(`Imported ${list.length} ${bucket === "customers" ? "existing customers" : "prospects"}.`, "good");
+        const emailCount = list.filter((row) => row.contactEmail).length;
+        setStatus(`Imported ${list.length} ${bucket === "customers" ? "existing customers" : "prospects"}. Contact emails found: ${emailCount}.`, emailCount ? "good" : "warn");
       }
     } catch (error) {
       console.error(error);
@@ -2475,6 +2658,7 @@
     setFormValues({
       companyName: "B&H Photo Video",
       contactName: "",
+      contactEmail: "",
       emailPurpose: "firstTouch",
       website: "https://www.bhphotovideo.com/",
       city: "New York",

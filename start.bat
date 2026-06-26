@@ -7,7 +7,6 @@ echo Phottix Customer Agent
 echo ----------------------
 echo.
 echo Starting local server...
-echo Keep this window open while using the app.
 echo.
 
 where node >nul 2>nul
@@ -33,12 +32,15 @@ if not errorlevel 1 (
   exit /b 0
 )
 
-echo Opening browser now...
+echo Opening server window...
+start "Phottix Customer Agent Server" "%~dp0run-server.bat"
+echo.
+
+echo Waiting 2 seconds before opening browser...
+timeout /t 2 /nobreak >nul
 start "" "http://127.0.0.1:8787/"
-echo.
-
-node server.js
 
 echo.
-echo Server stopped.
+echo If the page does not load, check the server window.
+echo It must show: Phottix local fetch server listening on http://127.0.0.1:8787
 pause

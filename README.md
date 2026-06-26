@@ -9,9 +9,9 @@ Local customer analysis, product recommendation, and outreach email tool.
 3. Install Node.js if needed: https://nodejs.org/
 4. Double-click `start.bat`.
 5. A black CMD window will open.
-6. The browser should open automatically.
-7. Keep the black CMD window open while using the app.
-8. If the browser does not open automatically, open this link manually:
+6. Wait until you see `listening on http://127.0.0.1:8787`.
+7. Keep the CMD window open while using the app.
+8. Open this link in Chrome or Edge:
 
 ```text
 http://127.0.0.1:8787/

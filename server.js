@@ -247,6 +247,25 @@ function extractText(html) {
     .filter((line) => line.length > 0);
 }
 
+function extractEmails(text) {
+  const normalized = String(text || "")
+    .replace(/\s*\[\s*at\s*\]\s*/gi, "@")
+    .replace(/\s*\(\s*at\s*\)\s*/gi, "@");
+  const matches = normalized.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+  const seen = new Set();
+  const emails = [];
+  for (const raw of matches) {
+    const email = raw.toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+    if (/^(no-?reply|donotreply|privacy|legal|abuse|postmaster|webmaster)@/i.test(email)) continue;
+    if (seen.has(email)) continue;
+    seen.add(email);
+    emails.push(email);
+    if (emails.length >= 8) break;
+  }
+  return emails;
+}
+
 function summarizeLines(lines) {
   const unique = [];
   const seen = new Set();
@@ -566,6 +585,7 @@ headers = [
     ("company_name", "Company Name"),
     ("contact_name", "Contact Name"),
     ("contact_email", "Contact Email"),
+    ("email_ready", "Email Ready"),
     ("website", "Website"),
     ("instagram_url", "Instagram"),
     ("facebook_url", "Facebook"),
@@ -638,7 +658,10 @@ ws.auto_filter.ref = f"A2:{get_column_letter(len(headers))}{ws.max_row}"
 
 wb.save(path)
 print(json.dumps({"ok": True, "filePath": str(path)}))
-`, filePath], { stdio: ['pipe', 'pipe', 'pipe'] });
+`, filePath], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, PYTHONIOENCODING: "utf-8" }
+    });
 
     let stdout = '';
     let stderr = '';
@@ -672,6 +695,7 @@ function buildExtraction(html, pageUrl) {
   const textLines = summarizeLines(extractText(html));
   const body = textLines.slice(0, 80).join("\n");
   const blocked = isChallengeText([title, description, body].join("\n"));
+  const emails = extractEmails([html, title, description, body].join("\n"));
 
   return {
     url: pageUrl,
@@ -679,6 +703,7 @@ function buildExtraction(html, pageUrl) {
     siteName,
     description,
     body,
+    emails,
     source: "local-fetch",
     blocked,
     blockReason: blocked ? "Target returned a challenge or CAPTCHA page instead of usable content." : ""
@@ -697,6 +722,7 @@ function buildTextExtraction(text, pageUrl, source = "text-mirror") {
   const description = lines.slice(1, 3).join(" ").slice(0, 240);
   const body = summarizeLines(lines).slice(0, 80).join("\n");
   const blocked = isChallengeText([title, description, body].join("\n"));
+  const emails = extractEmails([text, title, description, body].join("\n"));
 
   return {
     url: pageUrl,
@@ -704,6 +730,7 @@ function buildTextExtraction(text, pageUrl, source = "text-mirror") {
     siteName: "",
     description,
     body,
+    emails,
     source,
     blocked,
     blockReason: blocked ? "Mirror returned a challenge or CAPTCHA page instead of usable content." : ""
@@ -768,6 +795,7 @@ function analyzeExtraction(extraction) {
     title: extraction.title,
     description: extraction.description,
     body: extraction.body || "",
+    emails: extraction.emails || [],
     blocked: Boolean(extraction.blocked),
     blockReason: extraction.blockReason || "",
     attemptedUrls: extraction.attemptedUrls || [],
@@ -1101,7 +1129,8 @@ async function safeFetchExtraction(targetUrl) {
 function normalizeHeaderName(name) {
   return String(name || "")
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
 }
 
 function rowToCustomer(row) {
@@ -1165,8 +1194,8 @@ function rowToCustomer(row) {
     companyName,
     website,
     city: get("city", "国家地区名称", "国家地区"),
-    contactName: get("contact_name", "联系人名称", "contact"),
-    contactEmail: get("contact_email", "联系人邮箱", "email"),
+    contactName: get("contact_name", "联系人名称", "主要联系人名称", "主要联系人", "contact", "primary contact", "primary_contact"),
+    contactEmail: get("contact_email", "联系人邮箱", "主要联系人邮箱", "主要邮箱", "email", "email address", "email_address", "e-mail", "mail", "business email", "business_email", "primary email", "primary_email"),
     instagramUrl,
     facebookUrl,
     businessNotes,
@@ -1181,7 +1210,8 @@ function rowToCustomer(row) {
     industryRelation: get("行业匹配关系", "industry_relation"),
     purchaseNeedAnalysis: get("采购需求分析", "purchase_need_analysis"),
     diggingStrategy: get("动态挖掘策略", "dynamic_strategy"),
-    whatsapp: get("联系人whatsapp", "whatsapp")
+    whatsapp: get("联系人whatsapp", "whatsapp"),
+    contactCount: get("联系人数量", "contact_count", "contact count")
   };
 }
 
