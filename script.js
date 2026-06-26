@@ -491,9 +491,11 @@
     const normalized = {};
     for (const [key, value] of Object.entries(row || {})) normalized[String(key).toLowerCase()] = value;
     const recommendationValue = row.useForRecommendation ?? row.use_for_recommendation ?? normalized.useforrecommendation ?? normalized.use_for_recommendation ?? normalized.recommend ?? normalized.active;
+    const forceEmailValue = row.forceIncludeInEmail ?? row.force_include_in_email ?? normalized.forceincludeinemail ?? normalized.force_include_in_email ?? normalized.email_include ?? normalized.include_in_email;
     const disabledValue = row.excludeFromRecommendation ?? row.exclude_from_recommendation ?? normalized.excludefromrecommendation ?? normalized.exclude_from_recommendation;
     const hasRecommendationValue = recommendationValue !== undefined && recommendationValue !== null && String(recommendationValue).trim() !== "";
     const isExplicitlySelected = /^(true|1|yes|y|on|selected|recommend|recommended)$/i.test(String(recommendationValue || ""));
+    const isForceIncluded = /^(true|1|yes|y|on|selected|include|included|force)$/i.test(String(forceEmailValue || ""));
     const isDisabled = /^(false|0|no|n|off|disabled|exclude|excluded)$/i.test(String(recommendationValue || "")) || /^(true|1|yes|y|on)$/i.test(String(disabledValue || ""));
     return {
       id: row.id || makeId("prod"),
@@ -507,7 +509,8 @@
       sourceType: normalizeText(row.sourceType || normalized.sourcetype || "excel"),
       sourceSheet: normalizeText(row.sourceSheet || normalized.sourcesheet || ""),
       note: normalizeText(row.note || normalized.note || ""),
-      useForRecommendation: hasRecommendationValue ? isExplicitlySelected && !isDisabled : false
+      useForRecommendation: hasRecommendationValue ? isExplicitlySelected && !isDisabled : false,
+      forceIncludeInEmail: isForceIncluded
     };
   }
 
@@ -974,6 +977,14 @@
     return product?.useForRecommendation === true;
   }
 
+  function isProductForceIncluded(product) {
+    return product?.forceIncludeInEmail === true;
+  }
+
+  function getForceIncludedProducts(products) {
+    return products.filter(isProductForceIncluded);
+  }
+
   function pickProducts(products, targetCategories, targetTerms, mode) {
     const scored = products
       .filter(isProductSelected)
@@ -1013,7 +1024,7 @@
 
   function buildProductCards(products, analysis, mode) {
     if (!products.length) {
-      return `<div class="bullet-item">No matched products yet. Import the Phottix Excel file in the Products tab to unlock catalog-based recommendations.</div>`;
+      return `<div class="bullet-item">No customer-specific product matched yet. Add products to the Recommendation Pool in the Products tab, then generate the analysis again.</div>`;
     }
     return products.map((product) => {
       const reason = buildProductReason(product, analysis, mode);
@@ -1122,6 +1133,7 @@
 
   function buildEmailProductLine(analysis) {
     const products = dedupeLines([
+      ...(analysis.forceEmailProducts || []).map((product) => product.name),
       ...analysis.dealerProducts.map((product) => product.name),
       ...analysis.endUserProducts.map((product) => product.name)
     ]).slice(0, 3);
@@ -1180,6 +1192,9 @@
     lines.push("Business scope:");
     for (const scope of analysis.scopeLines.slice(0, 6)) lines.push(`- ${scope.source}: ${scope.text}`);
     lines.push("");
+    lines.push("Force include in email:");
+    for (const product of (analysis.forceEmailProducts || []).slice(0, 4)) lines.push(`- ${product.name} (${product.category})`);
+    lines.push("");
     lines.push("Dealer line:");
     for (const product of analysis.dealerProducts.slice(0, 4)) lines.push(`- ${product.name} (${product.category}) — ${product.reason}`);
     lines.push("");
@@ -1213,6 +1228,7 @@
       rating_focus: analysis.focus,
       key_decision: analysis.keyDecision,
       matched_signals: analysis.topSignals.map((signal) => `${signal.categoryLabel}: ${signal.label} +${signal.points}`).join(" | "),
+      force_email_line: (analysis.forceEmailProducts || []).map((product) => product.name).join(" | "),
       dealer_line: analysis.dealerProducts.map((product) => `${product.name} (${product.reason})`).join(" | "),
       end_user_line: analysis.endUserProducts.map((product) => `${product.name} (${product.reason})`).join(" | "),
       email_subject: analysis.email.subject,
@@ -1369,6 +1385,7 @@
     const grouped = groupProductsByCategory(filteredProducts);
     const productCount = products.length;
     const activeCount = products.filter(isProductSelected).length;
+    const forcedCount = products.filter(isProductForceIncluded).length;
     const visibleCount = filteredProducts.length;
     const categoryCount = groupProductsByCategory(products).length;
     const sourceLabel = state.productSource === "excel" ? "Excel" : "Default";
@@ -1382,11 +1399,11 @@
       <div class="section-head">
         <div>
           <h2>产品资料库 / Product Library</h2>
-          <p>当前已加载 ${productCount} 个产品，覆盖 ${categoryCount} 个类别。请从产品库中选择真正要推荐的产品，未选择的产品只作为资料保存。</p>
+          <p>当前已加载 ${productCount} 个产品，覆盖 ${categoryCount} 个类别。你勾选的是“推荐候选池”，系统会再根据客户类型从候选池里挑出“本客户推荐产品”。</p>
         </div>
         <div class="crm-tools">
           <button class="secondary-button" type="button" data-action="import-products">导入产品 Excel / Import Products</button>
-          <button class="ghost-button" type="button" data-action="set-all-products" data-product-active="false">清空推荐池 / Clear Selection</button>
+          <button class="ghost-button" type="button" data-action="set-all-products" data-product-active="false">清空推荐候选池 / Clear Pool</button>
           <input id="productFileInput" type="file" accept=".xlsx,.xlsm,.csv" hidden>
         </div>
       </div>
@@ -1397,12 +1414,13 @@
         </label>
         <label class="product-toggle product-selected-filter">
           <input id="productSelectedOnlyInput" type="checkbox" ${state.productFilters.selectedOnly ? "checked" : ""}>
-          <span>只看已选 / Selected only</span>
+          <span>只看候选池 / Pool only</span>
         </label>
       </div>
       <div class="overview-cards">
         <div class="overview-card"><span class="overview-label">Products</span><strong class="overview-value">${productCount}</strong><span class="overview-note">Source: ${escapeHtml(sourceLabel)}</span></div>
-        <div class="overview-card"><span class="overview-label">Selected Products</span><strong class="overview-value">${activeCount}</strong><span class="overview-note">Only selected products are used in emails</span></div>
+        <div class="overview-card"><span class="overview-label">Recommendation Pool</span><strong class="overview-value">${activeCount}</strong><span class="overview-note">AI recommends from this pool only</span></div>
+        <div class="overview-card"><span class="overview-label">Force Include</span><strong class="overview-value">${forcedCount}</strong><span class="overview-note">Always appears in the email</span></div>
         <div class="overview-card"><span class="overview-label">Visible / Categories</span><strong class="overview-value">${visibleCount} / ${categoryCount}</strong><span class="overview-note">Search and select what you want to recommend</span></div>
       </div>
       <div class="result-area">
@@ -1411,26 +1429,34 @@
             <div class="block-head">
               <h3>${escapeHtml(category)} (${items.length})</h3>
               <div class="crm-tools product-category-tools">
-                <span class="status-pill">${items.filter(isProductSelected).length} selected</span>
-                <button class="mini-button" type="button" data-action="set-category-products" data-category="${escapeHtml(category)}" data-product-active="true">Select category</button>
-                <button class="mini-button danger-text" type="button" data-action="set-category-products" data-category="${escapeHtml(category)}" data-product-active="false">Clear category</button>
+                <span class="status-pill">${items.filter(isProductSelected).length} in pool</span>
+                <button class="mini-button" type="button" data-action="set-category-products" data-category="${escapeHtml(category)}" data-product-active="true">Add category to pool</button>
+                <button class="mini-button danger-text" type="button" data-action="set-category-products" data-category="${escapeHtml(category)}" data-product-active="false">Remove category from pool</button>
               </div>
             </div>
             <div class="product-grid">${items.map((item) => {
               const meta = [item.sku ? `SKU: ${item.sku}` : "", item.brand].filter(Boolean).join(" · ");
               const summary = summarizeProduct(item);
               const isActive = isProductSelected(item);
-              return `<article class="product-card compact-product-card ${isActive ? "" : "product-card-disabled"}">
+              const isForced = isProductForceIncluded(item);
+              return `<article class="product-card compact-product-card ${isActive || isForced ? "" : "product-card-disabled"}">
                 <label class="product-toggle">
                   <input type="checkbox" data-action="toggle-product-recommendation" data-product-id="${escapeHtml(item.id)}" ${isActive ? "checked" : ""}>
-                  <span>${isActive ? "Selected for recommendations" : "Not selected"}</span>
+                  <span>${isActive ? "In Recommendation Pool" : "Not in Pool"}</span>
+                </label>
+                <label class="product-toggle force-email-toggle">
+                  <input type="checkbox" data-action="toggle-product-force-email" data-product-id="${escapeHtml(item.id)}" ${isForced ? "checked" : ""}>
+                  <span>${isForced ? "Will be written into email" : "Do not force into email"}</span>
                 </label>
                 <strong>${escapeHtml(item.name)}</strong>
                 ${meta ? `<div class="crm-meta">${escapeHtml(meta)}</div>` : ""}
                 ${summary ? `<span>${escapeHtml(summary)}</span>` : ""}
                 <div class="product-actions">
                   <button class="${isActive ? "mini-button danger-text" : "mini-button secondary-button"}" type="button" data-action="set-product-recommendation" data-product-id="${escapeHtml(item.id)}" data-product-active="${isActive ? "false" : "true"}">
-                    ${isActive ? "Remove from selection" : "Select for recommendations"}
+                    ${isActive ? "Remove from pool" : "Add to pool"}
+                  </button>
+                  <button class="${isForced ? "mini-button danger-text" : "mini-button secondary-button"}" type="button" data-action="set-product-force-email" data-product-id="${escapeHtml(item.id)}" data-product-force="${isForced ? "false" : "true"}">
+                    ${isForced ? "Do not force email" : "Force into email"}
                   </button>
                 </div>
               </article>`;
@@ -1551,6 +1577,7 @@
       matchedSignals: analysis.topSignals.map((signal) => `${signal.categoryLabel}: ${signal.label} +${signal.points}`).join(" | "),
       dealerLine: analysis.dealerProducts.map((product) => product.name).join(" | "),
       endUserLine: analysis.endUserProducts.map((product) => product.name).join(" | "),
+      forceEmailLine: (analysis.forceEmailProducts || []).map((product) => product.name).join(" | "),
       suggestions: analysis.suggestions.join(" | "),
       savedAt: new Date().toISOString()
     };
@@ -1579,7 +1606,16 @@
     ));
     saveCurrentLists();
     renderProductLibrary();
-    setStatus(isActive ? "Product selected for recommendations." : "Product removed from selection.", isActive ? "good" : "warn");
+    setStatus(isActive ? "Product added to Recommendation Pool." : "Product removed from Recommendation Pool.", isActive ? "good" : "warn");
+  }
+
+  function setProductForceEmail(productId, isForced) {
+    state.products = state.products.map((product) => (
+      product.id === productId ? { ...product, forceIncludeInEmail: isForced } : product
+    ));
+    saveCurrentLists();
+    renderProductLibrary();
+    setStatus(isForced ? "Product will be written into the email." : "Product removed from forced email include.", isForced ? "good" : "warn");
   }
 
   function setProductsRecommendationByCategory(category, isActive) {
@@ -1589,14 +1625,14 @@
     });
     saveCurrentLists();
     renderProductLibrary();
-    setStatus(`${isActive ? "Selected" : "Cleared"} ${category} for recommendations.`, isActive ? "good" : "warn");
+    setStatus(`${isActive ? "Added" : "Removed"} ${category} ${isActive ? "to" : "from"} the Recommendation Pool.`, isActive ? "good" : "warn");
   }
 
   function setAllProductsRecommendation(isActive) {
     state.products = state.products.map((product) => ({ ...product, useForRecommendation: isActive }));
     saveCurrentLists();
     renderProductLibrary();
-    setStatus(isActive ? "All products selected for recommendations." : "Recommendation selection cleared.", isActive ? "good" : "warn");
+    setStatus(isActive ? "All products added to the Recommendation Pool." : "Recommendation Pool cleared.", isActive ? "good" : "warn");
   }
 
   function updateProductFilters({ query, selectedOnly } = {}) {
@@ -1677,6 +1713,7 @@
     const scoreDetails = buildScoreDetails({ localScoreDetails, websiteAnalysis, websiteScore, localScore, finalScore: score, ratingBand, sourceStatus });
     const focus = buildDecisionFocus(categoryScores, ratingBand);
     const baseCatalog = state.products.length ? state.products : normalizeCatalog(DEFAULT_PRODUCTS);
+    const forceEmailProducts = getForceIncludedProducts(baseCatalog);
     const dealerProducts = pickProducts(baseCatalog, ["Lighting", "Modifiers", "Flash & Trigger", "Support & Accessories", "Power & Video"], ["lighting", "led", "rgb", "softbox", "modifier", "flash", "trigger", "stand", "clamp", "battery", "power", "video"], "dealer").map((product) => ({ ...product, reason: buildProductReason(product, { categoryMap }, "dealer") }));
     const endUserProducts = pickProducts(baseCatalog, ["Lighting", "Modifiers", "Flash & Trigger", "Power & Video", "Support & Accessories"], ["creator", "studio", "video", "rgb", "light", "softbox", "mobile", "stream", "content", "photo"], "endUser").map((product) => ({ ...product, reason: buildProductReason(product, { categoryMap }, "endUser") }));
     const analysis = {
@@ -1697,6 +1734,8 @@
       fallbackNote: ratingBand.fallbackNote || (knownFallback ? knownFallback.note : ""),
       scopeLines,
       topSignals,
+      baseCatalog,
+      forceEmailProducts,
       dealerProducts,
       endUserProducts,
       suggestions: buildSuggestionList({ categoryMap, businessTypes }),
@@ -1853,7 +1892,7 @@
         state.productSource = "excel";
         saveCurrentLists();
         renderProductLibrary();
-        setStatus(`Imported ${state.products.length} products. Select the products you want to recommend.`, "good");
+        setStatus(`Imported ${state.products.length} products. Add the products you want AI to choose from into the Recommendation Pool.`, "good");
       } else {
         const list = rows.map(normalizeImportedRecord).map((row) => ({ ...row, bucket, id: row.id || makeId(bucket === "customers" ? "cust" : "pros") }));
         if (bucket === "customers") state.customers = list;
@@ -1883,6 +1922,10 @@
       }
       case "set-product-recommendation": {
         setProductRecommendation(button.dataset.productId || "", button.dataset.productActive === "true");
+        break;
+      }
+      case "set-product-force-email": {
+        setProductForceEmail(button.dataset.productId || "", button.dataset.productForce === "true");
         break;
       }
       case "set-category-products": {
@@ -1927,6 +1970,7 @@
     else if (input.id === "productFileInput") await handleImportClick("products", input);
     else if (input.id === "productSelectedOnlyInput") updateProductFilters({ selectedOnly: input.checked });
     else if (input.dataset.action === "toggle-product-recommendation") setProductRecommendation(input.dataset.productId || "", input.checked);
+    else if (input.dataset.action === "toggle-product-force-email") setProductForceEmail(input.dataset.productId || "", input.checked);
   }
 
   function handleDelegatedInput(event) {
