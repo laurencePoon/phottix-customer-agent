@@ -22,8 +22,7 @@
     <nav class="module-nav panel">
       <button class="module-tab active" type="button" data-module="analysis">客户分析 / Analysis</button>
       <button class="module-tab" type="button" data-module="products">产品资料库 / Products</button>
-      <button class="module-tab" type="button" data-module="prospects">潜在客户 / Prospects</button>
-      <button class="module-tab" type="button" data-module="customers">旧客户 / Existing Customers</button>
+      <button class="module-tab" type="button" data-module="customers">客户池 / Customer Pool</button>
     </nav>
 
     <main class="layout">
@@ -55,8 +54,17 @@
               <select id="emailPurpose" name="emailPurpose">
                 <option value="firstTouch">首次开发 / First Touch</option>
                 <option value="productFollowUp">产品跟进 / Product Follow-up</option>
+                <option value="eventInvitation">活动邀请 / Event Invitation</option>
                 <option value="existingCustomerUpdate">老客户更新 / Existing Customer Update</option>
                 <option value="reactivation">老客户唤醒 / Reactivation</option>
+                <option value="holidayGreeting">节日问候 / Holiday Greeting</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>客户类型 / Customer Type</span>
+              <select id="customerType" name="customerType">
+                <option value="prospect">潜在客户 / Prospect</option>
+                <option value="existing">旧客户 / Existing</option>
               </select>
             </label>
             <label class="field">
@@ -83,13 +91,18 @@
           </label>
 
           <label class="field field-wide">
+            <span>手动网站摘要 / Manual Website Summary</span>
+            <textarea id="manualWebsiteSummary" name="manualWebsiteSummary" rows="5" placeholder="Paste About Us, brand page, product categories, store address, or copied website summary here when the website cannot be fetched."></textarea>
+          </label>
+
+          <label class="field field-wide">
             <span>官网 / 社媒摘录 / Website & Social Extract</span>
             <textarea id="sourceNotes" name="sourceNotes" rows="6" placeholder="Paste website text, service intro, captions, product descriptions, or third-party gear signals here."></textarea>
           </label>
 
           <div class="form-actions">
             <button id="generateBtn" class="primary-button" type="submit">生成分析 / Generate</button>
-            <button id="saveBtn" class="secondary-button" type="button" disabled>保存到潜在客户 / Save</button>
+            <button id="saveBtn" class="secondary-button" type="button" disabled>保存到客户池 / Save to Pool</button>
             <button id="copyReportBtn" class="ghost-button" type="button" disabled>复制分析 / Copy Report</button>
             <button id="copyEmailBtn" class="secondary-button" type="button" disabled>复制开发信 / Copy Email</button>
             <button id="exportBtn" class="ghost-button" type="button" disabled>导出 Excel / Export XLSX</button>
@@ -127,6 +140,7 @@
               <div class="bullet-list">
                 <div id="keyDecisionRating" class="bullet-item"></div>
                 <div id="keyDecisionFocus" class="bullet-item"></div>
+                <div id="manualOverridePanel" class="bullet-item manual-override-panel"></div>
               </div>
             </section>
 
@@ -137,6 +151,13 @@
               <div id="judgingStandardList" class="bullet-list"></div>
             </section>
           </div>
+
+          <section class="result-block">
+            <div class="block-head">
+              <h3>评分权重表 / Scoring Weight Checklist</h3>
+            </div>
+            <div id="scoringWeightList" class="scoring-weight-list"></div>
+          </section>
 
           <div class="two-column">
             <section class="result-block">
@@ -175,6 +196,13 @@
               <h3>完整英文开发信 / Outreach Email</h3>
             </div>
             <pre id="emailPreview" class="email-preview"></pre>
+            <label class="field field-wide email-template-field">
+              <span>自定义邮件模板 / Custom Email Template</span>
+              <textarea id="customEmailTemplate" rows="5" placeholder="Optional. Use variables such as {{公司名}}, {{官网发现的产品线}}, {{推荐产品}}. Leave blank to use the generated email above."></textarea>
+            </label>
+            <button class="mini-button" type="button" data-action="apply-email-template">套用模板 / Apply Template</button>
+            <div id="emailTemplateVariables" class="template-variable-list"></div>
+            <div id="emailHistoryList" class="email-history-list"></div>
           </section>
 
           <section class="result-block">
@@ -190,33 +218,18 @@
         <div data-product-library class="result-area"></div>
       </section>
 
-      <section class="panel crm-panel module-section" data-module-section="prospects">
-        <div class="section-head">
-          <div>
-            <h2>潜在客户 / Prospects</h2>
-            <p>导入后会保存在这里，和旧客户分开管理。</p>
-          </div>
-          <div class="crm-tools">
-            <button id="prospectImportBtn" class="secondary-button" type="button">批量导入潜在客户 Excel / Import</button>
-            <button id="prospectBulkAnalyzeBtn" class="secondary-button" type="button">批量分析 / Bulk Analyze</button>
-            <button id="prospectExportBtn" class="ghost-button" type="button">导出潜在客户 / Export</button>
-            <input id="prospectFileInput" type="file" accept=".xlsx,.xlsm,.csv" hidden>
-          </div>
-        </div>
-        <p id="prospectImportStatus" class="hint"></p>
-        <div id="prospectList" class="crm-list"></div>
-      </section>
-
       <section class="panel crm-panel module-section" data-module-section="customers">
         <div class="section-head">
           <div>
-            <h2>旧客户 / Existing Customers</h2>
-            <p>旧客户只保留你确认过的客户，导入后也可以继续用同一套分析和开发信逻辑。</p>
+            <h2>客户池 / Customer Pool</h2>
+            <p>潜在客户和旧客户统一管理，用 Customer Type 标签区分 Prospect / Existing。导入时会按公司名 + 官网自动检测重复并合并。</p>
           </div>
           <div class="crm-tools">
-            <button id="customerImportBtn" class="secondary-button" type="button">批量导入旧客户 Excel / Import</button>
-            <button id="customerBulkAnalyzeBtn" class="secondary-button" type="button">批量分析 / Bulk Analyze</button>
-            <button id="customerExportBtn" class="ghost-button" type="button">导出旧客户 / Export</button>
+            <button id="prospectImportBtn" class="secondary-button" type="button">导入潜在客户 / Import Prospects</button>
+            <button id="customerImportBtn" class="secondary-button" type="button">导入旧客户 / Import Existing</button>
+            <button id="customerBulkAnalyzeBtn" class="secondary-button" type="button">批量分析客户池 / Bulk Analyze Pool</button>
+            <button id="customerExportBtn" class="ghost-button" type="button">导出客户池 / Export Pool</button>
+            <input id="prospectFileInput" type="file" accept=".xlsx,.xlsm,.csv" hidden>
             <input id="customerFileInput" type="file" accept=".xlsx,.xlsm,.csv" hidden>
           </div>
         </div>

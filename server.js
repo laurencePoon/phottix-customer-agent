@@ -583,6 +583,7 @@ def clean_cell(value):
 
 headers = [
     ("company_name", "Company Name"),
+    ("customer_type", "Customer Type"),
     ("contact_name", "Contact Name"),
     ("contact_email", "Contact Email"),
     ("email_ready", "Email Ready"),
@@ -591,9 +592,19 @@ headers = [
     ("facebook_url", "Facebook"),
     ("city", "City / Country"),
     ("email_purpose", "Email Purpose"),
+    ("manual_website_summary", "Manual Website Summary"),
+    ("analysis_version", "Analysis Version"),
+    ("last_analyzed_at", "Last Analyzed At"),
+    ("ai_rating", "AI Rating"),
+    ("ai_score", "AI Score"),
+    ("manual_rating", "Manual Rating"),
+    ("manual_score", "Manual Score"),
+    ("manual_override_reason", "Manual Override Reason"),
+    ("manual_override_at", "Manual Override At"),
     ("follow_up_status", "Follow-up Status"),
     ("next_follow_up_date", "Next Follow-up Date"),
     ("last_contacted_at", "Last Contacted At"),
+    ("suggested_action", "Suggested Action"),
     ("business_types", "Business Types"),
     ("rating", "Rating"),
     ("score", "Score"),
@@ -605,15 +616,17 @@ headers = [
     ("rating_focus", "Rating Focus"),
     ("key_decision", "Key Decision"),
     ("matched_signals", "Matched Signals"),
-    ("global_push_line", "Global Push Products"),
+    ("global_push_line", "Priority Pool Products"),
     ("force_email_line", "Selected Email Products"),
     ("dealer_line", "Dealer Line"),
     ("end_user_line", "End User Line"),
     ("email_subject", "Email Subject"),
     ("email_body", "Email Body"),
     ("email_preview", "Email Preview"),
+    ("last_email_subject", "Last Email Subject"),
+    ("last_email_at", "Last Email At"),
+    ("email_history_count", "Email History Count"),
     ("suggestions", "Suggestions"),
-    ("save_bucket", "Save Bucket"),
     ("saved_at", "Saved At")
 ]
 
@@ -646,10 +659,10 @@ for row in ws.iter_rows(min_row=3, max_row=ws.max_row):
     for cell in row:
         cell.alignment = thin_align
 
-wide_keys = {"website", "instagram_url", "facebook_url", "business_types", "rating_focus", "key_decision", "matched_signals", "dealer_line", "end_user_line", "email_subject", "email_body", "email_preview", "suggestions"}
+wide_keys = {"website", "instagram_url", "facebook_url", "manual_website_summary", "business_types", "manual_override_reason", "rating_focus", "key_decision", "matched_signals", "dealer_line", "end_user_line", "email_subject", "email_body", "email_preview", "suggestions"}
 for index, (key, label) in enumerate(headers, start=1):
     width = 46 if key in wide_keys else 22
-    if key in {"rating", "score", "save_bucket"} or key.endswith("_score"):
+    if key in {"rating", "score"} or key.endswith("_score"):
         width = 14
     ws.column_dimensions[get_column_letter(index)].width = width
 
@@ -936,6 +949,62 @@ async function fetchSearchFallback(targetUrl) {
   }
 
   throw lastError || new Error("Search fallback failed.");
+}
+
+async function searchEvidenceFallback(companyName, country = "", industry = "") {
+  const company = String(companyName || "").trim();
+  if (!company) throw new Error("Missing company name for evidence search.");
+  const query = [
+    company,
+    country,
+    industry || "camera photo video lighting retailer distributor store"
+  ].filter(Boolean).join(" ");
+  const searchUrls = [
+    `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+    `https://www.bing.com/search?q=${encodeURIComponent(query)}`
+  ];
+  const snippets = [];
+  let lastError = null;
+
+  for (const searchUrl of searchUrls) {
+    try {
+      const html = await fetchUrl(searchUrl);
+      const sourceName = new URL(searchUrl).hostname.includes("duckduckgo") ? "duckduckgo" : "bing";
+      const lines = cleanSearchLines(summarizeLines(extractText(html)))
+        .filter((line) => !/^\s*(all|images|videos|news|maps)\s*$/i.test(line))
+        .slice(0, 40);
+      for (const line of lines) {
+        const text = sanitizeText(line);
+        if (!text || text.length < 18) continue;
+        if (/cookie|privacy|terms|advertis|sign in|login/i.test(text)) continue;
+        snippets.push({ text, source: sourceName });
+        if (snippets.length >= 24) break;
+      }
+      if (snippets.length >= 12) break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  const deduped = [];
+  const seen = new Set();
+  for (const item of snippets) {
+    const key = item.text.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 100);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(item);
+    if (deduped.length >= 12) break;
+  }
+  if (!deduped.length) throw lastError || new Error("Search evidence fallback returned no usable snippets.");
+  return {
+    query,
+    title: `Search evidence for ${company}`,
+    description: deduped.slice(0, 3).map((item) => item.text).join(" "),
+    body: deduped.map((item) => `[${item.source}] ${item.text}`).join("\n"),
+    source: "company-search-fallback",
+    confidence: Math.min(85, 35 + deduped.length * 4),
+    snippets: deduped
+  };
 }
 
 function decodeHtmlEntities(value) {
@@ -1295,6 +1364,24 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, result);
     } catch (error) {
       sendJson(res, 502, { error: error.message || "Failed to discover website." });
+    }
+    return;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/search-evidence") {
+    const company = String(requestUrl.searchParams.get("company") || "").trim();
+    const country = String(requestUrl.searchParams.get("country") || "").trim();
+    const industry = String(requestUrl.searchParams.get("industry") || "").trim();
+    if (!company) {
+      sendJson(res, 400, { error: "Missing company parameter." });
+      return;
+    }
+
+    try {
+      const result = await searchEvidenceFallback(company, country, industry);
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendJson(res, 502, { error: error.message || "Failed to search evidence." });
     }
     return;
   }

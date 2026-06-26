@@ -347,6 +347,82 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   line-height: 1.4;
 }
 
+.manual-override-panel {
+  display: block;
+}
+
+.manual-override-panel::before {
+  content: none;
+}
+
+.manual-override-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.scoring-weight-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.weight-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: rgba(255,255,255,0.035);
+}
+
+.weight-card-head,
+.weight-rule {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.weight-card-head {
+  color: #dce8ff;
+  margin-bottom: 8px;
+}
+
+.weight-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.weight-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), #8bd8ff);
+}
+
+.weight-rules {
+  display: grid;
+  gap: 6px;
+}
+
+.weight-rule {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.weight-rule.matched {
+  color: var(--text);
+}
+
+.weight-check {
+  color: var(--accent);
+  font-weight: 700;
+  min-width: 18px;
+}
+
 .two-column {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -462,6 +538,42 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   line-height: 1.7;
   max-height: 520px;
   overflow: auto;
+}
+
+.email-template-field {
+  margin-top: 14px;
+}
+
+.template-variable-list,
+.email-history-list {
+  margin-top: 14px;
+}
+
+.template-variable-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.template-variable,
+.email-history-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.template-variable strong,
+.email-history-item strong {
+  color: #dce8ff;
+}
+
+.template-variable span,
+.email-history-item span {
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 .crm-list {

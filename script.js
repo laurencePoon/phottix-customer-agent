@@ -3,6 +3,7 @@
 
   const API_BASE = location.protocol === "file:" ? "http://127.0.0.1:8787" : location.origin;
   const STORAGE_KEYS = {
+    customerPool: "phottix.customerAgent.customerPool.v1",
     prospects: "phottix.customerAgent.prospects.v2",
     customers: "phottix.customerAgent.customers.v2",
     products: "phottix.customerAgent.products.v2",
@@ -109,6 +110,7 @@
   ];
 
   const DEFAULT_PRODUCT_NAMES = new Set(DEFAULT_PRODUCTS.map((product) => product.name.toLowerCase()));
+  const ANALYSIS_VERSION_PREFIX = "analysis-v";
 
   const FOUR_SCORE_DEFS = [
     { key: "customerPriorityScore", label: "Customer Priority / 客户优先级" },
@@ -116,6 +118,15 @@
     { key: "dataConfidenceScore", label: "Data Confidence / 资料可信度" },
     { key: "outreachReadinessScore", label: "Outreach Readiness / 开发准备度" }
   ];
+
+  const IMPORT_UPDATE_KEYS = new Set([
+    "followUpStatus",
+    "nextFollowUpDate",
+    "lastContactedAt",
+    "manualRating",
+    "manualScore",
+    "manualOverrideReason"
+  ]);
 
   const KNOWN_ACCOUNT_FALLBACKS = [
     {
@@ -224,13 +235,18 @@
     companyTable: document.getElementById("companyTable"),
     keyDecisionRating: document.getElementById("keyDecisionRating"),
     keyDecisionFocus: document.getElementById("keyDecisionFocus"),
+    manualOverridePanel: document.getElementById("manualOverridePanel"),
     judgingStandardList: document.getElementById("judgingStandardList"),
+    scoringWeightList: document.getElementById("scoringWeightList"),
     scopeList: document.getElementById("scopeList"),
     ratingList: document.getElementById("ratingList"),
     signalSummary: document.getElementById("signalSummary"),
     dealerProducts: document.getElementById("dealerProducts"),
     endUserProducts: document.getElementById("endUserProducts"),
     emailPreview: document.getElementById("emailPreview"),
+    emailTemplateVariables: document.getElementById("emailTemplateVariables"),
+    customEmailTemplate: document.getElementById("customEmailTemplate"),
+    emailHistoryList: document.getElementById("emailHistoryList"),
     suggestionList: document.getElementById("suggestionList"),
     productLibrary: document.querySelector("[data-product-library]"),
     agentForm: document.getElementById("agentForm"),
@@ -238,11 +254,13 @@
     contactName: document.getElementById("contactName"),
     contactEmail: document.getElementById("contactEmail"),
     emailPurpose: document.getElementById("emailPurpose"),
+    customerType: document.getElementById("customerType"),
     website: document.getElementById("website"),
     city: document.getElementById("city"),
     instagramUrl: document.getElementById("instagramUrl"),
     facebookUrl: document.getElementById("facebookUrl"),
     businessNotes: document.getElementById("businessNotes"),
+    manualWebsiteSummary: document.getElementById("manualWebsiteSummary"),
     sourceNotes: document.getElementById("sourceNotes"),
     generateBtn: document.getElementById("generateBtn"),
     saveBtn: document.getElementById("saveBtn"),
@@ -252,24 +270,37 @@
     resetBtn: document.getElementById("resetBtn"),
     fillDemoBtn: document.getElementById("fillDemoBtn"),
     prospectImportBtn: document.getElementById("prospectImportBtn"),
-    prospectBulkAnalyzeBtn: document.getElementById("prospectBulkAnalyzeBtn"),
-    prospectExportBtn: document.getElementById("prospectExportBtn"),
     prospectFileInput: document.getElementById("prospectFileInput"),
     customerImportBtn: document.getElementById("customerImportBtn"),
     customerBulkAnalyzeBtn: document.getElementById("customerBulkAnalyzeBtn"),
     customerExportBtn: document.getElementById("customerExportBtn"),
     customerFileInput: document.getElementById("customerFileInput"),
-    prospectImportStatus: document.getElementById("prospectImportStatus"),
     customerImportStatus: document.getElementById("customerImportStatus"),
-    prospectList: document.getElementById("prospectList"),
     customerList: document.getElementById("customerList")
   };
 
   const state = {
     currentAnalysis: null,
-    activeRecord: { bucket: "prospects", id: null },
-    prospects: loadStoredList(STORAGE_KEYS.prospects),
-    customers: loadStoredList(STORAGE_KEYS.customers),
+    activeRecord: { bucket: "prospects", id: null, customerType: "prospect" },
+    customerPool: migrateCustomerPool(),
+    get prospects() {
+      return this.customerPool.filter((record) => normalizeCustomerType(record.customerType || record.bucket) === "prospect");
+    },
+    set prospects(list) {
+      this.customerPool = [
+        ...this.customerPool.filter((record) => normalizeCustomerType(record.customerType || record.bucket) === "existing"),
+        ...list.map((record) => ({ ...record, bucket: "prospects", customerType: "prospect" }))
+      ];
+    },
+    get customers() {
+      return this.customerPool.filter((record) => normalizeCustomerType(record.customerType || record.bucket) === "existing");
+    },
+    set customers(list) {
+      this.customerPool = [
+        ...this.customerPool.filter((record) => normalizeCustomerType(record.customerType || record.bucket) === "prospect"),
+        ...list.map((record) => ({ ...record, bucket: "customers", customerType: "existing" }))
+      ];
+    },
     products: loadStoredProducts(),
     productSource: loadStoredValue(STORAGE_KEYS.productSource) || "default",
     productFilters: {
@@ -278,8 +309,7 @@
     },
     bulkRunning: false,
     pendingStatuses: {
-      prospects: "支持 company_name / website / city / contact_name / contact_email，也支持 主要联系人名称 / 主要联系人邮箱。",
-      customers: "旧客户表独立管理，导入后也可以继续用同一套分析和开发信逻辑。",
+      customers: "统一客户池：导入潜在客户会标记 Prospect，导入旧客户会标记 Existing；重复公司+官网会提示合并。",
       products: "产品库支持导入 Excel / CSV，导入后会自动按类别分组。"
     }
   };
@@ -305,6 +335,90 @@
 
   function saveStoredValue(key, value) {
     try { localStorage.setItem(key, value); } catch {}
+  }
+
+  function normalizeCustomerType(value) {
+    const text = normalizeText(value).toLowerCase();
+    if (/existing|customer|old|旧|老|已成交|converted/.test(text)) return "existing";
+    return "prospect";
+  }
+
+  function customerTypeLabel(value) {
+    return normalizeCustomerType(value) === "existing" ? "Existing / 旧客户" : "Prospect / 潜在客户";
+  }
+
+  function normalizeCompanyKey(value) {
+    return normalizeText(value).toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, "");
+  }
+
+  function customerDomainKey(record) {
+    return domainFromUrl(record?.website || "");
+  }
+
+  function customerDuplicateKey(record) {
+    const company = normalizeCompanyKey(record?.companyName || "");
+    const domain = customerDomainKey(record);
+    if (company && domain) return `${company}|${domain}`;
+    if (record?.contactEmail) return `email|${normalizeText(record.contactEmail).toLowerCase()}`;
+    return "";
+  }
+
+  function prepareCustomerRecord(record, type = "prospect") {
+    const normalizedType = normalizeCustomerType(record.customerType || record.customer_type || record.bucket || type);
+    return {
+      ...record,
+      bucket: normalizedType === "existing" ? "customers" : "prospects",
+      customerType: normalizedType,
+      emailPurpose: normalizeEmailPurpose(record.emailPurpose, normalizedType)
+    };
+  }
+
+  function mergeCustomerRecords(existing, incoming) {
+    const merged = { ...existing };
+    for (const [key, value] of Object.entries(incoming || {})) {
+      if (value === undefined || value === null || value === "") continue;
+      if (!merged[key] || key === "savedAt" || key === "customerType" || key === "bucket" || IMPORT_UPDATE_KEYS.has(key)) merged[key] = value;
+    }
+    if (Array.isArray(existing.emailHistory) || Array.isArray(incoming.emailHistory)) {
+      merged.emailHistory = mergeEmailHistory(existing.emailHistory, incoming.emailHistory);
+    }
+    if (normalizeCustomerType(existing.customerType || existing.bucket) === "existing" || normalizeCustomerType(incoming.customerType || incoming.bucket) === "existing") {
+      merged.customerType = "existing";
+      merged.bucket = "customers";
+      if (!merged.emailPurpose || merged.emailPurpose === "firstTouch") merged.emailPurpose = "existingCustomerUpdate";
+    } else {
+      merged.customerType = "prospect";
+      merged.bucket = "prospects";
+      if (!merged.emailPurpose) merged.emailPurpose = "firstTouch";
+    }
+    merged.savedAt = incoming.savedAt || existing.savedAt || new Date().toISOString();
+    return merged;
+  }
+
+  function mergeCustomerList(records) {
+    const merged = [];
+    const keyIndex = new Map();
+    let duplicateCount = 0;
+    for (const record of records.map((item) => prepareCustomerRecord(item))) {
+      const key = customerDuplicateKey(record);
+      if (key && keyIndex.has(key)) {
+        const index = keyIndex.get(key);
+        merged[index] = mergeCustomerRecords(merged[index], record);
+        duplicateCount += 1;
+      } else {
+        if (key) keyIndex.set(key, merged.length);
+        merged.push(record);
+      }
+    }
+    return { records: merged, duplicateCount };
+  }
+
+  function migrateCustomerPool() {
+    const existingPool = loadStoredList(STORAGE_KEYS.customerPool).map((record) => prepareCustomerRecord(record));
+    if (existingPool.length) return mergeCustomerList(existingPool).records;
+    const legacyProspects = loadStoredList(STORAGE_KEYS.prospects).map((record) => prepareCustomerRecord(record, "prospect"));
+    const legacyCustomers = loadStoredList(STORAGE_KEYS.customers).map((record) => prepareCustomerRecord(record, "existing"));
+    return mergeCustomerList([...legacyProspects, ...legacyCustomers]).records;
   }
 
   function makeId(prefix = "rec") {
@@ -440,13 +554,59 @@
     return out;
   }
 
+  function normalizeEmailHistoryItem(item) {
+    if (!item || typeof item !== "object") return null;
+    const subject = normalizeText(item.subject || item.emailSubject || "");
+    const body = normalizeText(item.body || item.emailBody || "");
+    if (!subject && !body) return null;
+    return {
+      id: item.id || makeId("email"),
+      createdAt: item.createdAt || item.sentAt || new Date().toISOString(),
+      purpose: normalizeEmailPurpose(item.purpose || item.emailPurpose || "firstTouch"),
+      subject,
+      body,
+      preview: item.preview || item.emailPreview || (subject || body ? `Subject: ${subject}\n\n${body}` : "")
+    };
+  }
+
+  function mergeEmailHistory(...histories) {
+    const merged = [];
+    const seen = new Set();
+    for (const history of histories) {
+      for (const item of Array.isArray(history) ? history : []) {
+        const normalized = normalizeEmailHistoryItem(item);
+        if (!normalized) continue;
+        const key = `${normalized.subject}||${normalizeText(normalized.body).slice(0, 300)}`.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(normalized);
+      }
+    }
+    return merged
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .slice(0, 10);
+  }
+
+  function appendEmailHistory(history, analysis) {
+    const email = analysis?.email || {};
+    const nextItem = normalizeEmailHistoryItem({
+      createdAt: new Date().toISOString(),
+      purpose: analysis?.emailPurpose || "firstTouch",
+      subject: email.subject || "",
+      body: email.body || "",
+      preview: email.preview || ""
+    });
+    if (!nextItem) return mergeEmailHistory(history);
+    return mergeEmailHistory([nextItem], history);
+  }
+
   function inferEmailPurposeFromBucket(bucket) {
-    return bucket === "customers" ? "existingCustomerUpdate" : "firstTouch";
+    return normalizeCustomerType(bucket) === "existing" ? "existingCustomerUpdate" : "firstTouch";
   }
 
   function normalizeEmailPurpose(value, fallbackBucket = "prospects") {
     const purpose = normalizeText(value);
-    return ["firstTouch", "productFollowUp", "existingCustomerUpdate", "reactivation"].includes(purpose)
+    return ["firstTouch", "productFollowUp", "eventInvitation", "existingCustomerUpdate", "reactivation", "holidayGreeting"].includes(purpose)
       ? purpose
       : inferEmailPurposeFromBucket(fallbackBucket);
   }
@@ -482,6 +642,53 @@
     return parsed.toISOString().slice(0, 10);
   }
 
+  function formatDateTimeDisplay(value) {
+    if (!value) return "";
+    try {
+      return new Intl.DateTimeFormat("zh-HK", {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      }).format(new Date(value));
+    } catch {
+      return String(value || "");
+    }
+  }
+
+  function daysSince(value) {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 86400000));
+  }
+
+  function nextAnalysisVersion(record) {
+    const current = Number(record?.analysisVersionNumber || String(record?.analysisVersion || "").match(/\d+/)?.[0] || 0) || 0;
+    return current + 1;
+  }
+
+  function analysisVersionLabel(number) {
+    return `${ANALYSIS_VERSION_PREFIX}${Number(number || 1)}`;
+  }
+
+  function normalizeManualGrade(value) {
+    const grade = normalizeText(value).toUpperCase();
+    return ["A", "B", "C", "D", "NR"].includes(grade) ? grade : "";
+  }
+
+  function normalizeManualScore(value) {
+    if (value === "" || value === null || value === undefined) return "";
+    const number = Number(value);
+    if (Number.isNaN(number)) return "";
+    return Math.max(0, Math.min(100, Math.round(number)));
+  }
+
+  function ratingTone(grade) {
+    return grade === "A" ? "good" : grade === "D" ? "bad" : "warn";
+  }
+
   function isUsableContactEmail(email) {
     const text = normalizeText(email).toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) return false;
@@ -508,11 +715,13 @@
       contactName: normalizeText(DOM.contactName.value),
       contactEmail: normalizeText(DOM.contactEmail?.value),
       emailPurpose: DOM.emailPurpose?.value || "",
+      customerType: normalizeCustomerType(DOM.customerType?.value || state.activeRecord.customerType || state.activeRecord.bucket),
       website: normalizeUrl(DOM.website.value),
       city: normalizeText(DOM.city.value),
       instagramUrl: normalizeUrl(DOM.instagramUrl.value),
       facebookUrl: normalizeUrl(DOM.facebookUrl.value),
       businessNotes: normalizeText(DOM.businessNotes.value),
+      manualWebsiteSummary: normalizeText(DOM.manualWebsiteSummary?.value),
       sourceNotes: normalizeText(DOM.sourceNotes.value)
     };
   }
@@ -521,12 +730,14 @@
     DOM.companyName.value = record.companyName || "";
     DOM.contactName.value = record.contactName || "";
     if (DOM.contactEmail) DOM.contactEmail.value = record.contactEmail || "";
-    if (DOM.emailPurpose) DOM.emailPurpose.value = record.emailPurpose || inferEmailPurposeFromBucket(record.bucket);
+    if (DOM.emailPurpose) DOM.emailPurpose.value = record.emailPurpose || inferEmailPurposeFromBucket(record.customerType || record.bucket);
+    if (DOM.customerType) DOM.customerType.value = normalizeCustomerType(record.customerType || record.bucket);
     DOM.website.value = record.website || "";
     DOM.city.value = record.city || "";
     DOM.instagramUrl.value = record.instagramUrl || "";
     DOM.facebookUrl.value = record.facebookUrl || "";
     DOM.businessNotes.value = record.businessNotes || "";
+    if (DOM.manualWebsiteSummary) DOM.manualWebsiteSummary.value = record.manualWebsiteSummary || "";
     DOM.sourceNotes.value = record.sourceNotes || "";
   }
 
@@ -539,9 +750,10 @@
 
   function setSaveButtonLabel() {
     if (!DOM.saveBtn) return;
-    DOM.saveBtn.textContent = state.activeRecord.bucket === "customers"
-      ? "更新旧客户 / Save Customer"
-      : "保存到潜在客户 / Save Prospect";
+    const typeLabel = normalizeCustomerType(state.activeRecord.customerType || state.activeRecord.bucket) === "existing"
+      ? "旧客户 / Existing"
+      : "潜在客户 / Prospect";
+    DOM.saveBtn.textContent = `保存到客户池 (${typeLabel}) / Save to Pool`;
   }
 
   function showAnalysisPanel(visible) {
@@ -563,6 +775,9 @@
       normalized[rawKey] = value;
       normalized[rawKey.replace(/[\s_-]+/g, "")] = value;
     }
+    const hasFollowUpStatus = row.followUpStatus !== undefined || row.follow_up_status !== undefined || normalized.followupstatus !== undefined || normalized.follow_up_status !== undefined || normalized.status !== undefined || normalized.crm_status !== undefined;
+    const hasNextFollowUpDate = row.nextFollowUpDate !== undefined || row.next_follow_up_date !== undefined || row.next_follow_up !== undefined || normalized.nextfollowupdate !== undefined || normalized.next_follow_up_date !== undefined || normalized.next_follow_up !== undefined;
+    const hasLastContactedAt = row.lastContactedAt !== undefined || row.last_contacted_at !== undefined || normalized.lastcontactedat !== undefined || normalized.last_contacted_at !== undefined;
     return {
       id: row.id || makeId("row"),
       companyName: normalizeText(row.companyName || normalized.company_name || normalized.company || normalized.name),
@@ -576,10 +791,11 @@
       instagramUrl: normalizeUrl(row.instagramUrl || normalized.instagram_url || normalized.instagram),
       facebookUrl: normalizeUrl(row.facebookUrl || normalized.facebook_url || normalized.facebook),
       businessNotes: normalizeText(row.businessNotes || normalized.business_notes || normalized.notes || normalized.business_note),
+      manualWebsiteSummary: normalizeText(row.manualWebsiteSummary || row.manual_website_summary || normalized.manualwebsitesummary || normalized.manual_website_summary || normalized.website_summary || normalized.websitesummary || normalized["网站摘要"] || normalized["網站摘要"] || normalized["官网摘要"] || normalized["官網摘要"] || ""),
       sourceNotes: normalizeText(row.sourceNotes || normalized.source_notes || normalized.source_note),
-      followUpStatus: normalizeFollowUpStatus(row.followUpStatus || row.follow_up_status || normalized.followupstatus || normalized.follow_up_status || normalized.status || normalized.crm_status),
-      nextFollowUpDate: formatDateInputValue(row.nextFollowUpDate || row.next_follow_up_date || row.next_follow_up || normalized.nextfollowupdate || normalized.next_follow_up_date || normalized.next_follow_up),
-      lastContactedAt: row.lastContactedAt || row.last_contacted_at || normalized.lastcontactedat || normalized.last_contacted_at || "",
+      followUpStatus: hasFollowUpStatus ? normalizeFollowUpStatus(row.followUpStatus || row.follow_up_status || normalized.followupstatus || normalized.follow_up_status || normalized.status || normalized.crm_status) : "",
+      nextFollowUpDate: hasNextFollowUpDate ? formatDateInputValue(row.nextFollowUpDate || row.next_follow_up_date || row.next_follow_up || normalized.nextfollowupdate || normalized.next_follow_up_date || normalized.next_follow_up) : "",
+      lastContactedAt: hasLastContactedAt ? (row.lastContactedAt || row.last_contacted_at || normalized.lastcontactedat || normalized.last_contacted_at || "") : "",
       savedAt: row.savedAt || new Date().toISOString(),
       rating: normalizeText(row.rating || normalized.rating || ""),
       score: Number(row.score || normalized.score || 0) || 0,
@@ -587,6 +803,18 @@
       productFitScore: Number(row.productFitScore || normalized.product_fit_score || normalized.productfitscore || 0) || 0,
       dataConfidenceScore: Number(row.dataConfidenceScore || normalized.data_confidence_score || normalized.dataconfidencescore || 0) || 0,
       outreachReadinessScore: Number(row.outreachReadinessScore || normalized.outreach_readiness_score || normalized.outreachreadinessscore || 0) || 0,
+      customerType: normalizeCustomerType(row.customerType || row.customer_type || normalized.customer_type || normalized.customertype || normalized["客户类型"] || normalized["客戶類型"] || normalized["客户状态"] || normalized["客戶狀態"] || normalized.type || normalized.customerstatus || normalized.customer_status || row.bucket || normalized.bucket),
+      lastAnalyzedAt: row.lastAnalyzedAt || row.last_analyzed_at || normalized.lastanalyzedat || normalized.last_analyzed_at || normalized["上次分析时间"] || normalized["上次分析時間"] || "",
+      analysisVersion: normalizeText(row.analysisVersion || row.analysis_version || normalized.analysisversion || normalized.analysis_version || normalized["分析版本"] || ""),
+      analysisVersionNumber: Number(row.analysisVersionNumber || row.analysis_version_number || normalized.analysisversionnumber || normalized.analysis_version_number || 0) || 0,
+      aiRating: normalizeText(row.aiRating || row.ai_rating || normalized.airating || normalized.ai_rating || ""),
+      aiScore: Number(row.aiScore || row.ai_score || normalized.aiscore || normalized.ai_score || 0) || 0,
+      manualRating: normalizeManualGrade(row.manualRating || row.manual_rating || normalized.manualrating || normalized.manual_rating || normalized["人工评级"] || normalized["人工評級"]),
+      manualScore: normalizeManualScore(row.manualScore || row.manual_score || normalized.manualscore || normalized.manual_score || normalized["人工分数"] || normalized["人工分數"]),
+      manualOverrideReason: normalizeText(row.manualOverrideReason || row.manual_override_reason || normalized.manualoverridereason || normalized.manual_override_reason || normalized["人工修正原因"] || normalized["人工修正理由"] || ""),
+      manualOverrideAt: row.manualOverrideAt || row.manual_override_at || normalized.manualoverrideat || normalized.manual_override_at || "",
+      suggestedAction: normalizeText(row.suggestedAction || row.suggested_action || normalized.suggestedaction || normalized.suggested_action || normalized["建议行动"] || normalized["建議行動"] || ""),
+      emailHistory: mergeEmailHistory(row.emailHistory || []),
       keyDecision: normalizeText(row.keyDecision || normalized.key_decision || ""),
       businessTypes: normalizeText(row.businessTypes || normalized.business_types || ""),
       bucket: row.bucket || normalized.bucket || "prospects",
@@ -738,6 +966,16 @@
     }
   }
 
+  async function searchEvidence(companyName, country = "", industry = "") {
+    const company = normalizeText(companyName);
+    if (!company) return null;
+    try {
+      return await fetchJson(`/api/search-evidence?company=${encodeURIComponent(company)}&country=${encodeURIComponent(country || "")}&industry=${encodeURIComponent(industry || "")}`);
+    } catch {
+      return null;
+    }
+  }
+
   function extractUrlsFromText(text) {
     return (String(text || "").match(/https?:\/\/[^\s"'<>]+/gi) || []).map(cleanUrl).filter(Boolean);
   }
@@ -768,6 +1006,7 @@
   function evidenceBlocksFromInput(input, sources) {
     const blocks = [];
     if (input.businessNotes) blocks.push({ label: "Business Notes / 业务备注", url: "", text: input.businessNotes });
+    if (input.manualWebsiteSummary) blocks.push({ label: "Manual Website Summary / 手动网站摘要", url: input.website || "", text: input.manualWebsiteSummary });
     if (input.sourceNotes) blocks.push({ label: "Source Notes / 官网与社媒摘录", url: "", text: input.sourceNotes });
     for (const source of sources) {
       if (!source) continue;
@@ -818,8 +1057,30 @@
     }
 
     const websiteSource = input.website ? await addSource("website", input.website, "Website") : null;
+    const websiteText = websiteSource ? normalizeText([websiteSource.title, websiteSource.description, websiteSource.body].filter(Boolean).join(" ")) : "";
+    const websiteFailed = Boolean(input.website && (!websiteSource || websiteSource.error || !websiteText || isBlockedExtraction(websiteSource.raw || websiteSource)));
+    if (websiteFailed && input.companyName) {
+      const industryHint = [
+        input.businessNotes,
+        input.manualWebsiteSummary,
+        "camera photo video lighting retailer distributor store"
+      ].filter(Boolean).join(" ");
+      const fallback = await searchEvidence(input.companyName, input.city, industryHint);
+      if (fallback?.body || fallback?.description) {
+        sources.push({
+          platform: "search",
+          url: "",
+          sourceLabel: "Search Evidence",
+          title: normalizeText(fallback.title || "Search Evidence"),
+          description: normalizeText(fallback.description || ""),
+          body: normalizeText(fallback.body || ""),
+          raw: fallback
+        });
+      }
+    }
     const discoveredFromWebsite = detectSocialUrls([
       websiteSource ? [websiteSource.title, websiteSource.description, websiteSource.body].join("\n") : "",
+      input.manualWebsiteSummary,
       input.sourceNotes,
       input.businessNotes,
       input.companyName
@@ -861,22 +1122,29 @@
     const blocked = sources.filter((source) => isBlockedExtraction(source.raw || source));
     const failed = sources.filter((source) => source.error);
     const usable = sources.filter((source) => normalizeText([source.title, source.description, source.body].filter(Boolean).join(" ")));
+    const searchFallback = sources.find((source) => source.platform === "search");
     const websiteHasText = Boolean(website && normalizeText([website.title, website.description, website.body].filter(Boolean).join(" ")));
+    const websiteBodyLength = normalizeText(website?.body || "").length;
+    const websiteTitleOnly = Boolean(website && normalizeText(website.title || website.description) && websiteBodyLength < 80);
     const websiteFailed = Boolean(website && (website.error || !websiteHasText || isBlockedExtraction(website.raw || website)));
     return {
       websiteBlocked: websiteFailed,
+      searchFallbackUsed: Boolean(searchFallback),
+      websiteTitleOnly,
       blockedCount: blocked.length,
       failedCount: failed.length,
       usableCount: usable.length,
       message: websiteFailed && website?.error
-        ? `官网抓取失败：${website.error}`
+        ? `官网抓取失败：${website.error}${searchFallback ? "；已启用公司名 + 行业关键词搜索证据作为降级补充。" : ""}`
         : websiteFailed
-          ? "官网没有抓到足够有效正文，当前结果不代表真实客户价值。"
+          ? `官网没有抓到足够有效正文${searchFallback ? "，已启用搜索证据作为降级补充。" : "，当前结果不代表真实客户价值。"}`
           : blocked.length
         ? "部分网页返回 CAPTCHA / Cloudflare / access denied，评分只使用抓到的有效文字。"
         : failed.length
           ? "部分网页抓取失败，评分只使用已抓到的有效文字。"
-          : "已使用官网 / 社媒 / 手工摘录中的有效文字进行评分。"
+          : websiteTitleOnly
+            ? "官网只抓到标题或极少正文，资料可信度已自动调低。"
+            : "已使用官网 / 社媒 / 手工摘录中的有效文字进行评分。"
     };
   }
 
@@ -1022,6 +1290,7 @@
       input.instagramUrl,
       input.facebookUrl,
       input.businessNotes,
+      input.manualWebsiteSummary,
       input.sourceNotes
     ].filter(Boolean).join(" "));
     const productCount = (dealerProducts || []).length + (endUserProducts || []).length;
@@ -1042,6 +1311,8 @@
     const dataConfidenceScore = Math.min(100,
       (hasWebsite ? 25 : 0) +
       (sourceStatus?.websiteBlocked ? 0 : 25) +
+      (sourceStatus?.websiteTitleOnly ? -18 : 0) +
+      (sourceStatus?.searchFallbackUsed ? 10 : 0) +
       Math.min(25, evidenceCount * 5 + scopeCount * 3) +
       (websiteAnalysis?.confidence ? Math.min(15, Math.round(Number(websiteAnalysis.confidence || 0) / 7)) : 0) +
       (sourceText.length > 200 ? 10 : sourceText.length > 40 ? 5 : 0)
@@ -1075,17 +1346,17 @@
   function normalizeProductStatus(status) {
     const text = normalizeText(status).toLowerCase();
     if (/new|新品|新款|重点新品/.test(text)) return "new";
-    if (/old|旧|舊|legacy|discontinued|低优先|低優先/.test(text)) return "old";
+    if (/phase[-\s]?out|phaseout|clearance|last chance|old|旧|舊|legacy|discontinued|低优先|低優先|清货|清貨|停产|停產/.test(text)) return "phaseOut";
     if (/donotrecommend|do not|don'?t|not recommend|never|exclude|disabled|不推荐|不推薦|不要推荐|不要推薦|停推/.test(text)) return "doNotRecommend";
     return "active";
   }
 
   function productStatusLabel(status) {
     const normalized = normalizeProductStatus(status);
-    if (normalized === "new") return "New / 新品优先";
-    if (normalized === "old") return "Old / 旧产品低优先级";
+    if (normalized === "new") return "New / 新品";
+    if (normalized === "phaseOut") return "Phase-Out / 退市过渡";
     if (normalized === "doNotRecommend") return "Do Not Recommend / 不推荐";
-    return "Active / 当前可推";
+    return "Active / 常规在售";
   }
 
   function normalizeCatalog(products) {
@@ -1142,7 +1413,7 @@
     if (mode === "endUser" && ["Lighting", "Modifiers", "Flash & Trigger", "Power & Video"].includes(product.category)) score += 5;
     if (isProductGlobalPush(product)) score += 10;
     if (normalizeProductStatus(product.productStatus) === "new") score += 8;
-    if (normalizeProductStatus(product.productStatus) === "old") score -= 6;
+    if (normalizeProductStatus(product.productStatus) === "phaseOut") score -= 6;
     for (const term of targetTerms) if (haystack.includes(term)) score += 2;
     if (product.sourceType === "excel") score += 1;
     return score;
@@ -1165,7 +1436,7 @@
   }
 
   function getGlobalPushProducts(products) {
-    return products.filter((product) => isProductGlobalPush(product) && normalizeProductStatus(product.productStatus) !== "doNotRecommend");
+    return products.filter((product) => isProductGlobalPush(product) && isProductSelected(product) && normalizeProductStatus(product.productStatus) !== "doNotRecommend");
   }
 
   function pickProducts(products, targetCategories, targetTerms, mode) {
@@ -1187,8 +1458,9 @@
   }
 
   function getRecommendationCatalog(products) {
-    const selected = products.filter(isProductRecommendable);
-    if (selected.length) return products;
+    const selected = products.filter((product) => isProductSelected(product) && normalizeProductStatus(product?.productStatus) !== "doNotRecommend");
+    if (selected.length) return selected;
+    if (products.some((product) => product.sourceType === "excel")) return [];
     return normalizeCatalog(DEFAULT_PRODUCTS).map((product) => ({
       ...product,
       sourceType: "default",
@@ -1215,9 +1487,14 @@
     return dedupeLines(reasons).slice(0, 3).join(" · ");
   }
 
+  function productExportLabel(product) {
+    const lifecycle = productStatusLabel(product.productStatus).split("/")[0].trim();
+    return `${product.name} [${lifecycle}]`;
+  }
+
   function buildProductCards(products, analysis, mode) {
     if (!products.length) {
-      return `<div class="bullet-item">No product matched yet. If you imported an Excel product list, add the products you want to recommend into the Recommendation Pool, then generate again.</div>`;
+      return `<div class="bullet-item">No product matched yet. Full Catalog is searchable only; add products into the active Recommendation Pool before generating customer recommendations.</div>`;
     }
     return products.map((product) => {
       const reason = buildProductReason(product, analysis, mode);
@@ -1261,6 +1538,23 @@
       dormant: "Dormant"
     };
     return labels[status] || "Not Contacted";
+  }
+
+  function suggestedActionForRecord(record = {}) {
+    const grade = normalizeText(record.grade || record.rating || record.aiRating || "").toUpperCase();
+    const score = Number(record.score || record.aiScore || 0) || 0;
+    const dataConfidence = Number(record.dataConfidenceScore || record.fourScores?.dataConfidenceScore || 0) || 0;
+    const readiness = Number(record.outreachReadinessScore || record.fourScores?.outreachReadinessScore || 0) || 0;
+    const contactEmail = normalizeText(record.contactEmail || "");
+    if (!contactEmail) return "Verify contact email before outreach";
+    if (dataConfidence > 0 && dataConfidence < 35) return "Enrich website evidence before sending";
+    if (grade === "A" || score >= 70) {
+      return readiness >= 60 ? "High priority: send first email" : "High fit: prepare contact and send";
+    }
+    if (grade === "B" || score >= 40) return "Medium priority: follow up with short email";
+    if (grade === "C" || score >= 25) return "Low priority: send light touch or enrich data";
+    if (grade === "NR") return "Pause: website evidence is not reliable yet";
+    return "Pause or enrich before outreach";
   }
 
   function containsMojibake(value) {
@@ -1463,6 +1757,20 @@
       ...analysis.endUserProducts.map((product) => product.name)
     ]).slice(0, 3);
     if (!products.length) return "";
+    const productObjects = [
+      ...(analysis.globalPushProducts || []),
+      ...analysis.dealerProducts,
+      ...analysis.endUserProducts
+    ];
+    const statuses = productObjects
+      .filter((product) => products.includes(product.name))
+      .map((product) => normalizeProductStatus(product.productStatus));
+    if (statuses.includes("new")) {
+      return `Exciting news from Phottix: the most relevant items for your team to review first would be ${products.join(", ")}.`;
+    }
+    if (statuses.length && statuses.every((status) => status === "phaseOut")) {
+      return `A quick last-chance note: ${products.join(", ")} may be worth reviewing while availability remains.`;
+    }
     return `For your team, the most relevant Phottix items to review first would be ${products.join(", ")}.`;
   }
 
@@ -1478,20 +1786,26 @@
     const openerByPurpose = {
       firstTouch: `I came across ${company} and wanted to briefly introduce Phottix.`,
       productFollowUp: `I wanted to follow up with a slightly more specific Phottix product direction for ${company}.`,
+      eventInvitation: `I wanted to reach out with a quick Phottix update that may be useful for your team around upcoming product demos or dealer discussions.`,
       existingCustomerUpdate: `I wanted to follow up with ${company} and share a quick Phottix update.`,
-      reactivation: `It has been a while, so I wanted to reconnect and see whether a quick Phottix update would be useful.`
+      reactivation: `It has been a while, so I wanted to reconnect and see whether a quick Phottix update would be useful.`,
+      holidayGreeting: `I wanted to send a quick seasonal greeting from Phottix and share a light product update in case it is useful.`
     };
     const ctaByPurpose = {
       firstTouch: "No pressure at all, but would it be alright if I sent over a short product overview for the right person on your team?",
       productFollowUp: "Would it be useful if I sent over a short product overview with pricing for the most relevant items?",
+      eventInvitation: "Would it be alright if I sent over a short product overview and possible demo focus for your team to review?",
       existingCustomerUpdate: "Would it be helpful if I sent over the latest product update, pricing, or a short replenishment suggestion?",
-      reactivation: "Would it be alright if I sent a short update and you can let me know whether it is still relevant for your current plans?"
+      reactivation: "Would it be alright if I sent a short update and you can let me know whether it is still relevant for your current plans?",
+      holidayGreeting: "No pressure at all; would it be useful if I sent a short overview of a few items that may fit your current assortment?"
     };
     const routingByPurpose = {
       firstTouch: "If there is a better contact for new brand or product line discussions, I would also appreciate being pointed in the right direction.",
       productFollowUp: "If another colleague handles product selection or purchasing, I would be grateful if you could point me in the right direction.",
+      eventInvitation: "If you have a colleague who handles events, trainings, or product demos, I would also be grateful if you could point me in the right direction.",
       existingCustomerUpdate: "If there are any categories you are currently refreshing or restocking, I can also tailor the suggestion around that.",
-      reactivation: "If now is not the right timing, no problem at all; I can follow up later with a more relevant update."
+      reactivation: "If now is not the right timing, no problem at all; I can follow up later with a more relevant update.",
+      holidayGreeting: "If there is a better timing after the holiday period, I can also follow up then with a shorter update."
     };
     const body = [
       `Hi ${contact},`,
@@ -1514,6 +1828,85 @@
     return { subject, body, preview: `Subject: ${subject}\n\n${body}` };
   }
 
+  function emailTemplateVariables(analysis, input) {
+    const recommendedProducts = dedupeLines([
+      ...(analysis.globalPushProducts || []).map((product) => product.name),
+      ...analysis.dealerProducts.map((product) => product.name),
+      ...analysis.endUserProducts.map((product) => product.name)
+    ]).slice(0, 5);
+    return [
+      ["{{公司名}}", input.companyName || humanizeDomain(input.website) || ""],
+      ["{{联系人}}", input.contactName || ""],
+      ["{{官网}}", input.website || ""],
+      ["{{客户类型}}", customerTypeLabel(input.customerType || analysis.recordBucket)],
+      ["{{官网发现的产品线}}", englishBusinessTypes(analysis, 3).join(", ")],
+      ["{{推荐产品}}", recommendedProducts.join(", ")],
+      ["{{评分}}", `${analysis.grade} / ${analysis.score}`],
+      ["{{邮件目的}}", analysis.emailPurpose || "firstTouch"]
+    ];
+  }
+
+  function renderVariableTemplate(template, variables) {
+    let rendered = String(template || "");
+    for (const [key, value] of variables) {
+      rendered = rendered.split(key).join(value || "");
+    }
+    return rendered.trim();
+  }
+
+  function applyCustomEmailTemplate() {
+    if (!state.currentAnalysis || !DOM.customEmailTemplate) return;
+    const template = DOM.customEmailTemplate.value;
+    if (!String(template || "").trim()) {
+      setStatus("Custom template is empty. The generated email is unchanged.", "warn");
+      return;
+    }
+    const input = getFormValues();
+    const rendered = renderVariableTemplate(template, emailTemplateVariables(state.currentAnalysis, input));
+    const lines = rendered.split(/\r?\n/);
+    const subjectLine = lines[0] && /^subject\s*:/i.test(lines[0]) ? lines.shift().replace(/^subject\s*:/i, "").trim() : "";
+    const subject = subjectLine || state.currentAnalysis.email.subject;
+    const body = lines.join("\n").trim() || rendered;
+    state.currentAnalysis.email = {
+      subject,
+      body,
+      preview: `Subject: ${subject}\n\n${body}`
+    };
+    state.currentAnalysis.reportText = buildReportText(state.currentAnalysis, input);
+    DOM.emailPreview.textContent = state.currentAnalysis.email.preview;
+    setStatus("Custom email template applied. Save to Pool if you want this email stored in history.", "good");
+  }
+
+  function renderEmailTemplateVariables(analysis, input) {
+    if (!DOM.emailTemplateVariables) return;
+    DOM.emailTemplateVariables.innerHTML = `
+      <section class="result-subgroup">
+        <h4>邮件变量标签 / Email Variables</h4>
+        <div class="template-variable-grid">
+          ${emailTemplateVariables(analysis, input).map(([key, value]) => `
+            <div class="template-variable"><strong>${escapeHtml(key)}</strong><span>${escapeHtml(value || "—")}</span></div>
+          `).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderEmailHistory(record) {
+    if (!DOM.emailHistoryList) return;
+    const history = Array.isArray(record?.emailHistory) ? record.emailHistory.slice(0, 5) : [];
+    DOM.emailHistoryList.innerHTML = `
+      <section class="result-subgroup">
+        <h4>邮件历史 / Email History</h4>
+        ${history.length ? history.map((item) => `
+          <div class="email-history-item">
+            <strong>${escapeHtml(formatDateTimeDisplay(item.sentAt || item.createdAt) || "—")} · ${escapeHtml(item.purpose || "")}</strong>
+            <span>${escapeHtml(item.subject || "")}</span>
+          </div>
+        `).join("") : `<div class="bullet-item">No saved email history for this customer yet.</div>`}
+      </section>
+    `;
+  }
+
   function buildReportText(analysis, input) {
     const lines = [];
     lines.push(`Company: ${input.companyName || "—"}`);
@@ -1524,7 +1917,15 @@
     lines.push(`Instagram: ${input.instagramUrl || analysis.socialTargets.instagram || "—"}`);
     lines.push(`Facebook: ${input.facebookUrl || analysis.socialTargets.facebook || "—"}`);
     lines.push(`Email purpose: ${analysis.emailPurpose || "firstTouch"}`);
+    if (input.manualWebsiteSummary) lines.push(`Manual website summary: ${input.manualWebsiteSummary}`);
+    lines.push(`Analysis version: ${analysis.analysisVersion || "—"}`);
+    lines.push(`Last analyzed at: ${formatDateTimeDisplay(analysis.lastAnalyzedAt || analysis.analyzedAt) || "—"}`);
     lines.push(`Rating: ${analysis.grade} / ${analysis.score}`);
+    if (analysis.manualRating || analysis.manualScore !== "") {
+      lines.push(`AI rating: ${analysis.aiGrade || "—"} / ${analysis.aiScore || 0}`);
+      lines.push(`Manual override: ${analysis.manualRating || "—"} / ${analysis.manualScore === "" ? "—" : analysis.manualScore}`);
+      lines.push(`Manual reason: ${analysis.manualOverrideReason || "—"}`);
+    }
     if (analysis.fourScores) {
       lines.push(`Customer Priority: ${analysis.fourScores.customerPriorityScore}`);
       lines.push(`Product Fit: ${analysis.fourScores.productFitScore}`);
@@ -1545,14 +1946,14 @@
     lines.push("Business scope:");
     for (const scope of analysis.scopeLines.slice(0, 6)) lines.push(`- ${scope.source}: ${scope.text}`);
     lines.push("");
-    lines.push("Global push products:");
-    for (const product of (analysis.globalPushProducts || []).slice(0, 4)) lines.push(`- ${product.name} (${product.category})`);
+    lines.push("Priority pool products:");
+    for (const product of (analysis.globalPushProducts || []).slice(0, 4)) lines.push(`- ${productExportLabel(product)} (${product.category})`);
     lines.push("");
     lines.push("Dealer line:");
-    for (const product of analysis.dealerProducts.slice(0, 4)) lines.push(`- ${product.name} (${product.category}) — ${product.reason}`);
+    for (const product of analysis.dealerProducts.slice(0, 4)) lines.push(`- ${productExportLabel(product)} (${product.category}) — ${product.reason}`);
     lines.push("");
     lines.push("End-user line:");
-    for (const product of analysis.endUserProducts.slice(0, 4)) lines.push(`- ${product.name} (${product.category}) — ${product.reason}`);
+    for (const product of analysis.endUserProducts.slice(0, 4)) lines.push(`- ${productExportLabel(product)} (${product.category}) — ${product.reason}`);
     lines.push("");
     lines.push("Email subject:");
     lines.push(analysis.email.subject);
@@ -1572,6 +1973,7 @@
     const contactEmail = input.contactEmail || activeRecord?.contactEmail || "";
     return {
       company_name: input.companyName || "",
+      customer_type: customerTypeLabel(input.customerType || activeRecord?.customerType || bucket),
       contact_name: contactName,
       contact_email: contactEmail,
       email_ready: contactEmail ? "Ready" : "Missing Contact Email",
@@ -1580,9 +1982,25 @@
       facebook_url: input.facebookUrl || analysis.socialTargets.facebook || "",
       city: input.city || "",
       email_purpose: analysis.emailPurpose || "",
+      manual_website_summary: input.manualWebsiteSummary || "",
+      analysis_version: analysis.analysisVersion || "",
+      last_analyzed_at: analysis.lastAnalyzedAt || analysis.analyzedAt || "",
+      ai_rating: analysis.aiGrade || analysis.grade,
+      ai_score: analysis.aiScore || analysis.score,
+      manual_rating: analysis.manualRating || "",
+      manual_score: analysis.manualScore === "" || analysis.manualScore === undefined ? "" : analysis.manualScore,
+      manual_override_reason: analysis.manualOverrideReason || "",
+      manual_override_at: analysis.manualOverrideAt || "",
       follow_up_status: englishFollowUpLabel(activeRecord?.followUpStatus),
       next_follow_up_date: formatDateInputValue(activeRecord?.nextFollowUpDate),
       last_contacted_at: activeRecord?.lastContactedAt || "",
+      suggested_action: suggestedActionForRecord({
+        ...analysis,
+        rating: analysis.grade,
+        contactEmail,
+        dataConfidenceScore: analysis.fourScores?.dataConfidenceScore || 0,
+        outreachReadinessScore: analysis.fourScores?.outreachReadinessScore || 0
+      }),
       business_types: cleanBusinessTypesForExport(analysis.businessTypes.join(" | ")),
       rating: analysis.grade,
       score: analysis.score,
@@ -1594,15 +2012,17 @@
       rating_focus: cleanExportText(analysis.focus),
       key_decision: cleanExportText(analysis.keyDecision),
       matched_signals: cleanSignalsForExport(analysis.topSignals.map((signal) => `${signal.categoryLabel}: ${signal.label} +${signal.points}`).join(" | ")),
-      global_push_line: (analysis.globalPushProducts || []).map((product) => product.name).join(" | "),
+      global_push_line: (analysis.globalPushProducts || []).map(productExportLabel).join(" | "),
       force_email_line: "",
-      dealer_line: analysis.dealerProducts.map((product) => `${product.name} (${product.reason})`).join(" | "),
-      end_user_line: analysis.endUserProducts.map((product) => `${product.name} (${product.reason})`).join(" | "),
+      dealer_line: analysis.dealerProducts.map((product) => `${productExportLabel(product)} (${product.reason})`).join(" | "),
+      end_user_line: analysis.endUserProducts.map((product) => `${productExportLabel(product)} (${product.reason})`).join(" | "),
       email_subject: analysis.email.subject,
       email_body: analysis.email.body,
       email_preview: analysis.email.preview,
+      last_email_subject: analysis.email.subject,
+      last_email_at: new Date().toISOString(),
+      email_history_count: activeRecord?.emailHistory?.length || 0,
       suggestions: analysis.suggestions.join(" | "),
-      save_bucket: bucket,
       saved_at: new Date().toISOString()
     };
   }
@@ -1622,6 +2042,9 @@
       ["公司名 / Company", escapeHtml(input.companyName || "—")],
       ["联系人 / Contact", escapeHtml(input.contactName || "—")],
       ["联系邮箱 / Contact Email", input.contactEmail ? `<a href="mailto:${escapeHtml(input.contactEmail)}">${escapeHtml(input.contactEmail)}</a>` : "—"],
+      ["客户类型 / Customer Type", escapeHtml(customerTypeLabel(input.customerType || analysis.recordBucket))],
+      ["分析版本 / Analysis Version", escapeHtml(analysis.analysisVersion || "—")],
+      ["上次分析时间 / Last Analyzed", escapeHtml(formatDateTimeDisplay(analysis.lastAnalyzedAt || analysis.analyzedAt) || "—")],
       ["官网 / Website", input.website ? `<a href="${escapeHtml(input.website)}" target="_blank" rel="noreferrer">${escapeHtml(displayUrl(input.website))}</a>` : "—"],
       ["城市 / City", escapeHtml(input.city || "—")],
       ["Instagram", analysis.socialTargets.instagram ? `<a href="${escapeHtml(analysis.socialTargets.instagram)}" target="_blank" rel="noreferrer">${escapeHtml(displayUrl(analysis.socialTargets.instagram))}</a>` : "—"],
@@ -1709,6 +2132,36 @@
     `;
   }
 
+  function renderScoringWeightList(analysis) {
+    if (!DOM.scoringWeightList) return;
+    const categoryMap = analysis.categoryMap || {};
+    DOM.scoringWeightList.innerHTML = CATEGORY_DEFS.map((category) => {
+      const scoredCategory = categoryMap[category.id] || { score: 0, signals: [] };
+      const matchedLabels = new Set((scoredCategory.signals || []).map((signal) => signal.label));
+      const ruleRows = category.rules.map((rule) => {
+        const matched = matchedLabels.has(rule.label);
+        return `
+          <div class="weight-rule ${matched ? "matched" : ""}">
+            <span class="weight-check">${matched ? "✓" : "○"}</span>
+            <span>${escapeHtml(rule.label)}</span>
+            <strong>+${escapeHtml(String(rule.points))}</strong>
+          </div>
+        `;
+      }).join("");
+      const percent = Math.max(0, Math.min(100, Math.round((Number(scoredCategory.score || 0) / Math.max(1, category.cap)) * 100)));
+      return `
+        <section class="weight-card">
+          <div class="weight-card-head">
+            <strong>${escapeHtml(category.label)}</strong>
+            <span>${escapeHtml(String(scoredCategory.score || 0))} / ${escapeHtml(String(category.cap))}</span>
+          </div>
+          <div class="weight-bar"><span style="width:${percent}%"></span></div>
+          <div class="weight-rules">${ruleRows}</div>
+        </section>
+      `;
+    }).join("");
+  }
+
   function renderRatingList(categoryScores, analysis) {
     if (analysis?.fallbackNote && !categoryScores.some((item) => item.score > 0)) {
       DOM.ratingList.innerHTML = `<div class="bullet-item"><strong>已知客户兜底 / Known Account</strong><br><span class="crm-meta">${escapeHtml(analysis.fallbackNote)}</span></div>`;
@@ -1749,29 +2202,111 @@
     DOM.suggestionList.innerHTML = renderBulletList(items.map((item) => escapeHtml(item)), "No suggestions yet.");
   }
 
+  function renderManualOverridePanel(analysis) {
+    if (!DOM.manualOverridePanel) return;
+    const manualGrade = normalizeManualGrade(analysis.manualRating);
+    const manualScore = normalizeManualScore(analysis.manualScore);
+    const hasOverride = Boolean(manualGrade || manualScore !== "" || analysis.manualOverrideReason);
+    const aiLabel = `${analysis.aiGrade || analysis.grade || "—"} / ${analysis.aiScore || analysis.score || 0}`;
+    DOM.manualOverridePanel.innerHTML = `
+      <section class="result-subgroup manual-override-form">
+        <h4>人工评分修正 / Manual Rating Override</h4>
+        <p class="crm-meta">AI original: ${escapeHtml(aiLabel)}. If the AI rating is wrong, adjust it here and write the reason for future scoring improvement.</p>
+        <div class="manual-override-grid">
+          <label class="field">
+            <span>人工等级 / Manual Grade</span>
+            <select id="manualRatingInput">
+              <option value="">Use AI</option>
+              ${["A", "B", "C", "D", "NR"].map((grade) => `<option value="${grade}" ${manualGrade === grade ? "selected" : ""}>${grade}</option>`).join("")}
+            </select>
+          </label>
+          <label class="field">
+            <span>人工分数 / Manual Score</span>
+            <input id="manualScoreInput" type="number" min="0" max="100" step="1" value="${manualScore === "" ? "" : escapeHtml(String(manualScore))}" placeholder="0-100">
+          </label>
+        </div>
+        <label class="field field-wide">
+          <span>人工修正原因 / Reason</span>
+          <textarea id="manualReasonInput" rows="3" placeholder="Example: B&H is a major global retailer; AI under-scored due to blocked page.">${escapeHtml(analysis.manualOverrideReason || "")}</textarea>
+        </label>
+        <div class="crm-tools">
+          <button class="mini-button secondary-button" type="button" data-action="apply-manual-override">Apply manual override</button>
+          <button class="mini-button danger-text" type="button" data-action="clear-manual-override">Clear override</button>
+        </div>
+        ${hasOverride ? `<p class="crm-meta">Manual override saved in this analysis${analysis.manualOverrideAt ? ` · ${escapeHtml(formatDateTimeDisplay(analysis.manualOverrideAt))}` : ""}</p>` : ""}
+      </section>
+    `;
+  }
+
+  function applyManualOverride({ clear = false } = {}) {
+    if (!state.currentAnalysis) return;
+    if (clear) {
+      state.currentAnalysis.manualRating = "";
+      state.currentAnalysis.manualScore = "";
+      state.currentAnalysis.manualOverrideReason = "";
+      state.currentAnalysis.manualOverrideAt = "";
+      state.currentAnalysis.grade = state.currentAnalysis.aiGrade || state.currentAnalysis.grade;
+      state.currentAnalysis.score = state.currentAnalysis.aiScore || state.currentAnalysis.score;
+      state.currentAnalysis.fourScores = {
+        ...(state.currentAnalysis.fourScores || {}),
+        customerPriorityScore: state.currentAnalysis.aiScore || state.currentAnalysis.score
+      };
+    } else {
+      const manualRating = normalizeManualGrade(document.getElementById("manualRatingInput")?.value || "");
+      const manualScore = normalizeManualScore(document.getElementById("manualScoreInput")?.value || "");
+      const reason = normalizeText(document.getElementById("manualReasonInput")?.value || "");
+      if (!manualRating && manualScore === "" && !reason) {
+        setStatus("Please enter a manual grade, score, or reason before applying.", "warn");
+        return;
+      }
+      state.currentAnalysis.aiGrade = state.currentAnalysis.aiGrade || state.currentAnalysis.grade;
+      state.currentAnalysis.aiScore = state.currentAnalysis.aiScore || state.currentAnalysis.score;
+      state.currentAnalysis.manualRating = manualRating;
+      state.currentAnalysis.manualScore = manualScore;
+      state.currentAnalysis.manualOverrideReason = reason;
+      state.currentAnalysis.manualOverrideAt = new Date().toISOString();
+      if (manualRating) state.currentAnalysis.grade = manualRating;
+      if (manualScore !== "") {
+        state.currentAnalysis.score = manualScore;
+        state.currentAnalysis.fourScores = {
+          ...(state.currentAnalysis.fourScores || {}),
+          customerPriorityScore: manualScore
+        };
+      }
+    }
+    state.currentAnalysis.keyDecision = buildKeyDecision(state.currentAnalysis);
+    state.currentAnalysis.reportText = buildReportText(state.currentAnalysis, getFormValues());
+    renderAnalysis(state.currentAnalysis, getFormValues());
+    setStatus(clear ? "Manual override cleared." : "Manual override applied. Remember to Save to Pool if you want it stored.", clear ? "warn" : "good");
+  }
+
   function renderAnalysis(analysis, input) {
     renderCompanyInfo(analysis, input);
     const ratingTitle = analysis.grade === "NR" ? "未评级 / Not Rated" : `${analysis.grade} 级 / ${analysis.score} 分`;
     DOM.keyDecisionRating.innerHTML = `<strong>${escapeHtml(ratingTitle)}</strong>`;
     DOM.keyDecisionFocus.innerHTML = `<strong>${escapeHtml(analysis.keyDecision)}</strong><br><span class="crm-meta">${escapeHtml(analysis.focus)}</span>`;
     renderJudgingStandardList();
+    renderScoringWeightList(analysis);
     renderScopeList(analysis.scopeLines, input, analysis);
     renderRatingList(analysis.categoryScores, analysis);
     const fourScores = renderFourScores(analysis);
     if (fourScores) DOM.ratingList.insertAdjacentHTML("afterbegin", fourScores);
     const scoreExplanation = renderScoreExplanation(analysis);
     if (scoreExplanation) DOM.ratingList.insertAdjacentHTML("beforeend", scoreExplanation);
+    renderManualOverridePanel(analysis);
     renderSignals(analysis.topSignals, analysis);
     DOM.dealerProducts.innerHTML = buildProductCards(analysis.dealerProducts, analysis, "dealer");
     DOM.endUserProducts.innerHTML = buildProductCards(analysis.endUserProducts, analysis, "endUser");
     DOM.emailPreview.textContent = analysis.email.preview;
+    renderEmailTemplateVariables(analysis, input);
+    renderEmailHistory(state.activeRecord.id ? findRecord(state.activeRecord.bucket, state.activeRecord.id) : null);
     renderSuggestions(analysis.suggestions);
     DOM.copyReportBtn.disabled = false;
     DOM.copyEmailBtn.disabled = false;
     DOM.exportBtn.disabled = false;
     DOM.saveBtn.disabled = false;
     showAnalysisPanel(true);
-    setStatus(`${analysis.grade} / ${analysis.score} ready`, analysis.grade === "A" ? "good" : analysis.grade === "D" ? "bad" : "warn");
+    setStatus(`${analysis.grade} / ${analysis.score} ready`, ratingTone(analysis.grade));
   }
 
   function renderProductLibrary() {
@@ -1781,7 +2316,7 @@
     const grouped = groupProductsByCategory(filteredProducts);
     const productCount = products.length;
     const activeCount = products.filter(isProductSelected).length;
-    const globalPushCount = products.filter(isProductGlobalPush).length;
+    const priorityCount = products.filter(isProductGlobalPush).length;
     const blockedCount = products.filter((item) => normalizeProductStatus(item.productStatus) === "doNotRecommend").length;
     const visibleCount = filteredProducts.length;
     const categoryCount = groupProductsByCategory(products).length;
@@ -1795,12 +2330,12 @@
     DOM.productLibrary.innerHTML = `
       <div class="section-head">
         <div>
-          <h2>产品资料库 / Product Library</h2>
-          <p>当前已加载 ${productCount} 个产品，覆盖 ${categoryCount} 个类别。你勾选的是“推荐候选池”，系统会再根据客户类型从候选池里挑出“本客户推荐产品”。</p>
+          <h2>产品资料库 / Product Database</h2>
+          <p>Full Catalog 是完整产品查询库；Recommendation Pool 是主动推荐池。只有进入主动推荐池的产品，系统才会在客户分析和邮件里优先推荐。</p>
         </div>
         <div class="crm-tools">
           <button class="secondary-button" type="button" data-action="import-products">导入产品 Excel / Import Products</button>
-          <button class="ghost-button" type="button" data-action="set-all-products" data-product-active="false">清空推荐候选池 / Clear Pool</button>
+          <button class="ghost-button" type="button" data-action="set-all-products" data-product-active="false">清空主动推荐池 / Clear Pool</button>
           <input id="productFileInput" type="file" accept=".xlsx,.xlsm,.csv" hidden>
         </div>
       </div>
@@ -1815,9 +2350,9 @@
         </label>
       </div>
       <div class="overview-cards">
-        <div class="overview-card"><span class="overview-label">Products</span><strong class="overview-value">${productCount}</strong><span class="overview-note">Source: ${escapeHtml(sourceLabel)}</span></div>
-        <div class="overview-card"><span class="overview-label">Recommendation Pool</span><strong class="overview-value">${activeCount}</strong><span class="overview-note">AI recommends from this pool only</span></div>
-        <div class="overview-card"><span class="overview-label">Global Push</span><strong class="overview-value">${globalPushCount}</strong><span class="overview-note">Higher priority, not forced into first email</span></div>
+        <div class="overview-card"><span class="overview-label">Full Catalog</span><strong class="overview-value">${productCount}</strong><span class="overview-note">Searchable product database · Source: ${escapeHtml(sourceLabel)}</span></div>
+        <div class="overview-card"><span class="overview-label">Recommendation Pool</span><strong class="overview-value">${activeCount}</strong><span class="overview-note">Active products AI may recommend</span></div>
+        <div class="overview-card"><span class="overview-label">Priority in Pool</span><strong class="overview-value">${priorityCount}</strong><span class="overview-note">Higher ranking inside the pool</span></div>
         <div class="overview-card"><span class="overview-label">Blocked / Visible</span><strong class="overview-value">${blockedCount} / ${visibleCount}</strong><span class="overview-note">Do Not Recommend is never used</span></div>
       </div>
       <div class="result-area">
@@ -1840,18 +2375,18 @@
               return `<article class="product-card compact-product-card ${isActive || isGlobalPush ? "" : "product-card-disabled"}">
                 <label class="product-toggle">
                   <input type="checkbox" data-action="toggle-product-recommendation" data-product-id="${escapeHtml(item.id)}" ${isActive ? "checked" : ""}>
-                  <span>${isActive ? "In Recommendation Pool" : "Not in Pool"}</span>
+                  <span>${isActive ? "In Active Recommendation Pool" : "Full Catalog only"}</span>
                 </label>
                 <label class="product-toggle global-push-toggle">
                   <input type="checkbox" data-action="toggle-product-global-push" data-product-id="${escapeHtml(item.id)}" ${isGlobalPush ? "checked" : ""}>
-                  <span>${isGlobalPush ? "Global Push priority" : "Normal priority"}</span>
+                  <span>${isGlobalPush ? "Priority in Pool" : "Normal pool priority"}</span>
                 </label>
                 <label class="field product-status-field">
-                  <span>Product Status / 产品状态</span>
+                  <span>Lifecycle / 产品生命周期</span>
                   <select data-action="set-product-status" data-product-id="${escapeHtml(item.id)}">
-                    <option value="active" ${status === "active" ? "selected" : ""}>Active / 当前可推</option>
-                    <option value="new" ${status === "new" ? "selected" : ""}>New / 新品优先</option>
-                    <option value="old" ${status === "old" ? "selected" : ""}>Old / 旧产品低优先级</option>
+                    <option value="active" ${status === "active" ? "selected" : ""}>Active / 常规在售</option>
+                    <option value="new" ${status === "new" ? "selected" : ""}>New / 新品</option>
+                    <option value="phaseOut" ${status === "phaseOut" ? "selected" : ""}>Phase-Out / 退市过渡</option>
                     <option value="doNotRecommend" ${status === "doNotRecommend" ? "selected" : ""}>Do Not Recommend / 不推荐</option>
                   </select>
                 </label>
@@ -1860,10 +2395,10 @@
                 ${summary ? `<span>${escapeHtml(summary)}</span>` : ""}
                 <div class="product-actions">
                   <button class="${isActive ? "mini-button danger-text" : "mini-button secondary-button"}" type="button" data-action="set-product-recommendation" data-product-id="${escapeHtml(item.id)}" data-product-active="${isActive ? "false" : "true"}">
-                    ${isActive ? "Remove from pool" : "Add to pool"}
+                    ${isActive ? "Remove from active pool" : "Add to active pool"}
                   </button>
                   <button class="${isGlobalPush ? "mini-button danger-text" : "mini-button secondary-button"}" type="button" data-action="set-product-global-push" data-product-id="${escapeHtml(item.id)}" data-product-push="${isGlobalPush ? "false" : "true"}">
-                    ${isGlobalPush ? "Remove global push" : "Set global push"}
+                    ${isGlobalPush ? "Remove priority" : "Set pool priority"}
                   </button>
                 </div>
               </article>`;
@@ -1898,8 +2433,16 @@
     }
     container.innerHTML = list.map((record) => {
       const gradeClass = record.rating === "A" ? "good" : record.rating === "B" ? "warn" : record.rating === "C" ? "warn" : record.rating === "D" ? "bad" : "";
-      const summary = record.analysisSummary || record.businessTypes || record.keyDecision || record.businessNotes || record.sourceNotes || "No summary yet.";
+      const summary = record.analysisSummary || record.businessTypes || record.keyDecision || record.businessNotes || record.manualWebsiteSummary || record.sourceNotes || "No summary yet.";
       const followUp = followUpStatusMeta(record.followUpStatus);
+      const typeLabel = customerTypeLabel(record.customerType || bucket);
+      const recordBucket = record.bucket || (normalizeCustomerType(record.customerType) === "existing" ? "customers" : "prospects");
+      const suggestedAction = record.suggestedAction || suggestedActionForRecord(record);
+      const analysisMeta = [
+        record.analysisVersion,
+        record.lastAnalyzedAt ? `Last analyzed ${formatDateTimeDisplay(record.lastAnalyzedAt)}` : "",
+        (record.manualRating || (record.manualScore !== "" && record.manualScore !== undefined)) ? "Manual override" : ""
+      ].filter(Boolean).join(" · ");
       const scoreParts = FOUR_SCORE_DEFS
         .map((item) => {
           const value = Number(record[item.key] || 0) || 0;
@@ -1909,7 +2452,7 @@
         .join(" · ");
       const websiteDisplay = record.website ? `<a href="${escapeHtml(record.website)}" target="_blank" rel="noreferrer">${escapeHtml(displayUrl(record.website))}</a>` : "—";
       return `
-        <article class="crm-item" data-record-id="${escapeHtml(record.id)}" data-record-bucket="${escapeHtml(bucket)}">
+        <article class="crm-item" data-record-id="${escapeHtml(record.id)}" data-record-bucket="${escapeHtml(recordBucket)}">
           <div class="crm-item-head">
             <div>
               <h3>${escapeHtml(record.companyName || "Untitled")}</h3>
@@ -1920,22 +2463,24 @@
           <div class="crm-follow-row">
             <label class="crm-follow-field">
               <span>Follow-up Status / 客户跟进状态</span>
-              <select data-action="set-follow-up-status" data-record-id="${escapeHtml(record.id)}" data-record-bucket="${escapeHtml(bucket)}">
+              <select data-action="set-follow-up-status" data-record-id="${escapeHtml(record.id)}" data-record-bucket="${escapeHtml(recordBucket)}">
                 ${renderFollowUpOptions(followUp.id)}
               </select>
             </label>
             <label class="crm-follow-field">
               <span>Next Follow-up / 下次跟进</span>
-              <input type="date" value="${escapeHtml(formatDateInputValue(record.nextFollowUpDate))}" data-action="set-next-follow-up" data-record-id="${escapeHtml(record.id)}" data-record-bucket="${escapeHtml(bucket)}">
+              <input type="date" value="${escapeHtml(formatDateInputValue(record.nextFollowUpDate))}" data-action="set-next-follow-up" data-record-id="${escapeHtml(record.id)}" data-record-bucket="${escapeHtml(recordBucket)}">
             </label>
           </div>
-          <p class="crm-meta"><span class="status-pill ${escapeHtml(followUp.tone)}">${escapeHtml(followUp.label)}</span></p>
+          <p class="crm-meta"><span class="status-pill">${escapeHtml(typeLabel)}</span> <span class="status-pill ${escapeHtml(followUp.tone)}">${escapeHtml(followUp.label)}</span></p>
           <p class="crm-summary">${escapeHtml(summary)}</p>
+          <p class="crm-meta"><strong>Suggested Action:</strong> ${escapeHtml(suggestedAction)}</p>
+          ${analysisMeta ? `<p class="crm-meta">${escapeHtml(analysisMeta)}</p>` : ""}
           ${scoreParts ? `<p class="crm-meta">${escapeHtml(scoreParts)}</p>` : ""}
           <p class="crm-meta">${escapeHtml([record.city, record.contactName, record.contactEmail, formatSavedAt(record.savedAt)].filter(Boolean).join(" · "))}</p>
           <div class="crm-actions">
-            <button class="mini-button" type="button" data-action="load-record" data-record-id="${escapeHtml(record.id)}" data-record-bucket="${escapeHtml(bucket)}">Analyze</button>
-            <button class="mini-button danger-text" type="button" data-action="delete-record" data-record-id="${escapeHtml(record.id)}" data-record-bucket="${escapeHtml(bucket)}">Delete</button>
+            <button class="mini-button" type="button" data-action="load-record" data-record-id="${escapeHtml(record.id)}" data-record-bucket="${escapeHtml(recordBucket)}">Analyze</button>
+            <button class="mini-button danger-text" type="button" data-action="delete-record" data-record-id="${escapeHtml(record.id)}" data-record-bucket="${escapeHtml(recordBucket)}">Delete</button>
           </div>
         </article>
       `;
@@ -1943,17 +2488,16 @@
   }
 
   function renderCrmModules() {
-    renderCrmList(state.prospects, DOM.prospectList, "prospects", "No prospects yet. Import a prospect Excel file or save a new analysis here.");
-    renderCrmList(state.customers, DOM.customerList, "customers", "No existing customers yet. Import the old-customer Excel file here.");
-    if (DOM.prospectImportStatus) DOM.prospectImportStatus.textContent = state.pendingStatuses.prospects;
-    if (DOM.customerImportStatus) DOM.customerImportStatus.textContent = state.pendingStatuses.customers;
-    if (DOM.prospectBulkAnalyzeBtn) DOM.prospectBulkAnalyzeBtn.disabled = state.bulkRunning || !state.prospects.length;
-    if (DOM.customerBulkAnalyzeBtn) DOM.customerBulkAnalyzeBtn.disabled = state.bulkRunning || !state.customers.length;
-    if (DOM.prospectExportBtn) DOM.prospectExportBtn.disabled = state.bulkRunning || !state.prospects.length;
-    if (DOM.customerExportBtn) DOM.customerExportBtn.disabled = state.bulkRunning || !state.customers.length;
+    const prospects = state.prospects.length;
+    const existing = state.customers.length;
+    renderCrmList(state.customerPool, DOM.customerList, "customers", "No customers yet. Import prospects or existing customers into the unified customer pool.");
+    if (DOM.customerImportStatus) DOM.customerImportStatus.textContent = `${state.pendingStatuses.customers} Current pool: ${prospects} Prospect / ${existing} Existing.`;
+    if (DOM.customerBulkAnalyzeBtn) DOM.customerBulkAnalyzeBtn.disabled = state.bulkRunning || !state.customerPool.length;
+    if (DOM.customerExportBtn) DOM.customerExportBtn.disabled = state.bulkRunning || !state.customerPool.length;
   }
 
   function saveCurrentLists() {
+    saveStoredList(STORAGE_KEYS.customerPool, state.customerPool);
     saveStoredList(STORAGE_KEYS.prospects, state.prospects);
     saveStoredList(STORAGE_KEYS.customers, state.customers);
     saveStoredList(STORAGE_KEYS.products, state.products);
@@ -1993,22 +2537,35 @@
 
   function syncRecordFromAnalysis(bucket, existingRecordId, analysis, input) {
     const previousRecord = existingRecordId ? findRecord(bucket, existingRecordId) : null;
+    const customerType = normalizeCustomerType(input.customerType || previousRecord?.customerType || previousRecord?.bucket || bucket);
+    const recordBucket = customerType === "existing" ? "customers" : "prospects";
     return {
-      id: existingRecordId || makeId(bucket === "customers" ? "cust" : "pros"),
-      bucket,
+      id: existingRecordId || makeId(customerType === "existing" ? "cust" : "pros"),
+      bucket: recordBucket,
+      customerType,
       companyName: input.companyName || humanizeDomain(input.website) || "",
       contactName: input.contactName || previousRecord?.contactName || "",
-      emailPurpose: analysis.emailPurpose || input.emailPurpose || inferEmailPurposeFromBucket(bucket),
+      emailPurpose: analysis.emailPurpose || input.emailPurpose || inferEmailPurposeFromBucket(customerType),
       contactEmail: input.contactEmail || previousRecord?.contactEmail || "",
-      website: input.website || "",
-      city: input.city || "",
+      website: input.website || previousRecord?.website || "",
+      city: input.city || previousRecord?.city || "",
       instagramUrl: input.instagramUrl || analysis.socialTargets.instagram || "",
       facebookUrl: input.facebookUrl || analysis.socialTargets.facebook || "",
       businessNotes: input.businessNotes || "",
+      manualWebsiteSummary: input.manualWebsiteSummary || "",
       sourceNotes: input.sourceNotes || "",
       followUpStatus: normalizeFollowUpStatus(previousRecord?.followUpStatus),
       nextFollowUpDate: formatDateInputValue(previousRecord?.nextFollowUpDate),
       lastContactedAt: previousRecord?.lastContactedAt || "",
+      lastAnalyzedAt: analysis.lastAnalyzedAt || analysis.analyzedAt || new Date().toISOString(),
+      analysisVersion: analysis.analysisVersion || analysisVersionLabel(nextAnalysisVersion(previousRecord)),
+      analysisVersionNumber: analysis.analysisVersionNumber || nextAnalysisVersion(previousRecord),
+      aiRating: analysis.aiGrade || analysis.grade,
+      aiScore: analysis.aiScore || analysis.score,
+      manualRating: analysis.manualRating || "",
+      manualScore: analysis.manualScore === "" || analysis.manualScore === undefined ? "" : analysis.manualScore,
+      manualOverrideReason: analysis.manualOverrideReason || "",
+      manualOverrideAt: analysis.manualOverrideAt || "",
       rating: analysis.grade,
       score: analysis.score,
       customerPriorityScore: analysis.fourScores?.customerPriorityScore || 0,
@@ -2017,17 +2574,25 @@
       outreachReadinessScore: analysis.fourScores?.outreachReadinessScore || 0,
       keyDecision: analysis.keyDecision,
       businessTypes: analysis.businessTypes.join(" / "),
+      suggestedAction: suggestedActionForRecord({
+        ...analysis,
+        rating: analysis.grade,
+        contactEmail: input.contactEmail || previousRecord?.contactEmail || "",
+        dataConfidenceScore: analysis.fourScores?.dataConfidenceScore || 0,
+        outreachReadinessScore: analysis.fourScores?.outreachReadinessScore || 0
+      }),
       analysisSummary: analysis.grade === "NR"
         ? "未评级 / Not Rated · 官网抓取受阻"
         : `${analysis.grade} / ${analysis.score} · ${analysis.businessTypes.slice(0, 3).join(" / ") || "No clear type"}`,
       emailSubject: analysis.email.subject,
       emailBody: analysis.email.body,
       emailPreview: analysis.email.preview,
+      emailHistory: appendEmailHistory(previousRecord?.emailHistory || [], analysis),
       matchedSignals: analysis.topSignals.map((signal) => `${signal.categoryLabel}: ${signal.label} +${signal.points}`).join(" | "),
       scoreExplanation: analysis.scoreDetails?.reportLines?.join(" | ") || "",
       dealerLine: analysis.dealerProducts.map((product) => product.name).join(" | "),
       endUserLine: analysis.endUserProducts.map((product) => product.name).join(" | "),
-      globalPushLine: (analysis.globalPushProducts || []).map((product) => product.name).join(" | "),
+      globalPushLine: (analysis.globalPushProducts || []).map(productExportLabel).join(" | "),
       forceEmailLine: "",
       suggestions: cleanSuggestionsForExport(analysis.suggestions.join(" | "), analysis.businessTypes.join(" | ")),
       savedAt: new Date().toISOString()
@@ -2035,29 +2600,28 @@
   }
 
   function upsertRecord(bucket, record) {
-    const list = bucket === "customers" ? state.customers : state.prospects;
-    const index = list.findIndex((item) => item.id === record.id);
-    if (index >= 0) list[index] = { ...list[index], ...record };
-    else list.unshift(record);
-    if (bucket === "customers") state.customers = list; else state.prospects = list;
+    const prepared = prepareCustomerRecord(record, record.customerType || bucket);
+    const list = [...state.customerPool];
+    const index = list.findIndex((item) => item.id === prepared.id);
+    if (index >= 0) list[index] = mergeCustomerRecords(list[index], prepared);
+    else list.unshift(prepared);
+    state.customerPool = mergeCustomerList(list).records;
     saveCurrentLists();
     renderCrmModules();
   }
 
   function deleteRecord(bucket, id) {
-    if (bucket === "customers") state.customers = state.customers.filter((item) => item.id !== id);
-    else state.prospects = state.prospects.filter((item) => item.id !== id);
+    state.customerPool = state.customerPool.filter((item) => item.id !== id);
     saveCurrentLists();
     renderCrmModules();
   }
 
   function updateRecordFields(bucket, id, fields) {
-    const list = bucket === "customers" ? state.customers : state.prospects;
+    const list = [...state.customerPool];
     const index = list.findIndex((item) => item.id === id);
     if (index < 0) return;
     list[index] = { ...list[index], ...fields };
-    if (bucket === "customers") state.customers = list;
-    else state.prospects = list;
+    state.customerPool = list;
     saveCurrentLists();
     renderCrmModules();
   }
@@ -2068,7 +2632,7 @@
     ));
     saveCurrentLists();
     renderProductLibrary();
-    setStatus(isActive ? "Product added to Recommendation Pool." : "Product removed from Recommendation Pool.", isActive ? "good" : "warn");
+    setStatus(isActive ? "Product added to the active Recommendation Pool." : "Product moved back to Full Catalog only.", isActive ? "good" : "warn");
   }
 
   function setProductGlobalPush(productId, isGlobalPush) {
@@ -2077,7 +2641,7 @@
     ));
     saveCurrentLists();
     renderProductLibrary();
-    setStatus(isGlobalPush ? "Product set as Global Push priority." : "Product removed from Global Push priority.", isGlobalPush ? "good" : "warn");
+    setStatus(isGlobalPush ? "Product set as Priority in Pool." : "Product returned to normal pool priority.", isGlobalPush ? "good" : "warn");
   }
 
   function setProductStatus(productId, status) {
@@ -2106,7 +2670,7 @@
     });
     saveCurrentLists();
     renderProductLibrary();
-    setStatus(`${isActive ? "Added" : "Removed"} ${category} ${isActive ? "to" : "from"} the Recommendation Pool.`, isActive ? "good" : "warn");
+    setStatus(`${isActive ? "Added" : "Removed"} ${category} ${isActive ? "to" : "from"} the active Recommendation Pool.`, isActive ? "good" : "warn");
   }
 
   function setAllProductsRecommendation(isActive) {
@@ -2116,7 +2680,7 @@
     }));
     saveCurrentLists();
     renderProductLibrary();
-    setStatus(isActive ? "All products added to the Recommendation Pool." : "Recommendation Pool cleared.", isActive ? "good" : "warn");
+    setStatus(isActive ? "All products added to the active Recommendation Pool." : "Active Recommendation Pool cleared.", isActive ? "good" : "warn");
   }
 
   function updateProductFilters({ query, selectedOnly } = {}) {
@@ -2126,13 +2690,17 @@
   }
 
   function findRecord(bucket, id) {
-    const list = bucket === "customers" ? state.customers : state.prospects;
-    return list.find((item) => item.id === id) || null;
+    if (!id) return null;
+    return state.customerPool.find((item) => item.id === id) || null;
   }
 
   function loadRecordToForm(record) {
     setFormValues(record);
-    state.activeRecord = { bucket: record.bucket === "customers" ? "customers" : "prospects", id: record.id || null };
+    state.activeRecord = {
+      bucket: record.bucket === "customers" ? "customers" : "prospects",
+      id: record.id || null,
+      customerType: normalizeCustomerType(record.customerType || record.bucket)
+    };
     setSaveButtonLabel();
   }
 
@@ -2141,30 +2709,46 @@
       companyName: record.companyName || humanizeDomain(record.website) || "",
       contactName: record.contactName || "",
       contactEmail: record.contactEmail || "",
-      emailPurpose: normalizeEmailPurpose(record.emailPurpose, record.bucket),
+      customerType: normalizeCustomerType(record.customerType || record.bucket),
+      emailPurpose: normalizeEmailPurpose(record.emailPurpose, record.customerType || record.bucket),
       website: record.website || "",
       city: record.city || "",
       instagramUrl: record.instagramUrl || "",
       facebookUrl: record.facebookUrl || "",
       businessNotes: record.businessNotes || "",
+      manualWebsiteSummary: record.manualWebsiteSummary || "",
       sourceNotes: record.sourceNotes || ""
     };
   }
 
   function setBulkActionRunning(isRunning) {
     state.bulkRunning = isRunning;
-    [DOM.prospectBulkAnalyzeBtn, DOM.customerBulkAnalyzeBtn, DOM.prospectImportBtn, DOM.customerImportBtn, DOM.prospectExportBtn, DOM.customerExportBtn]
+    [DOM.customerBulkAnalyzeBtn, DOM.prospectImportBtn, DOM.customerImportBtn, DOM.customerExportBtn]
       .filter(Boolean)
       .forEach((button) => { button.disabled = isRunning; });
     if (!isRunning) renderCrmModules();
   }
 
-  async function analyzeCurrentForm() {
+  async function analyzeCurrentForm(options = {}) {
     const input = getFormValues();
+    const activeType = normalizeCustomerType(input.customerType || state.activeRecord.customerType || state.activeRecord.bucket);
+    state.activeRecord.customerType = activeType;
+    state.activeRecord.bucket = activeType === "existing" ? "customers" : "prospects";
+    const previousRecord = state.activeRecord.id ? findRecord(state.activeRecord.bucket, state.activeRecord.id) : null;
+    if (!options.skipRefreshPrompt && previousRecord?.lastAnalyzedAt) {
+      const elapsedDays = daysSince(previousRecord.lastAnalyzedAt);
+      const dayText = elapsedDays === null ? "some" : String(elapsedDays);
+      const shouldRefresh = confirm(`距离上次分析已 ${dayText} 天，官网或社媒可能已经更新。是否重新抓取并生成新版分析？`);
+      if (!shouldRefresh) {
+        setStatus("Re-analysis cancelled. Existing analysis kept.", "warn");
+        state.analysisCancelled = true;
+        return;
+      }
+    }
     let discoveredWebsite = null;
     let websiteForDisplay = input.website || "";
     const companyFallback = input.companyName || humanizeDomain(input.website) || "";
-    if (!input.companyName && !input.website && !input.businessNotes && !input.sourceNotes) {
+    if (!input.companyName && !input.website && !input.businessNotes && !input.manualWebsiteSummary && !input.sourceNotes) {
       setStatus("Please enter a company name, website, or some evidence text first.", "warn");
       return;
     }
@@ -2210,14 +2794,14 @@
     for (const item of categoryScores) categoryMap[item.id] = item;
     const sourceStatus = buildSourceStatus(collected.sources);
     const websiteAnalysis = collected.sources.find((source) => source.platform === "website")?.raw || null;
-    const knownFallback = !input.businessNotes && !input.sourceNotes
+    const knownFallback = !input.businessNotes && !input.manualWebsiteSummary && !input.sourceNotes
       ? findKnownAccountFallback(input)
       : null;
     const localScoreDetails = calculateSalesScoreDetails(categoryMap);
     const localScore = localScoreDetails.score;
     const websiteScore = Number(websiteAnalysis?.score || 0) || 0;
     const score = Math.max(localScore, websiteScore);
-    const notRateable = sourceStatus.websiteBlocked && score === 0 && !input.businessNotes && !input.sourceNotes;
+    const notRateable = sourceStatus.websiteBlocked && score === 0 && !input.businessNotes && !input.manualWebsiteSummary && !input.sourceNotes;
     const ratingBand = notRateable
       ? NOT_RATED_BAND
       : websiteAnalysis?.rating && websiteScore >= localScore
@@ -2234,9 +2818,11 @@
     const topSignals = buildMatchedSignals(categoryScores);
     const scoreDetails = buildScoreDetails({ localScoreDetails, websiteAnalysis, websiteScore, localScore, finalScore: score, ratingBand, sourceStatus });
     const focus = buildDecisionFocus(categoryScores, ratingBand);
+    const analysisVersionNumber = nextAnalysisVersion(previousRecord);
+    const analyzedAt = new Date().toISOString();
     const baseCatalog = state.products.length ? state.products : normalizeCatalog(DEFAULT_PRODUCTS);
     const recommendationCatalog = getRecommendationCatalog(baseCatalog);
-    const emailPurpose = normalizeEmailPurpose(input.emailPurpose, state.activeRecord.bucket);
+    const emailPurpose = normalizeEmailPurpose(input.emailPurpose, state.activeRecord.customerType || state.activeRecord.bucket);
     const globalPushProducts = getGlobalPushProducts(recommendationCatalog);
     const dealerProducts = pickProducts(recommendationCatalog, ["Lighting", "Modifiers", "Flash & Trigger", "Support & Accessories", "Power & Video"], ["lighting", "led", "rgb", "softbox", "modifier", "flash", "trigger", "stand", "clamp", "battery", "power", "video"], "dealer").map((product) => ({ ...product, reason: buildProductReason(product, { categoryMap }, "dealer") }));
     const endUserProducts = pickProducts(recommendationCatalog, ["Lighting", "Modifiers", "Flash & Trigger", "Power & Video", "Support & Accessories"], ["creator", "studio", "video", "rgb", "light", "softbox", "mobile", "stream", "content", "photo"], "endUser").map((product) => ({ ...product, reason: buildProductReason(product, { categoryMap }, "endUser") }));
@@ -2250,7 +2836,18 @@
       categoryMap,
       score,
       grade: ratingBand.grade,
+      aiScore: score,
+      aiGrade: ratingBand.grade,
       ratingLabel: ratingBand.label,
+      analyzedAt,
+      lastAnalyzedAt: analyzedAt,
+      previousAnalyzedAt: previousRecord?.lastAnalyzedAt || "",
+      analysisVersionNumber,
+      analysisVersion: analysisVersionLabel(analysisVersionNumber),
+      manualRating: "",
+      manualScore: "",
+      manualOverrideReason: "",
+      manualOverrideAt: "",
       scoreDetails,
       businessTypes,
       focus,
@@ -2259,7 +2856,7 @@
       scopeLines,
       topSignals,
       baseCatalog,
-      recordBucket: state.activeRecord.bucket === "customers" ? "customers" : "prospects",
+      recordBucket: normalizeCustomerType(state.activeRecord.customerType || state.activeRecord.bucket) === "existing" ? "customers" : "prospects",
       emailPurpose,
       globalPushProducts,
       dealerProducts,
@@ -2290,6 +2887,7 @@
       instagramUrl: input.instagramUrl || collected.socialTargets.instagram,
       facebookUrl: input.facebookUrl || collected.socialTargets.facebook,
       businessNotes: input.businessNotes,
+      manualWebsiteSummary: input.manualWebsiteSummary,
       sourceNotes: input.sourceNotes
     });
 
@@ -2302,6 +2900,7 @@
   async function handleGenerate(event) {
     if (event) event.preventDefault();
     const originalLabel = DOM.generateBtn ? DOM.generateBtn.textContent : "";
+    state.analysisCancelled = false;
     try {
       if (DOM.generateBtn) {
         DOM.generateBtn.disabled = true;
@@ -2325,12 +2924,13 @@
       return;
     }
     const input = getFormValues();
-    const bucket = state.activeRecord.bucket === "customers" ? "customers" : "prospects";
+    const bucket = normalizeCustomerType(input.customerType || state.activeRecord.customerType || state.activeRecord.bucket) === "existing" ? "customers" : "prospects";
     const record = syncRecordFromAnalysis(bucket, state.activeRecord.id, state.currentAnalysis, input);
     upsertRecord(bucket, record);
-    state.activeRecord = { bucket, id: record.id };
+    state.activeRecord = { bucket, id: record.id, customerType: record.customerType };
     setSaveButtonLabel();
-    setStatus(bucket === "customers" ? "Updated existing customer." : "Saved to prospects.", "good");
+    renderEmailHistory(findRecord(bucket, record.id));
+    setStatus(`Saved to Customer Pool as ${customerTypeLabel(record.customerType)}.`, "good");
   }
 
   async function copyToClipboard(text) {
@@ -2364,7 +2964,7 @@
   async function handleExport() {
     if (!state.currentAnalysis) return;
     const input = getFormValues();
-    const bucket = state.activeRecord.bucket === "customers" ? "customers" : "prospects";
+    const bucket = normalizeCustomerType(input.customerType || state.activeRecord.customerType || state.activeRecord.bucket) === "existing" ? "customers" : "prospects";
     const row = buildExportRow(state.currentAnalysis, input, bucket);
     try {
       const response = await fetchJson("/api/export-analysis", {
@@ -2395,6 +2995,7 @@
     const contactEmail = record.contactEmail || record["主要联系人邮箱"] || record.primaryEmail || "";
     return {
       company_name: record.companyName || "",
+      customer_type: customerTypeLabel(record.customerType || bucket),
       contact_name: contactName,
       contact_email: contactEmail,
       email_ready: contactEmail ? "Ready" : "Missing Contact Email",
@@ -2402,10 +3003,20 @@
       instagram_url: record.instagramUrl || "",
       facebook_url: record.facebookUrl || "",
       city: record.city || "",
-      email_purpose: record.emailPurpose || inferEmailPurposeFromBucket(bucket),
+      email_purpose: record.emailPurpose || inferEmailPurposeFromBucket(record.customerType || bucket),
+      manual_website_summary: record.manualWebsiteSummary || "",
+      analysis_version: record.analysisVersion || "",
+      last_analyzed_at: record.lastAnalyzedAt || "",
+      ai_rating: record.aiRating || record.rating || "",
+      ai_score: record.aiScore || record.score || "",
+      manual_rating: record.manualRating || "",
+      manual_score: record.manualScore === "" || record.manualScore === undefined ? "" : record.manualScore,
+      manual_override_reason: record.manualOverrideReason || "",
+      manual_override_at: record.manualOverrideAt || "",
       follow_up_status: englishFollowUpLabel(record.followUpStatus),
       next_follow_up_date: formatDateInputValue(record.nextFollowUpDate),
       last_contacted_at: record.lastContactedAt || "",
+      suggested_action: record.suggestedAction || suggestedActionForRecord(record),
       business_types: cleanBusinessTypesForExport(record.businessTypes || ""),
       rating: record.rating || "",
       score: record.score || "",
@@ -2424,19 +3035,21 @@
       email_subject: record.emailSubject || "",
       email_body: record.emailBody || "",
       email_preview: record.emailPreview || "",
+      last_email_subject: record.emailHistory?.[0]?.subject || record.emailSubject || "",
+      last_email_at: record.emailHistory?.[0]?.createdAt || "",
+      email_history_count: Array.isArray(record.emailHistory) ? record.emailHistory.length : 0,
       suggestions: cleanSuggestionsForExport(record.suggestions || "", record.businessTypes || record.keyDecision || record.analysisSummary || ""),
-      save_bucket: bucket,
       saved_at: record.savedAt || ""
     };
   }
 
   async function exportRecordBucket(bucket) {
-    const list = bucket === "customers" ? state.customers : state.prospects;
+    const list = state.customerPool;
     if (!list.length) {
       setStatus("No records to export.", "warn");
       return;
     }
-    const rows = list.map((record) => buildExportRowFromRecord(record, bucket));
+    const rows = list.map((record) => buildExportRowFromRecord(record, record.bucket || bucket));
     try {
       const response = await fetchJson("/api/export-analysis", {
         method: "POST",
@@ -2451,7 +3064,7 @@
         document.body.appendChild(link);
         link.click();
         link.remove();
-        setStatus(`Exported ${rows.length} ${bucket === "customers" ? "existing customers" : "prospects"}.`, "good");
+        setStatus(`Exported ${rows.length} records from Customer Pool.`, "good");
       }
     } catch (error) {
       setStatus(error.message || "Failed to export records.", "bad");
@@ -2459,7 +3072,7 @@
   }
 
   async function bulkAnalyzeBucket(bucket) {
-    const list = bucket === "customers" ? state.customers : state.prospects;
+    const list = [...state.customerPool];
     if (!list.length) {
       setStatus("No records to analyze.", "warn");
       return;
@@ -2474,16 +3087,17 @@
     try {
       for (let index = 0; index < list.length; index += 1) {
         const record = list[index];
+        const recordBucket = record.bucket === "customers" ? "customers" : "prospects";
         const total = list.length;
         setStatus(`Bulk analyzing ${index + 1} / ${total}: ${record.companyName || record.website || "Untitled"}`, "warn");
         try {
-          const input = buildAnalysisInputFromRecord({ ...record, bucket });
+          const input = buildAnalysisInputFromRecord(record);
           setFormValues(input);
-          state.activeRecord = { bucket, id: record.id };
-          await analyzeCurrentForm();
+          state.activeRecord = { bucket: recordBucket, id: record.id, customerType: normalizeCustomerType(record.customerType || recordBucket) };
+          await analyzeCurrentForm({ skipRefreshPrompt: true });
           if (!state.currentAnalysis) throw new Error("No analysis returned.");
-          const savedRecord = syncRecordFromAnalysis(bucket, record.id, state.currentAnalysis, getFormValues());
-          upsertRecord(bucket, {
+          const savedRecord = syncRecordFromAnalysis(recordBucket, record.id, state.currentAnalysis, getFormValues());
+          upsertRecord(recordBucket, {
             ...savedRecord,
             contactName: savedRecord.contactName || record.contactName || record.primaryContact || "",
             contactEmail: savedRecord.contactEmail || record.contactEmail || record.primaryEmail || "",
@@ -2495,7 +3109,7 @@
         } catch (error) {
           console.error(error);
           failCount += 1;
-          updateRecordFields(bucket, record.id, {
+          updateRecordFields(recordBucket, record.id, {
             analysisSummary: `Analysis failed: ${error.message || "Unknown error"}`,
             savedAt: new Date().toISOString()
           });
@@ -2513,9 +3127,9 @@
   }
 
   function resetForm() {
-    setFormValues({ companyName: "", contactName: "", contactEmail: "", emailPurpose: "firstTouch", website: "", city: "", instagramUrl: "", facebookUrl: "", businessNotes: "", sourceNotes: "" });
+    setFormValues({ companyName: "", contactName: "", contactEmail: "", emailPurpose: "firstTouch", customerType: "prospect", website: "", city: "", instagramUrl: "", facebookUrl: "", businessNotes: "", manualWebsiteSummary: "", sourceNotes: "" });
     state.currentAnalysis = null;
-    state.activeRecord = { bucket: "prospects", id: null };
+    state.activeRecord = { bucket: "prospects", id: null, customerType: "prospect" };
     DOM.copyReportBtn.disabled = true;
     DOM.copyEmailBtn.disabled = true;
     DOM.exportBtn.disabled = true;
@@ -2530,6 +3144,9 @@
     DOM.dealerProducts.innerHTML = "";
     DOM.endUserProducts.innerHTML = "";
     DOM.emailPreview.textContent = "";
+    if (DOM.customEmailTemplate) DOM.customEmailTemplate.value = "";
+    if (DOM.emailTemplateVariables) DOM.emailTemplateVariables.innerHTML = "";
+    if (DOM.emailHistoryList) DOM.emailHistoryList.innerHTML = "";
     DOM.suggestionList.innerHTML = "";
     showAnalysisPanel(false);
     setSaveButtonLabel();
@@ -2552,15 +3169,25 @@
         state.productSource = "excel";
         saveCurrentLists();
         renderProductLibrary();
-        setStatus(`Imported ${state.products.length} products. Add the products you want AI to choose from into the Recommendation Pool.`, "good");
+        setStatus(`Imported ${state.products.length} products into Full Catalog. Add selected products into the active Recommendation Pool before recommending.`, "good");
       } else {
-        const list = rows.map(normalizeImportedRecord).map((row) => ({ ...row, bucket, id: row.id || makeId(bucket === "customers" ? "cust" : "pros") }));
-        if (bucket === "customers") state.customers = list;
-        else state.prospects = list;
+        const customerType = bucket === "customers" ? "existing" : "prospect";
+        const incoming = rows.map(normalizeImportedRecord).map((row) => prepareCustomerRecord({
+          ...row,
+          customerType,
+          bucket: customerType === "existing" ? "customers" : "prospects",
+          id: row.id || makeId(customerType === "existing" ? "cust" : "pros")
+        }, customerType));
+        const beforeCount = state.customerPool.length;
+        const merged = mergeCustomerList([...state.customerPool, ...incoming]);
+        state.customerPool = merged.records;
         saveCurrentLists();
         renderCrmModules();
-        const emailCount = list.filter((row) => row.contactEmail).length;
-        setStatus(`Imported ${list.length} ${bucket === "customers" ? "existing customers" : "prospects"}. Contact emails found: ${emailCount}.`, emailCount ? "good" : "warn");
+        const emailCount = incoming.filter((row) => row.contactEmail).length;
+        const updateCount = incoming.filter((row) => row.followUpStatus || row.nextFollowUpDate || row.lastContactedAt || row.emailPurpose).length;
+        const importedLabel = customerType === "existing" ? "existing customers" : "prospects";
+        const duplicateCount = beforeCount + incoming.length - state.customerPool.length;
+        setStatus(`Imported ${incoming.length} ${importedLabel} into Customer Pool. Contact emails found: ${emailCount}. Follow-up fields updated from ${updateCount} rows. Duplicates merged by company + website or exact email: ${duplicateCount}.`, duplicateCount ? "warn" : emailCount ? "good" : "warn");
       }
     } catch (error) {
       console.error(error);
@@ -2600,6 +3227,18 @@
         setAllProductsRecommendation(isActive);
         break;
       }
+      case "apply-manual-override": {
+        applyManualOverride();
+        break;
+      }
+      case "clear-manual-override": {
+        applyManualOverride({ clear: true });
+        break;
+      }
+      case "apply-email-template": {
+        applyCustomEmailTemplate();
+        break;
+      }
       case "load-record": {
         const id = button.dataset.recordId;
         const bucket = button.dataset.recordBucket || "prospects";
@@ -2629,6 +3268,17 @@
     if (input.id === "prospectFileInput") await handleImportClick("prospects", input);
     else if (input.id === "customerFileInput") await handleImportClick("customers", input);
     else if (input.id === "productFileInput") await handleImportClick("products", input);
+    else if (input.id === "customerType") {
+      const type = normalizeCustomerType(input.value);
+      state.activeRecord.customerType = type;
+      state.activeRecord.bucket = type === "existing" ? "customers" : "prospects";
+      if (DOM.emailPurpose && type === "existing" && DOM.emailPurpose.value === "firstTouch") {
+        DOM.emailPurpose.value = "existingCustomerUpdate";
+      } else if (DOM.emailPurpose && type === "prospect" && ["existingCustomerUpdate", "reactivation"].includes(DOM.emailPurpose.value)) {
+        DOM.emailPurpose.value = "firstTouch";
+      }
+      setSaveButtonLabel();
+    }
     else if (input.id === "productSelectedOnlyInput") updateProductFilters({ selectedOnly: input.checked });
     else if (input.dataset.action === "toggle-product-recommendation") setProductRecommendation(input.dataset.productId || "", input.checked);
     else if (input.dataset.action === "toggle-product-global-push") setProductGlobalPush(input.dataset.productId || "", input.checked);
@@ -2660,15 +3310,17 @@
       contactName: "",
       contactEmail: "",
       emailPurpose: "firstTouch",
+      customerType: "prospect",
       website: "https://www.bhphotovideo.com/",
       city: "New York",
       instagramUrl: "",
       facebookUrl: "",
       businessNotes: "Large photo/video retailer with strong online and showroom presence.",
+      manualWebsiteSummary: "",
       sourceNotes: ""
     });
     state.currentAnalysis = null;
-    state.activeRecord = { bucket: "prospects", id: null };
+    state.activeRecord = { bucket: "prospects", id: null, customerType: "prospect" };
     setSaveButtonLabel();
     setStatus("Demo data loaded. Click Generate to analyze it.", "warn");
   }
@@ -2684,9 +3336,7 @@
     DOM.fillDemoBtn.addEventListener("click", fillDemo);
     DOM.prospectImportBtn.addEventListener("click", () => DOM.prospectFileInput?.click());
     DOM.customerImportBtn.addEventListener("click", () => DOM.customerFileInput?.click());
-    DOM.prospectBulkAnalyzeBtn?.addEventListener("click", () => bulkAnalyzeBucket("prospects"));
     DOM.customerBulkAnalyzeBtn?.addEventListener("click", () => bulkAnalyzeBucket("customers"));
-    DOM.prospectExportBtn?.addEventListener("click", () => exportRecordBucket("prospects"));
     DOM.customerExportBtn?.addEventListener("click", () => exportRecordBucket("customers"));
     document.addEventListener("click", handleDelegatedClick);
     document.addEventListener("change", handleDelegatedChange);
