@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Phottix Customer Agent</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20260628-qa5">
 </head>
 <body>
   <div class="app-shell">
@@ -100,6 +100,7 @@
                 <select id="emailPurpose">
                   <option value="First Touch">First Touch</option>
                   <option value="Product Follow-up">Product Follow-up</option>
+                  <option value="New Product Promotion">New Product Promotion</option>
                   <option value="Event Invitation">Event Invitation</option>
                   <option value="Existing Customer Update">Existing Customer Update</option>
                   <option value="Reactivation">Reactivation</option>
@@ -250,12 +251,17 @@
             </div>
             <div class="action-row">
               <button id="addCustomerBtn" class="secondary-button" type="button">新增客戶</button>
-              <button id="importCustomersBtn" class="ghost-button" type="button">導入客戶 Excel</button>
+              <button id="importCustomersBtn" class="secondary-button" type="button">直接導入桌面客戶 Excel</button>
               <button id="importUpdateBtn" class="ghost-button" type="button">匯入更新 Excel</button>
               <button id="exportCustomersBtn" class="primary-button" type="button">導出決策表</button>
               <input id="customerFileInput" type="file" accept=".xlsx,.xls,.csv" hidden>
               <input id="updateFileInput" type="file" accept=".xlsx,.xls,.csv" hidden>
             </div>
+          </div>
+
+          <div class="toolbar">
+            <input id="customerPathInput" type="text" value="D:\Desktop\Phottix  clients 100.xlsx" placeholder="Paste local Excel path, e.g. D:\Desktop\Phottix  clients 100.xlsx">
+            <button id="importCustomersPathBtn" class="secondary-button" type="button">導入這個本機 Excel / Import This Local Excel</button>
           </div>
 
           <div class="toolbar">
@@ -419,6 +425,6 @@
     </form>
   </dialog>
 
-  <script src="script.js"></script>
+  <script src="script.js?v=20260628-qa6"></script>
 </body>
 </html>

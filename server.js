@@ -3,6 +3,7 @@ const axios = require("axios");
 const multer = require("multer");
 const XLSX = require("xlsx");
 const path = require("path");
+const fs = require("fs");
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
@@ -59,6 +60,18 @@ function normalizeUrl(value) {
   return `https://${text}`;
 }
 
+function resolveExcelPath(inputPath) {
+  if (fs.existsSync(inputPath)) return inputPath;
+  const dir = path.dirname(inputPath);
+  const wanted = path.basename(inputPath).toLowerCase().replace(/\s+/g, " ");
+  if (!fs.existsSync(dir)) return inputPath;
+  const match = fs.readdirSync(dir).find((name) => (
+    /\.(xlsx|xls|csv)$/i.test(name)
+    && name.toLowerCase().replace(/\s+/g, " ") === wanted
+  ));
+  return match ? path.join(dir, match) : inputPath;
+}
+
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
@@ -110,6 +123,28 @@ app.post("/api/parse-excel", upload.single("file"), (req, res) => {
     res.json({ success: true, sheetName, rows });
   } catch (error) {
     res.status(502).json({ success: false, error: error.message || "Failed to parse Excel." });
+  }
+});
+
+app.post("/api/parse-excel-path", (req, res) => {
+  try {
+    const filePath = String(req.body?.path || "").trim().replace(/^["']|["']$/g, "");
+    if (!filePath) {
+      res.status(400).json({ success: false, error: "Missing Excel path." });
+      return;
+    }
+    if (!/\.(xlsx|xls|csv)$/i.test(filePath)) {
+      res.status(400).json({ success: false, error: "Only .xlsx, .xls, or .csv files are supported." });
+      return;
+    }
+    const resolvedPath = resolveExcelPath(filePath);
+    const workbook = XLSX.readFile(resolvedPath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    res.json({ success: true, sheetName, rows, path: resolvedPath });
+  } catch (error) {
+    res.status(502).json({ success: false, error: error.message || "Failed to parse Excel path." });
   }
 });
 

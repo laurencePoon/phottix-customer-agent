@@ -21,6 +21,7 @@
   const EMAIL_PURPOSES = [
     "First Touch",
     "Product Follow-up",
+    "New Product Promotion",
     "Event Invitation",
     "Existing Customer Update",
     "Reactivation",
@@ -74,6 +75,23 @@
         "",
         "Best regards,",
         "[Your Name]"
+      ].join("\n")
+    },
+    new_product_promotion: {
+      purpose: "New Product Promotion",
+      subject: "New Phottix product update for {{公司名}}",
+      body: [
+        "Hi {{聯絡人}},",
+        "",
+        "I wanted to share a quick Phottix product update that may be relevant to {{公司名}}.",
+        "",
+        "The new items I would suggest reviewing first are {{推薦產品}}.",
+        "",
+        "Would it be useful if I sent over a short overview with key specs, availability, and sample pricing?",
+        "",
+        "Best regards,",
+        "[Your Name]",
+        "Phottix Business Development Team"
       ].join("\n")
     },
     event_invitation: {
@@ -412,7 +430,11 @@
   };
 
   const RecommendationEngine = {
+    isProductReadyLead(scoring) {
+      return ["A", "B", "C"].includes(scoring?.rating) && Boolean(scoring?.businessSignals?.length);
+    },
     recommend(customer, scoring) {
+      if (!this.isProductReadyLead(scoring)) return [];
       const products = DB.getProducts()
         .filter((product) => product.status !== "Do Not Recommend" && product.inRecommendationPool);
       const signals = scoring.businessSignals.join(" ").toLowerCase();
@@ -448,15 +470,36 @@
   };
 
   const EmailEngine = {
+    describeSignals(signals = []) {
+      const set = new Set(signals);
+      const descriptions = [];
+      if (set.has("Retail") || set.has("Camera Store") || set.has("Online Shop")) {
+        descriptions.push("camera retail and photo/video equipment sales");
+      }
+      if (set.has("Wholesale")) descriptions.push("dealer or distribution business");
+      if (set.has("Physical Store")) descriptions.push("a physical retail presence");
+      if (set.has("Studio")) descriptions.push("studio and production work");
+      if (set.has("Services")) descriptions.push("service or support work");
+      if (set.has("Events")) descriptions.push("workshops or industry events");
+      if (set.has("Creator")) descriptions.push("content creation");
+      return [...new Set(descriptions)].slice(0, 2).join(" and ") || "photo and video products";
+    },
+    describeProducts(items = []) {
+      const names = items.map((item) => item.name || item).filter(Boolean).slice(0, 3);
+      if (!names.length) return "LED lighting, softboxes, and photo/video accessories";
+      if (names.length === 1) return names[0];
+      return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+    },
     variables(customer, analysis) {
-      const products = (analysis?.recommendedProducts || customer.recommendedProducts || []).map((item) => item.name || item).slice(0, 5).join(", ");
+      const products = analysis?.recommendedProducts || customer.recommendedProducts || [];
+      const signals = analysis?.businessSignals || customer.businessSignals || [];
       return {
         "{{公司名}}": customer.companyName || "your team",
         "{{聯絡人}}": customer.contactName || "there",
         "{{官網}}": customer.website || "",
         "{{客戶類型}}": customer.customerType || "prospect",
-        "{{官網發現的產品線}}": (analysis?.businessSignals || customer.businessSignals || []).slice(0, 4).join(", ") || "photo and video products",
-        "{{推薦產品}}": products || "LED lighting, softboxes, and photo/video accessories",
+        "{{官網發現的產品線}}": this.describeSignals(signals),
+        "{{推薦產品}}": this.describeProducts(products),
         "{{評分}}": `${analysis?.rating || customer.rating || "NR"} / ${analysis?.totalScore || ""}`,
         "{{郵件目的}}": customer.emailPurpose || dom.emailPurpose?.value || "First Touch"
       };
@@ -471,6 +514,66 @@
       return { subject, body };
     },
     generate(customer, analysis) {
+      if (!analysis?.recommendedProducts?.length && !["A", "B", "C"].includes(analysis?.rating)) {
+        const company = customer.companyName || "your team";
+        const greeting = customer.contactName || "there";
+        return {
+          subject: `Quick Phottix introduction for ${company}`,
+          body: [
+            `Hi ${greeting},`,
+            "",
+            `I came across ${company} and wanted to make a brief introduction from Phottix.`,
+            "",
+            "We work with photo and video partners on lighting and accessory solutions, and I wanted to check whether there is a suitable person on your team who reviews new brand or product line opportunities.",
+            "",
+            "No pressure at all. If it is relevant, I would be happy to send a short product overview first.",
+            "",
+            "If there is a better contact for this kind of discussion, I would also appreciate being pointed in the right direction.",
+            "",
+            "Best regards,",
+            "[Your Name]",
+            "Phottix Business Development Team"
+          ].join("\n")
+        };
+      }
+      if ((customer.emailPurpose || "") === "New Product Promotion") {
+        const company = customer.companyName || "your team";
+        const greeting = customer.contactName || "there";
+        const products = this.describeProducts(analysis?.recommendedProducts || customer.recommendedProducts || []);
+        const isExisting = customer.customerType === "existing";
+        return {
+          subject: isExisting
+            ? `New Phottix product update for ${company}`
+            : `New Phottix products for ${company}`,
+          body: isExisting ? [
+            `Hi ${greeting},`,
+            "",
+            `I wanted to share a quick update on our new Phottix products that may be useful for ${company}'s next product refresh or reorder planning.`,
+            "",
+            `The items I would suggest reviewing first are ${products}.`,
+            "",
+            "Would you like me to send the latest overview, availability, and sample pricing?",
+            "",
+            "Best regards,",
+            "[Your Name]",
+            "Phottix Business Development Team"
+          ].join("\n") : [
+            `Hi ${greeting},`,
+            "",
+            `I came across ${company} and wanted to briefly introduce a few new Phottix products that may fit your photo/video equipment range.`,
+            "",
+            `A few items that may be worth a quick look are ${products}.`,
+            "",
+            "No pressure at all, but would it be alright if I sent over a short product overview for the right person on your team?",
+            "",
+            "If there is a better contact for new product line discussions, I would also appreciate being pointed in the right direction.",
+            "",
+            "Best regards,",
+            "[Your Name]",
+            "Phottix Business Development Team"
+          ].join("\n")
+        };
+      }
       const templates = DB.getTemplates();
       const key = purposeKey(customer.emailPurpose || "First Touch");
       const template = templates[key] || templates.first_touch || DEFAULT_TEMPLATES.first_touch;
@@ -488,21 +591,36 @@
       if (!response.ok || !payload.success) throw new Error(payload.error || "Excel parse failed.");
       return payload.rows || [];
     },
-    async importCustomers(file) {
+    async parsePath(filePath) {
+      const response = await fetch(`${API_BASE}/api/parse-excel-path`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: filePath })
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Excel path parse failed.");
+      return payload.rows || [];
+    },
+    importCustomerRows(rows) {
       DB.backup("before_customer_import");
-      const rows = await this.parseFile(file);
       const customers = DB.getCustomers();
       let added = 0;
       let merged = 0;
+      let skipped = 0;
+      let duplicateMode = "";
       for (const row of rows) {
         const incoming = normalizeImportedCustomer(row);
         if (!incoming.companyName && !incoming.website && !incoming.contactEmail) continue;
         const index = customers.findIndex((item) => isDuplicateCustomer(item, incoming));
         if (index >= 0) {
-          const ok = confirm(`Duplicate customer found: ${incoming.companyName || incoming.contactEmail}. Merge and update existing record?`);
-          if (ok) {
+          if (!duplicateMode) {
+            duplicateMode = confirm("Duplicate customers found. Click OK to merge all duplicates, or Cancel to skip all duplicates.") ? "merge" : "skip";
+          }
+          if (duplicateMode === "merge") {
             customers[index] = { ...customers[index], ...removeEmpty(incoming), id: customers[index].id };
             merged += 1;
+          } else {
+            skipped += 1;
           }
         } else {
           customers.push(incoming);
@@ -511,7 +629,15 @@
       }
       DB.setCustomers(customers);
       UI.refreshAll();
-      UI.toast(`Imported customers. Added: ${added}. Merged: ${merged}.`, "good");
+      UI.toast(`Imported customers. Added: ${added}. Merged: ${merged}. Skipped: ${skipped}.`, "good");
+    },
+    async importCustomers(file) {
+      this.importCustomerRows(await this.parseFile(file));
+    },
+    async importCustomersFromPath(filePath) {
+      const cleanPath = normalizeText(filePath).replace(/^["']|["']$/g, "");
+      if (!cleanPath) throw new Error("Please paste a local Excel path first.");
+      this.importCustomerRows(await this.parsePath(cleanPath));
     },
     async importProducts(file) {
       DB.backup("before_product_import");
@@ -868,15 +994,20 @@
 
   function normalizeImportedCustomer(row) {
     const n = normalizeKeys(row);
+    const customerTypeText = getAny(n, "Customer Type", "customer_type", "客戶類型", "客户类型");
+    const notes = [
+      getAny(n, "Company Type", "company_type", "公司類型", "公司类型"),
+      getAny(n, "Main Products", "main_products", "主營產品", "主营产品")
+    ].filter(Boolean).join(" | ");
     return {
-      id: getAny(n, "id") || uid("cust"),
-      companyName: getAny(n, "Company Name", "company_name", "company", "name"),
-      website: normalizeUrl(getAny(n, "Website", "website", "domain", "url")),
-      contactName: getAny(n, "Contact Name", "contact_name", "contact"),
-      contactEmail: getAny(n, "Contact Email", "contact_email", "email", "email address"),
-      country: getAny(n, "Country", "City", "country", "city"),
-      customerType: CUSTOMER_TYPES.includes(getAny(n, "Customer Type", "customer_type").toLowerCase()) ? getAny(n, "Customer Type", "customer_type").toLowerCase() : "prospect",
-      rating: getAny(n, "Rating", "rating") || "NR",
+      id: getAny(n, "id", "Customer ID", "customer_id", "客戶ID", "客户ID") || uid("cust"),
+      companyName: getAny(n, "Company Name", "company_name", "company", "name", "公司名稱", "公司名称"),
+      website: normalizeUrl(getAny(n, "Website", "website", "domain", "url", "Company Website", "Company Homepage", "公司主頁", "公司主页", "官網", "官网", "官網域名", "官网域名")),
+      contactName: getAny(n, "Contact Name", "contact_name", "contact", "Primary Contact Name", "主要聯絡人名稱", "主要联系人名称", "聯絡人", "联系人", "联系人姓名"),
+      contactEmail: getAny(n, "Contact Email", "contact_email", "email", "email address", "Primary Contact Email", "主要聯絡人郵箱", "主要联系人邮箱", "郵箱", "邮箱", "電子郵箱", "电子邮箱", "聯絡郵箱", "联系邮箱"),
+      country: getAny(n, "Country", "City", "country", "city", "國家", "国家", "地區", "地区", "國家地區名", "国家地区名", "國家地區名稱", "国家地区名称"),
+      customerType: CUSTOMER_TYPES.includes(customerTypeText.toLowerCase()) ? customerTypeText.toLowerCase() : "prospect",
+      rating: getAny(n, "Rating", "rating", "評級", "评级") || "NR",
       scores: { priority: 0, productFit: 0, confidence: 0, readiness: 0 },
       businessSignals: [],
       recommendedProducts: [],
@@ -887,7 +1018,7 @@
       lastAnalyzedAt: "",
       isManuallyReviewed: false,
       manualOverride: null,
-      notes: "",
+      notes,
       socialMedia: { instagram: getAny(n, "Instagram"), facebook: getAny(n, "Facebook") },
       manualWebsiteSummary: "",
       websiteExtract: "",
@@ -1331,7 +1462,7 @@
       "scoringBreakdown", "recommendedProducts", "actionSuggestions", "copyEmailBtn", "emailPreview",
       "addLogBtn", "timeline", "analysisHistory", "addProductBtn", "importProductsBtn", "productFileInput", "productSearch",
       "productView", "productTable", "addCustomerBtn", "importCustomersBtn", "importUpdateBtn",
-      "exportCustomersBtn", "customerFileInput", "updateFileInput", "customerTypeFilter", "ratingFilter",
+      "exportCustomersBtn", "customerFileInput", "updateFileInput", "customerPathInput", "importCustomersPathBtn", "customerTypeFilter", "ratingFilter",
       "followStatusFilter", "customerSearch", "selectAllCustomers", "bulkAnalyzeSelectedBtn",
       "bulkAnalyzeAllBtn", "bulkDeleteBtn", "bulkConvertBtn", "bulkFollowStatus", "bulkNextFollowDate", "bulkProgressBar", "bulkProgressText", "customerList", "backupExportBtn",
       "backupImportBtn", "backupFileInput", "productDialog", "productForm", "productDialogTitle",
@@ -1419,7 +1550,16 @@
     dom.productView.addEventListener("change", () => UI.renderProductList());
     dom.addCustomerBtn.addEventListener("click", () => openCustomerDialog());
     dom.saveCustomerDialogBtn.addEventListener("click", saveCustomerFromDialog);
-    dom.importCustomersBtn.addEventListener("click", () => dom.customerFileInput.click());
+    dom.importCustomersBtn.addEventListener("click", () => ExcelHandler.importCustomersFromPath(dom.customerPathInput.value).catch((error) => {
+      DB.addErrorLog("導入本機路徑 Excel", error);
+      UI.refreshAll();
+      UI.toast(error.message, "bad");
+    }));
+    dom.importCustomersPathBtn.addEventListener("click", () => ExcelHandler.importCustomersFromPath(dom.customerPathInput.value).catch((error) => {
+      DB.addErrorLog("導入本機路徑 Excel", error);
+      UI.refreshAll();
+      UI.toast(error.message, "bad");
+    }));
     dom.importUpdateBtn.addEventListener("click", () => dom.updateFileInput.click());
     dom.customerFileInput.addEventListener("change", () => dom.customerFileInput.files[0] && ExcelHandler.importCustomers(dom.customerFileInput.files[0]).catch((error) => {
       DB.addErrorLog("導入客戶 Excel", error);
