@@ -1,248 +1,424 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-Hant">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Phottix Customer Agent | Deep Research + Outreach</title>
-  <meta name="description" content="Phottix Customer Agent - local static tool for customer analysis, product suggestions, and outreach emails.">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phottix Customer Agent</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="page-shell">
-    <header class="hero panel">
-      <div class="hero-copy">
-        <div class="eyebrow">Phottix Customer Agent</div>
-        <h1>Deep Research + Outreach / 客户分析 + 开发信</h1>
-        <p class="hero-lead">
-          本地静态工具，双击打开 <code>index.html</code> 即可使用。输入公司名或官网，再补充官网或社媒摘录，系统就会生成客户深度分析、产品推荐和英文开发信。
-        </p>
-      </div>
-    </header>
-
-    <nav class="module-nav panel">
-      <button class="module-tab active" type="button" data-module="analysis">客户分析 / Analysis</button>
-      <button class="module-tab" type="button" data-module="products">产品资料库 / Products</button>
-      <button class="module-tab" type="button" data-module="customers">客户池 / Customer Pool</button>
-    </nav>
-
-    <main class="layout">
-      <section class="panel form-panel module-section" data-module-section="analysis">
-        <div class="section-head">
-          <div>
-            <h2>输入客户资料 / Input Customer Data</h2>
-            <p>建议把官网正文、产品页文字或社媒摘录一起贴进来，这样评分和开发信会更接近真实深研结果。</p>
-          </div>
-          <button id="fillDemoBtn" class="ghost-button" type="button">填入示例 / Demo</button>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">P</span>
+        <div>
+          <h1>Phottix Customer Agent</h1>
+          <p>Sales intelligence workspace</p>
         </div>
+      </div>
 
-        <form id="agentForm" class="agent-form" autocomplete="off">
-          <div class="form-grid">
-            <label class="field">
-              <span>公司名 / Company</span>
-              <input id="companyName" name="companyName" type="text" placeholder="e.g. ABC Photo Studio">
-            </label>
-            <label class="field">
-              <span>联系人 / Contact</span>
-              <input id="contactName" name="contactName" type="text" placeholder="e.g. Ms. Lee">
-            </label>
-            <label class="field">
-              <span>联系邮箱 / Contact Email</span>
-              <input id="contactEmail" name="contactEmail" type="email" placeholder="e.g. sales@example.com">
-            </label>
-            <label class="field">
-              <span>邮件目的 / Email Purpose</span>
-              <select id="emailPurpose" name="emailPurpose">
-                <option value="firstTouch">首次开发 / First Touch</option>
-                <option value="productFollowUp">产品跟进 / Product Follow-up</option>
-                <option value="eventInvitation">活动邀请 / Event Invitation</option>
-                <option value="existingCustomerUpdate">老客户更新 / Existing Customer Update</option>
-                <option value="reactivation">老客户唤醒 / Reactivation</option>
-                <option value="holidayGreeting">节日问候 / Holiday Greeting</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>客户类型 / Customer Type</span>
-              <select id="customerType" name="customerType">
-                <option value="prospect">潜在客户 / Prospect</option>
-                <option value="existing">旧客户 / Existing</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>官网 / Website</span>
-              <input id="website" name="website" type="url" placeholder="https://example.com">
-            </label>
-            <label class="field">
-              <span>城市 / City</span>
-              <input id="city" name="city" type="text" placeholder="e.g. Hong Kong">
-            </label>
-            <label class="field">
-              <span>Instagram</span>
-              <input id="instagramUrl" name="instagramUrl" type="url" placeholder="https://instagram.com/xxxx">
-            </label>
-            <label class="field">
-              <span>Facebook</span>
-              <input id="facebookUrl" name="facebookUrl" type="url" placeholder="https://facebook.com/xxxx">
-            </label>
-          </div>
-
-          <label class="field field-wide">
-            <span>业务备注 / Business Notes</span>
-            <textarea id="businessNotes" name="businessNotes" rows="4" placeholder="e.g. wholesale, retail, studio, content creator, video gear..."></textarea>
-          </label>
-
-          <label class="field field-wide">
-            <span>手动网站摘要 / Manual Website Summary</span>
-            <textarea id="manualWebsiteSummary" name="manualWebsiteSummary" rows="5" placeholder="Paste About Us, brand page, product categories, store address, or copied website summary here when the website cannot be fetched."></textarea>
-          </label>
-
-          <label class="field field-wide">
-            <span>官网 / 社媒摘录 / Website & Social Extract</span>
-            <textarea id="sourceNotes" name="sourceNotes" rows="6" placeholder="Paste website text, service intro, captions, product descriptions, or third-party gear signals here."></textarea>
-          </label>
-
-          <div class="form-actions">
-            <button id="generateBtn" class="primary-button" type="submit">生成分析 / Generate</button>
-            <button id="saveBtn" class="secondary-button" type="button" disabled>保存到客户池 / Save to Pool</button>
-            <button id="copyReportBtn" class="ghost-button" type="button" disabled>复制分析 / Copy Report</button>
-            <button id="copyEmailBtn" class="secondary-button" type="button" disabled>复制开发信 / Copy Email</button>
-            <button id="exportBtn" class="ghost-button" type="button" disabled>导出 Excel / Export XLSX</button>
-            <button id="resetBtn" class="danger-button" type="button">清空 / Reset</button>
-          </div>
-
-          <p class="hint">说明：这是一个本地静态工具，不会自动联网抓取网页内容。若你把官网或社媒摘录贴进来，分析会更接近真实深研结果。</p>
-        </form>
+      <section class="today-widget">
+        <div class="widget-head">
+          <span>今日待跟進</span>
+          <strong id="todayFollowCount">0</strong>
+        </div>
+        <div class="today-stats">
+          <span id="overdueFollowCount">逾期 0</span>
+          <span id="dueTodayFollowCount">今日 0</span>
+        </div>
+        <div id="todayFollowList" class="today-list"></div>
       </section>
 
-      <section id="analysisResultPanel" class="panel result-panel hidden" aria-live="polite">
-        <div class="section-head result-head">
-          <div>
-            <h2>分析结果 / Analysis Result</h2>
-            <p>这里会显示客户信息、业务判断、评级标准、产品推荐和开发信。</p>
-          </div>
-          <div class="result-toolbar">
-            <span id="resultStatus" class="status-pill">Ready</span>
-          </div>
+      <section class="stats-widget">
+        <h3>統計摘要</h3>
+        <div id="statsSummary" class="stats-grid"></div>
+      </section>
+
+      <nav class="side-nav" aria-label="Main navigation">
+        <button class="nav-button active" data-page="analysisPage" type="button">客戶分析</button>
+        <button class="nav-button" data-page="productsPage" type="button">產品資料庫</button>
+        <button class="nav-button" data-page="customersPage" type="button">客戶池</button>
+      </nav>
+
+      <section class="error-widget">
+        <div class="widget-head">
+          <span>錯誤日誌</span>
+          <button id="clearErrorLogsBtn" class="mini-button" type="button">清除</button>
+        </div>
+        <div id="errorLogList" class="today-list"></div>
+      </section>
+
+      <div class="backup-box">
+        <button id="backupExportBtn" class="ghost-button" type="button">導出 JSON 備份</button>
+        <button id="backupImportBtn" class="ghost-button" type="button">還原 JSON 備份</button>
+        <input id="backupFileInput" type="file" accept=".json" hidden>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h2 id="pageTitle">客戶分析 / Customer Analysis</h2>
+          <p id="pageSubtitle">抓取官網、提取業務信號、評分、推薦產品並生成英文開發信。</p>
+        </div>
+        <div id="toast" class="toast" role="status">Ready</div>
+      </header>
+
+      <section id="analysisPage" class="page active">
+        <div class="grid two">
+          <section class="card">
+            <div class="card-head">
+              <h3>輸入資料</h3>
+              <select id="loadCustomerSelect">
+                <option value="">從客戶池載入 / Load from Customer Pool</option>
+              </select>
+            </div>
+
+            <form id="analysisForm" class="form-grid">
+              <label>公司名 / Company
+                <input id="companyName" type="text" placeholder="B&H Photo Video">
+              </label>
+              <label>官網 / Website
+                <input id="website" type="url" placeholder="https://example.com">
+              </label>
+              <label>聯絡人 / Contact
+                <input id="contactName" type="text" placeholder="Daniel">
+              </label>
+              <label>郵箱 / Email
+                <input id="contactEmail" type="email" placeholder="buyer@example.com">
+              </label>
+              <label>國家/城市 / Country or City
+                <input id="country" type="text" placeholder="Germany">
+              </label>
+              <label>Instagram
+                <input id="instagram" type="url" placeholder="https://instagram.com/...">
+              </label>
+              <label>Facebook
+                <input id="facebook" type="url" placeholder="https://facebook.com/...">
+              </label>
+              <label>郵件目的 / Email Purpose
+                <select id="emailPurpose">
+                  <option value="First Touch">First Touch</option>
+                  <option value="Product Follow-up">Product Follow-up</option>
+                  <option value="Event Invitation">Event Invitation</option>
+                  <option value="Existing Customer Update">Existing Customer Update</option>
+                  <option value="Reactivation">Reactivation</option>
+                  <option value="Holiday Greeting">Holiday Greeting</option>
+                </select>
+              </label>
+              <label class="wide">業務備註 / Business Notes
+                <textarea id="businessNotes" rows="3" placeholder="Wholesale, retail, camera store, studio, creator..."></textarea>
+              </label>
+              <label class="wide">手動網站摘要 / Manual Website Summary
+                <textarea id="manualWebsiteSummary" rows="4" placeholder="Paste About Us, product lines, address, brand pages, store information..."></textarea>
+              </label>
+              <label class="wide">官網社媒摘錄 / Website & Social Extract
+                <textarea id="websiteExtract" rows="5" placeholder="Fetched website text or copied social media captions will appear here."></textarea>
+              </label>
+            </form>
+
+            <div class="action-row">
+              <button id="fetchWebsiteBtn" class="secondary-button" type="button">抓取官網</button>
+              <button id="runAnalysisBtn" class="primary-button" type="button">執行分析</button>
+              <button id="saveCustomerBtn" class="secondary-button" type="button">保存到客戶池</button>
+              <button id="clearAnalysisBtn" class="ghost-button" type="button">清空</button>
+            </div>
+
+            <div id="staleBanner" class="banner hidden"></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <h3>郵件範本編輯器</h3>
+              <select id="templatePurpose"></select>
+            </div>
+            <label>Subject
+              <input id="templateSubject" type="text">
+            </label>
+            <label>Body
+              <textarea id="templateBody" rows="10"></textarea>
+            </label>
+            <div class="variable-list">
+              <span>{{公司名}}</span>
+              <span>{{聯絡人}}</span>
+              <span>{{官網}}</span>
+              <span>{{客戶類型}}</span>
+              <span>{{官網發現的產品線}}</span>
+              <span>{{推薦產品}}</span>
+              <span>{{評分}}</span>
+              <span>{{郵件目的}}</span>
+            </div>
+            <div class="action-row">
+              <button id="previewTemplateBtn" class="ghost-button" type="button">預覽範本</button>
+              <button id="saveTemplateBtn" class="secondary-button" type="button">儲存範本</button>
+            </div>
+          </section>
         </div>
 
-        <div id="resultArea" class="result-area hidden">
-          <section class="result-block">
-            <div class="block-head">
-              <h3>客户信息 / Company Info</h3>
+        <section id="analysisResult" class="card result-card hidden">
+          <div class="card-head">
+            <h3>分析輸出</h3>
+            <button id="manualOverrideBtn" class="ghost-button" type="button">手動調整評級</button>
+          </div>
+
+          <div class="result-grid">
+            <div class="result-block">
+              <h4>A. 客戶資訊表</h4>
+              <div id="companyInfoTable" class="table-wrap"></div>
             </div>
-            <div id="companyTable" class="table-shell"></div>
-          </section>
-
-          <div class="two-column">
-            <section class="result-block">
-              <div class="block-head">
-                <h3>关键判断 / Key Decision</h3>
-              </div>
-              <div class="bullet-list">
-                <div id="keyDecisionRating" class="bullet-item"></div>
-                <div id="keyDecisionFocus" class="bullet-item"></div>
-                <div id="manualOverridePanel" class="bullet-item manual-override-panel"></div>
-              </div>
-            </section>
-
-            <section class="result-block">
-              <div class="block-head">
-                <h3>评分规则 / Scoring Rules</h3>
-              </div>
-              <div id="judgingStandardList" class="bullet-list"></div>
-            </section>
-          </div>
-
-          <section class="result-block">
-            <div class="block-head">
-              <h3>评分权重表 / Scoring Weight Checklist</h3>
+            <div class="result-block hero-rating">
+              <h4>C. 評分結果</h4>
+              <div id="ratingHero"></div>
+              <div id="fourScores" class="score-bars"></div>
             </div>
-            <div id="scoringWeightList" class="scoring-weight-list"></div>
-          </section>
-
-          <div class="two-column">
-            <section class="result-block">
-              <div class="block-head">
-                <h3>业务范围提取 / Business Scope</h3>
-              </div>
-              <div id="scopeList" class="bullet-list"></div>
-            </section>
-
-            <section class="result-block">
-              <div class="block-head">
-                <h3>评级拆解 / Rating Breakdown</h3>
-              </div>
-              <div id="ratingList" class="bullet-list"></div>
-            </section>
           </div>
 
-          <div class="two-column">
-            <section class="result-block">
-              <div class="block-head">
-                <h3>本客户推荐产品：经销商线 / Recommended for This Customer: Dealer Line</h3>
-              </div>
-              <div id="dealerProducts" class="product-grid"></div>
-            </section>
-
-            <section class="result-block">
-              <div class="block-head">
-                <h3>本客户推荐产品：终端用户线 / Recommended for This Customer: End User Line</h3>
-              </div>
-              <div id="endUserProducts" class="product-grid"></div>
-            </section>
+          <div class="result-block">
+            <h4>B. 業務信號標籤</h4>
+            <div id="signalTags" class="tag-list"></div>
           </div>
 
-          <section class="result-block">
-            <div class="block-head">
-              <h3>完整英文开发信 / Outreach Email</h3>
+          <div class="result-block">
+            <h4>D. 評分拆明細表</h4>
+            <div id="scoringBreakdown" class="table-wrap"></div>
+          </div>
+
+          <div class="grid two">
+            <div class="result-block">
+              <h4>E. 推薦產品清單</h4>
+              <div id="recommendedProducts" class="product-recommend-list"></div>
+            </div>
+            <div class="result-block">
+              <h4>G. 操作建議</h4>
+              <div id="actionSuggestions" class="suggestion-list"></div>
+            </div>
+          </div>
+
+          <div class="result-block">
+            <div class="card-head compact">
+              <h4>F. 英文開發信</h4>
+              <button id="copyEmailBtn" class="secondary-button" type="button">複製郵件</button>
             </div>
             <pre id="emailPreview" class="email-preview"></pre>
-            <label class="field field-wide email-template-field">
-              <span>自定义邮件模板 / Custom Email Template</span>
-              <textarea id="customEmailTemplate" rows="5" placeholder="Optional. Use variables such as {{公司名}}, {{官网发现的产品线}}, {{推荐产品}}. Leave blank to use the generated email above."></textarea>
-            </label>
-            <button class="mini-button" type="button" data-action="apply-email-template">套用模板 / Apply Template</button>
-            <div id="emailTemplateVariables" class="template-variable-list"></div>
-            <div id="emailHistoryList" class="email-history-list"></div>
-          </section>
+          </div>
 
-          <section class="result-block">
-            <div class="block-head">
-              <h3>操作建议 / Suggestions</h3>
+          <div class="result-block">
+            <div class="card-head compact">
+              <h4>跟進時間軸</h4>
+              <button id="addLogBtn" class="secondary-button" type="button">新增跟進記錄</button>
             </div>
-            <div id="suggestionList" class="bullet-list"></div>
-          </section>
-        </div>
+            <div id="timeline" class="timeline"></div>
+          </div>
+
+          <div class="result-block">
+            <h4>I. 分析歷史</h4>
+            <div id="analysisHistory" class="timeline"></div>
+          </div>
+        </section>
       </section>
 
-      <section class="panel module-section" data-module-section="products">
-        <div data-product-library class="result-area"></div>
+      <section id="productsPage" class="page">
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h3>產品資料庫 / Product Database</h3>
+              <p>Recommendation Pool 是主動推薦池，Full Catalog 是完整查詢庫。</p>
+            </div>
+            <div class="action-row">
+              <button id="addProductBtn" class="secondary-button" type="button">新增產品</button>
+              <button id="importProductsBtn" class="ghost-button" type="button">導入產品 Excel</button>
+              <input id="productFileInput" type="file" accept=".xlsx,.xls,.csv" hidden>
+            </div>
+          </div>
+          <div class="toolbar">
+            <input id="productSearch" type="search" placeholder="搜尋產品名稱、分類...">
+            <select id="productView">
+              <option value="pool">推薦池</option>
+              <option value="all">完整目錄</option>
+            </select>
+          </div>
+          <div id="productTable" class="table-wrap"></div>
+        </section>
       </section>
 
-      <section class="panel crm-panel module-section" data-module-section="customers">
-        <div class="section-head">
-          <div>
-            <h2>客户池 / Customer Pool</h2>
-            <p>潜在客户和旧客户统一管理，用 Customer Type 标签区分 Prospect / Existing。导入时会按公司名 + 官网自动检测重复并合并。</p>
+      <section id="customersPage" class="page">
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h3>客戶池 / Customer Pool</h3>
+              <p>Prospect 與 Existing 統一管理，用 Customer Type 區分。</p>
+            </div>
+            <div class="action-row">
+              <button id="addCustomerBtn" class="secondary-button" type="button">新增客戶</button>
+              <button id="importCustomersBtn" class="ghost-button" type="button">導入客戶 Excel</button>
+              <button id="importUpdateBtn" class="ghost-button" type="button">匯入更新 Excel</button>
+              <button id="exportCustomersBtn" class="primary-button" type="button">導出決策表</button>
+              <input id="customerFileInput" type="file" accept=".xlsx,.xls,.csv" hidden>
+              <input id="updateFileInput" type="file" accept=".xlsx,.xls,.csv" hidden>
+            </div>
           </div>
-          <div class="crm-tools">
-            <button id="prospectImportBtn" class="secondary-button" type="button">导入潜在客户 / Import Prospects</button>
-            <button id="customerImportBtn" class="secondary-button" type="button">导入旧客户 / Import Existing</button>
-            <button id="customerBulkAnalyzeBtn" class="secondary-button" type="button">批量分析客户池 / Bulk Analyze Pool</button>
-            <button id="customerExportBtn" class="ghost-button" type="button">导出客户池 / Export Pool</button>
-            <input id="prospectFileInput" type="file" accept=".xlsx,.xlsm,.csv" hidden>
-            <input id="customerFileInput" type="file" accept=".xlsx,.xlsm,.csv" hidden>
+
+          <div class="toolbar">
+            <select id="customerTypeFilter">
+              <option value="">全部類型</option>
+              <option value="prospect">Prospect</option>
+              <option value="existing">Existing</option>
+            </select>
+            <select id="ratingFilter">
+              <option value="">全部評級</option>
+              <option>A</option>
+              <option>B</option>
+              <option>C</option>
+              <option>D</option>
+              <option>NR</option>
+            </select>
+            <select id="followStatusFilter">
+              <option value="">全部跟進狀態</option>
+              <option value="open">open</option>
+              <option value="pending">pending</option>
+              <option value="completed">completed</option>
+              <option value="cancelled">cancelled</option>
+              <option value="deferred">deferred</option>
+            </select>
+            <input id="customerSearch" type="search" placeholder="搜尋公司、官網、郵箱...">
           </div>
-        </div>
-        <p id="customerImportStatus" class="hint"></p>
-        <div id="customerList" class="crm-list"></div>
+
+          <div class="bulk-box">
+            <label><input id="selectAllCustomers" type="checkbox"> 全選目前列表</label>
+            <button id="bulkAnalyzeSelectedBtn" class="secondary-button" type="button">批量分析：選中客戶</button>
+            <button id="bulkAnalyzeAllBtn" class="secondary-button" type="button">批量分析：全部</button>
+            <button id="bulkDeleteBtn" class="ghost-button" type="button">批量刪除</button>
+            <button id="bulkConvertBtn" class="ghost-button" type="button">批量轉 Existing</button>
+            <select id="bulkFollowStatus">
+              <option value="">批量跟進狀態</option>
+              <option value="open">open</option>
+              <option value="pending">pending</option>
+              <option value="completed">completed</option>
+              <option value="cancelled">cancelled</option>
+              <option value="deferred">deferred</option>
+            </select>
+            <input id="bulkNextFollowDate" type="date" title="批量設定下次跟進日期">
+            <div class="progress-shell"><span id="bulkProgressBar"></span></div>
+            <span id="bulkProgressText">Idle</span>
+          </div>
+
+          <div id="customerList" class="customer-list"></div>
+        </section>
       </section>
     </main>
-
-    <footer class="page-footer panel" aria-label="Usage instructions">
-      <p>Usage / 使用说明: 输入公司名或官网，补充官网或社媒摘录，然后点击 Generate 生成分析和开发信。</p>
-    </footer>
-
-    <script src="script.js?v=20260625-restore-fix"></script>
   </div>
+
+  <dialog id="productDialog">
+    <form method="dialog" id="productForm" class="dialog-form">
+      <h3 id="productDialogTitle">產品</h3>
+      <input id="productId" type="hidden">
+      <label>產品名稱 <input id="productName" required></label>
+      <label>分類 <input id="productCategory" required></label>
+      <label>狀態
+        <select id="productStatus">
+          <option>Active</option>
+          <option>New</option>
+          <option>Phase-Out</option>
+          <option>Do Not Recommend</option>
+        </select>
+      </label>
+      <label><input id="productInPool" type="checkbox"> 進入推薦池</label>
+      <label><input id="productPriority" type="checkbox"> Priority</label>
+      <menu>
+        <button value="cancel" class="ghost-button">取消</button>
+        <button id="saveProductDialogBtn" value="default" class="primary-button">保存</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="customerDialog">
+    <form method="dialog" id="customerForm" class="dialog-form">
+      <h3 id="customerDialogTitle">客戶</h3>
+      <input id="customerId" type="hidden">
+      <label>公司名 <input id="dialogCompanyName" required></label>
+      <label>官網 <input id="dialogWebsite" type="url"></label>
+      <label>聯絡人 <input id="dialogContactName"></label>
+      <label>郵箱 <input id="dialogContactEmail" type="email"></label>
+      <label>國家/城市 <input id="dialogCountry"></label>
+      <label>客戶類型
+        <select id="dialogCustomerType">
+          <option value="prospect">prospect</option>
+          <option value="existing">existing</option>
+        </select>
+      </label>
+      <label>跟進狀態
+        <select id="dialogFollowStatus">
+          <option value="open">open</option>
+          <option value="pending">pending</option>
+          <option value="completed">completed</option>
+          <option value="cancelled">cancelled</option>
+          <option value="deferred">deferred</option>
+        </select>
+      </label>
+      <label>下次跟進日期 <input id="dialogNextFollowDate" type="date"></label>
+      <menu>
+        <button value="cancel" class="ghost-button">取消</button>
+        <button id="saveCustomerDialogBtn" value="default" class="primary-button">保存</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="overrideDialog">
+    <form method="dialog" id="overrideForm" class="dialog-form">
+      <h3>手動調整評級</h3>
+      <label>新評級
+        <select id="overrideRating">
+          <option>A</option>
+          <option>B</option>
+          <option>C</option>
+          <option>D</option>
+          <option>NR</option>
+        </select>
+      </label>
+      <label>原因
+        <textarea id="overrideReason" rows="4" required></textarea>
+      </label>
+      <menu>
+        <button value="cancel" class="ghost-button">取消</button>
+        <button id="saveOverrideBtn" value="default" class="primary-button">保存覆寫</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="logDialog">
+    <form method="dialog" id="logForm" class="dialog-form">
+      <h3>新增跟進記錄</h3>
+      <input id="logCustomerId" type="hidden">
+      <label>日期 <input id="logDate" type="date" required></label>
+      <label>管道
+        <select id="logChannel">
+          <option>Email</option>
+          <option>電話</option>
+          <option>社媒</option>
+          <option>展會</option>
+          <option>其他</option>
+        </select>
+      </label>
+      <label>聯絡人 <input id="logContactPerson"></label>
+      <label>主旨 <input id="logSubject"></label>
+      <label>摘要 <textarea id="logSummary" rows="4"></textarea></label>
+      <label>回應
+        <select id="logResponse">
+          <option value="positive">positive</option>
+          <option value="neutral">neutral</option>
+          <option value="negative">negative</option>
+          <option value="no_response">no_response</option>
+        </select>
+      </label>
+      <label>下一步行動 <input id="logNextAction"></label>
+      <label>下次跟進日期 <input id="logNextFollowDate" type="date"></label>
+      <menu>
+        <button value="cancel" class="ghost-button">取消</button>
+        <button id="saveLogBtn" value="default" class="primary-button">保存記錄</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script src="script.js"></script>
 </body>
 </html>
