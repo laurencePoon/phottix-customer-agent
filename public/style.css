@@ -944,3 +944,32 @@ dialog::backdrop {
     font-size: 3rem;
   }
 }
+
+/* TODO: 郵件附件功能啟用時取消註解 */
+/*
+.attachment-drop-zone {
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+  padding: 20px 16px;
+  text-align: center;
+  margin: 8px 0;
+  background: #fafbfc;
+}
+.attachment-drop-zone:hover {
+  border-color: #888;
+}
+.attachment-list-placeholder {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: #666;
+}
+.attachment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  margin: 2px 0;
+}
+*/

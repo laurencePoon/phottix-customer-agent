@@ -263,6 +263,13 @@ app.post("/api/generate-excel", (req, res) => {
   }
 });
 
+// TODO: 郵件附件上傳功能預留
+// POST /api/upload-attachment
+// - 接收 multipart/form-data 檔案
+// - 儲存至 ./uploads/ 或雲端
+// - 回傳檔案 metadata (name, size, path)
+// 目前此路由尚未實作，僅供未來擴充
+
 app.use((req, res) => {
   res.status(404).send("Not Found");
 });

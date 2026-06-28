@@ -142,6 +142,20 @@
             <label>Body
               <textarea id="templateBody" rows="10"></textarea>
             </label>
+            <!-- TODO: 郵件附件上傳功能預留（支援：jpg/png/pdf/doc/docx/xls/xlsx） -->
+            <!--
+            <div class="attachment-placeholder">
+              <label>郵件附件（未來功能）</label>
+              <div class="attachment-drop-zone">
+                <span>📎 點擊或拖曳上傳檔案（單檔上限 10MB）</span>
+                <span style="font-size:12px;color:#999;">支援：PDF, Word, Excel, 圖片</span>
+              </div>
+              <input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif" disabled>
+              <div class="attachment-list-placeholder">
+                TODO: 未來這裡會顯示已上傳的附件清單：檔名、大小、移除按鈕
+              </div>
+            </div>
+            -->
             <div class="variable-list">
               <span>{{公司名}}</span>
               <span>{{聯絡人}}</span>
@@ -202,6 +216,7 @@
               <h4>F. 英文開發信</h4>
               <button id="copyEmailBtn" class="secondary-button" type="button">複製郵件</button>
             </div>
+            <!-- TODO: 郵件預覽區未來會顯示「附件：xxx.pdf (123KB)」等資訊 -->
             <pre id="emailPreview" class="email-preview"></pre>
           </div>
 

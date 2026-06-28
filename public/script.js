@@ -243,7 +243,18 @@
       localStorage.setItem(key, JSON.stringify(value));
     },
     getCustomers() {
-      return this.read(STORAGE.customers, []);
+      // TODO: 郵件附件功能預留。舊資料若沒有附件欄位，讀取時補空陣列，避免未來啟用時報錯。
+      return this.read(STORAGE.customers, []).map((customer) => ({
+        ...customer,
+        attachments: customer.attachments || [],
+        emailDraft: {
+          ...(customer.emailDraft || { subject: "", body: "" }),
+          emailAttachments: customer.emailDraft?.emailAttachments || []
+        },
+        emailHistory: Array.isArray(customer.emailHistory)
+          ? customer.emailHistory.map((item) => ({ ...item, emailAttachments: item.emailAttachments || [] }))
+          : customer.emailHistory
+      }));
     },
     setCustomers(customers) {
       this.write(STORAGE.customers, customers);
@@ -317,7 +328,7 @@
         rating: snapshot.rating,
         scores: snapshot.scores,
         recommendedProducts: snapshot.recommendedProducts || [],
-        emailDraft: snapshot.emailDraft || { subject: "", body: "" }
+        emailDraft: snapshot.emailDraft || { subject: "", body: "", emailAttachments: [] }
       });
       history[customerId] = history[customerId].slice(0, 20);
       this.setAnalysisHistory(history);
@@ -1025,7 +1036,8 @@
       scores: { priority: 0, productFit: 0, confidence: 0, readiness: 0 },
       businessSignals: [],
       recommendedProducts: [],
-      emailDraft: { subject: "", body: "" },
+      attachments: [],
+      emailDraft: { subject: "", body: "", emailAttachments: [] },
       followUpStatus: FOLLOW_STATUSES.includes(getAny(n, "Follow-up Status", "follow_up_status").toLowerCase()) ? getAny(n, "Follow-up Status", "follow_up_status").toLowerCase() : "open",
       nextFollowUpDate: getAny(n, "Next Follow-up Date", "next_follow_up_date"),
       lastContactDate: getAny(n, "Last Contact Date", "last_contact_date"),
@@ -1129,7 +1141,11 @@
       scores: existing?.scores || { priority: 0, productFit: 0, confidence: 0, readiness: 0 },
       businessSignals: existing?.businessSignals || [],
       recommendedProducts: existing?.recommendedProducts || [],
-      emailDraft: existing?.emailDraft || { subject: "", body: "" },
+      attachments: existing?.attachments || [],
+      emailDraft: {
+        ...(existing?.emailDraft || { subject: "", body: "" }),
+        emailAttachments: existing?.emailDraft?.emailAttachments || []
+      },
       followUpStatus: existing?.followUpStatus || "open",
       nextFollowUpDate: existing?.nextFollowUpDate || "",
       lastContactDate: existing?.lastContactDate || "",
@@ -1225,7 +1241,7 @@
       scores: analysis.scores,
       businessSignals: analysis.businessSignals,
       recommendedProducts,
-      emailDraft,
+      emailDraft: { ...emailDraft, emailAttachments: customer.emailDraft?.emailAttachments || [] },
       lastAnalyzedAt: new Date().toISOString(),
       suggestedAction: suggestAction({ ...customer, ...analysis }),
       websiteExtract: customer.websiteExtract || dom.websiteExtract.value
@@ -1358,7 +1374,7 @@
       if (log.nextFollowUpDate) customers[index].nextFollowUpDate = log.nextFollowUpDate;
       if (log.channel === "Email") {
         customers[index].emailHistory = customers[index].emailHistory || [];
-        customers[index].emailHistory.unshift({ subject: log.subject, summary: log.summary, createdAt: log.createdAt });
+        customers[index].emailHistory.unshift({ subject: log.subject, summary: log.summary, emailAttachments: [], createdAt: log.createdAt });
         customers[index].emailHistory = customers[index].emailHistory.slice(0, 10);
       }
       DB.setCustomers(customers);
