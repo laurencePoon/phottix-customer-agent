@@ -19,6 +19,7 @@
 
   const PRODUCT_STATUSES = ["Active", "New", "Phase-Out", "Do Not Recommend"];
   const CUSTOMER_TYPES = ["prospect", "existing"];
+  const INDUSTRY_TYPES = ["", "Wholesale", "Retail", "Studio", "Events", "Creator", "Camera Store", "Online Shop", "Physical Store", "Services", "Other"];
   const FOLLOW_STATUSES = ["open", "completed", "pending", "cancelled", "deferred"];
   const EMAIL_PURPOSES = [
     "First Touch",
@@ -407,6 +408,9 @@
       // TODO: 郵件附件功能預留。舊資料若沒有附件欄位，讀取時補空陣列，避免未來啟用時報錯。
       return this.read(STORAGE.customers, []).map((customer) => ({
         ...customer,
+        city: customer.city || "",
+        industry: customer.industry || "",
+        emailPurpose: customer.emailPurpose || "First Touch",
         attachments: customer.attachments || [],
         emailDraft: {
           ...(customer.emailDraft || { subject: "", body: "" }),
@@ -421,7 +425,15 @@
       this.write(STORAGE.customers, customers);
     },
     getProducts() {
-      const products = this.read(STORAGE.products, []);
+      const products = this.read(STORAGE.products, []).map((product) => ({
+        ...product,
+        priority: product.priority ?? "",
+        sku: product.sku || "",
+        description: product.description || "",
+        price: product.price ?? "",
+        productUrl: product.productUrl || "",
+        launchDate: product.launchDate || ""
+      }));
       if (products.length) return products;
       const seeded = DEFAULT_PRODUCTS.map((item) => ({
         id: uid("prod"),
@@ -553,6 +565,8 @@
         input.companyName,
         input.website,
         input.country,
+        input.city,
+        input.industry,
         input.businessNotes,
         input.manualWebsiteSummary,
         input.websiteExtract,
@@ -621,13 +635,16 @@
         if (/lighting|led|rgb|cob|softbox/i.test(text)) score += 8;
         return { ...product, matchScore: score };
       }).filter((item) => item.matchScore > 0)
-        .sort((a, b) => b.matchScore - a.matchScore || a.name.localeCompare(b.name))
+        .sort((a, b) => b.matchScore - a.matchScore || Number(a.priority || 999) - Number(b.priority || 999) || a.name.localeCompare(b.name))
         .slice(0, 5);
       return scored.map((product) => ({
         id: product.id,
         name: product.name,
         category: product.category,
         status: product.status,
+        sku: product.sku || "",
+        description: product.description || "",
+        productUrl: product.productUrl || "",
         reason: this.reason(product, scoring)
       }));
     },
@@ -854,6 +871,9 @@
         company_name: customer.companyName,
         contact_name: customer.contactName,
         contact_email: customer.contactEmail,
+        country: customer.country,
+        city: customer.city,
+        industry: customer.industry,
         customer_type: customer.customerType,
         rating: customer.rating,
         customer_priority: customer.scores?.priority || "",
@@ -868,7 +888,8 @@
         last_contact_date: customer.lastContactDate,
         suggested_action: suggestAction(customer),
         website: customer.website,
-        country: customer.country
+        notes: customer.notes,
+        email_purpose: customer.emailPurpose
       }));
       const response = await fetch(`${API_BASE}/api/generate-excel`, {
         method: "POST",
@@ -999,18 +1020,21 @@
       const view = dom.productView.value;
       let products = DB.getProducts();
       if (view === "pool") products = products.filter((item) => item.inRecommendationPool);
-      if (query) products = products.filter((item) => `${item.name} ${item.category} ${item.status}`.toLowerCase().includes(query));
+      if (query) products = products.filter((item) => `${item.name} ${item.category} ${item.status} ${item.sku || ""} ${item.description || ""}`.toLowerCase().includes(query));
       dom.productTable.innerHTML = products.length ? `
         <table>
-          <thead><tr><th>產品名稱</th><th>分類</th><th>狀態</th><th>推薦池</th><th>Priority</th><th>操作</th></tr></thead>
+          <thead><tr><th>產品名稱</th><th>分類</th><th>狀態</th><th>SKU</th><th>Price</th><th>URL</th><th>推薦池</th><th>Priority</th><th>操作</th></tr></thead>
           <tbody>
             ${products.map((item) => `
               <tr>
                 <td>${escapeHtml(item.name)}</td>
                 <td>${escapeHtml(item.category)}</td>
                 <td>${escapeHtml(item.status)}</td>
+                <td>${escapeHtml(item.sku || "—")}</td>
+                <td>${escapeHtml(item.price !== "" && item.price !== undefined ? String(item.price) : "—")}</td>
+                <td>${item.productUrl ? `<a href="${escapeHtml(item.productUrl)}" target="_blank" rel="noopener">Link</a>` : "—"}</td>
                 <td><input type="checkbox" data-action="toggle-product-pool" data-id="${escapeHtml(item.id)}" ${item.inRecommendationPool ? "checked" : ""}></td>
-                <td><input type="checkbox" data-action="toggle-product-priority" data-id="${escapeHtml(item.id)}" ${item.isPriority ? "checked" : ""}></td>
+                <td><input type="checkbox" data-action="toggle-product-priority" data-id="${escapeHtml(item.id)}" ${item.isPriority ? "checked" : ""}> ${escapeHtml(item.priority !== "" && item.priority !== undefined ? String(item.priority) : "")}</td>
                 <td>
                   <button class="mini-button" data-action="edit-product" data-id="${escapeHtml(item.id)}">編輯</button>
                   <button class="danger-button" data-action="delete-product" data-id="${escapeHtml(item.id)}">刪除</button>
@@ -1040,7 +1064,7 @@
               <span class="status-pill">${escapeHtml(customer.followUpStatus || "open")}</span>
               <span class="status-pill">Next: ${escapeHtml(customer.nextFollowUpDate || "—")}</span>
             </div>
-            <p>${escapeHtml([customer.contactName, customer.contactEmail, customer.country].filter(Boolean).join(" · ") || "No contact info")}</p>
+            <p>${escapeHtml([customer.contactName, customer.contactEmail, customer.country, customer.city, customer.industry].filter(Boolean).join(" · ") || "No contact info")}</p>
             <p><strong>Suggested Action:</strong> ${escapeHtml(suggestAction(customer))}</p>
             <p><strong>Last Analyzed:</strong> ${escapeHtml(customer.lastAnalyzedAt ? formatDateTime(customer.lastAnalyzedAt) : "Never")}${stale !== null && stale > 30 ? " · over 30 days" : ""}</p>
             <footer>
@@ -1071,6 +1095,8 @@
         <div class="recommend-card">
           <strong>${escapeHtml(product.name)}</strong>
           <p>${escapeHtml(product.category)} · ${escapeHtml(product.status)}</p>
+          ${product.description ? `<p>${escapeHtml(product.description)}</p>` : ""}
+          ${product.productUrl ? `<p><a href="${escapeHtml(product.productUrl)}" target="_blank" rel="noopener">Product link</a></p>` : ""}
           <p>${escapeHtml(product.reason)}</p>
         </div>
       `).join("") : `<div class="empty">推薦池沒有可用產品，請先在產品資料庫選入 Recommendation Pool。</div>`;
@@ -1143,7 +1169,9 @@
       ["官網", customer.website],
       ["聯絡人", customer.contactName],
       ["郵箱", customer.contactEmail],
-      ["國家/城市", customer.country],
+      ["國家", customer.country],
+      ["城市", customer.city],
+      ["行業", customer.industry],
       ["客戶類型", customer.customerType],
       ["Instagram", customer.socialMedia?.instagram],
       ["Facebook", customer.socialMedia?.facebook],
@@ -1202,12 +1230,43 @@
     return "";
   }
 
+  function parseBoolean(value, fallback = false) {
+    const text = normalizeText(value).toLowerCase();
+    if (!text) return fallback;
+    if (/^(yes|y|true|1|是|係)$/i.test(text)) return true;
+    if (/^(no|n|false|0|否|不是)$/i.test(text)) return false;
+    return fallback;
+  }
+
+  function parseNumber(value, fallback = "") {
+    const text = normalizeText(value).replace(/,/g, "");
+    if (!text) return fallback;
+    const num = Number(text);
+    return Number.isFinite(num) ? num : fallback;
+  }
+
+  function normalizeStatus(value) {
+    const text = normalizeText(value);
+    const found = PRODUCT_STATUSES.find((status) => status.toLowerCase() === text.toLowerCase());
+    return found || "Active";
+  }
+
+  function normalizeCustomerType(value) {
+    const text = normalizeText(value).toLowerCase();
+    return CUSTOMER_TYPES.includes(text) ? text : "prospect";
+  }
+
   function normalizeImportedCustomer(row) {
     const n = normalizeKeys(row);
     const customerTypeText = getAny(n, "Customer Type", "customer_type", "客戶類型", "客户类型");
+    const industry = getAny(n, "Industry", "industry", "行業類別", "行业类别", "行業", "行业");
+    const country = getAny(n, "Country", "country", "國家", "国家", "地區", "地区", "國家地區名", "国家地区名", "國家地區名稱", "国家地区名称");
+    const city = getAny(n, "City", "city", "城市", "城巿");
     const notes = [
+      getAny(n, "Notes", "notes", "備註", "备注"),
       getAny(n, "Company Type", "company_type", "公司類型", "公司类型"),
-      getAny(n, "Main Products", "main_products", "主營產品", "主营产品")
+      getAny(n, "Main Products", "main_products", "主營產品", "主营产品"),
+      industry ? `Industry: ${industry}` : ""
     ].filter(Boolean).join(" | ");
     return {
       id: getAny(n, "id", "Customer ID", "customer_id", "客戶ID", "客户ID") || uid("cust"),
@@ -1215,8 +1274,10 @@
       website: normalizeUrl(getAny(n, "Website", "website", "domain", "url", "Company Website", "Company Homepage", "公司主頁", "公司主页", "官網", "官网", "官網域名", "官网域名")),
       contactName: getAny(n, "Contact Name", "contact_name", "contact", "Primary Contact Name", "主要聯絡人名稱", "主要联系人名称", "聯絡人", "联系人", "联系人姓名"),
       contactEmail: getAny(n, "Contact Email", "contact_email", "email", "email address", "Primary Contact Email", "主要聯絡人郵箱", "主要联系人邮箱", "郵箱", "邮箱", "電子郵箱", "电子邮箱", "聯絡郵箱", "联系邮箱"),
-      country: getAny(n, "Country", "City", "country", "city", "國家", "国家", "地區", "地区", "國家地區名", "国家地区名", "國家地區名稱", "国家地区名称"),
-      customerType: CUSTOMER_TYPES.includes(customerTypeText.toLowerCase()) ? customerTypeText.toLowerCase() : "prospect",
+      country,
+      city,
+      industry,
+      customerType: normalizeCustomerType(customerTypeText),
       rating: getAny(n, "Rating", "rating", "評級", "评级") || "NR",
       scores: { priority: 0, productFit: 0, confidence: 0, readiness: 0 },
       businessSignals: [],
@@ -1233,19 +1294,28 @@
       socialMedia: { instagram: getAny(n, "Instagram"), facebook: getAny(n, "Facebook") },
       manualWebsiteSummary: "",
       websiteExtract: "",
+      emailPurpose: getAny(n, "Email Purpose", "email_purpose", "郵件目的", "邮件目的") || "First Touch",
       createdAt: new Date().toISOString()
     };
   }
 
   function normalizeImportedProduct(row) {
     const n = normalizeKeys(row);
+    const priorityValue = getAny(n, "Priority", "isPriority", "priority", "產品優先級", "产品优先级");
+    const priorityNumber = parseNumber(priorityValue, "");
     return {
       id: uid("prod"),
-      name: getAny(n, "Product Name", "product_name", "name", "product"),
-      category: getAny(n, "Category", "category") || "Uncategorized",
-      status: PRODUCT_STATUSES.includes(getAny(n, "Status", "status")) ? getAny(n, "Status", "status") : "Active",
-      inRecommendationPool: /^y|yes|true|1$/i.test(getAny(n, "In Recommendation Pool", "in_recommendation_pool", "recommendation pool")),
-      isPriority: /^y|yes|true|1$/i.test(getAny(n, "Priority", "isPriority", "priority")),
+      name: getAny(n, "Product Name", "product_name", "name", "product", "產品名稱", "产品名称"),
+      category: getAny(n, "Category", "category", "分類", "分类") || "Uncategorized",
+      status: normalizeStatus(getAny(n, "Status", "status", "產品狀態", "产品状态")),
+      inRecommendationPool: parseBoolean(getAny(n, "In Recommendation Pool", "in_recommendation_pool", "recommendation pool", "納入推薦池", "纳入推荐池"), false),
+      priority: priorityNumber,
+      isPriority: priorityNumber !== "" ? Number(priorityNumber) <= 3 : parseBoolean(priorityValue, false),
+      sku: getAny(n, "SKU", "sku", "產品編號", "产品编号"),
+      description: getAny(n, "Description", "description", "產品描述", "产品描述"),
+      price: parseNumber(getAny(n, "Price", "price", "價格", "价格"), ""),
+      productUrl: normalizeUrl(getAny(n, "Product URL", "product_url", "url", "產品連結", "产品链接", "產品網址", "产品网址")),
+      launchDate: getAny(n, "Launch Date", "launch_date", "上市日期"),
       createdAt: new Date().toISOString()
     };
   }
@@ -1321,6 +1391,8 @@
       contactName: normalizeText(dom.contactName.value),
       contactEmail: normalizeText(dom.contactEmail.value),
       country: normalizeText(dom.country.value),
+      city: normalizeText(dom.city.value),
+      industry: normalizeText(dom.industry.value),
       customerType: existing?.customerType || "prospect",
       rating: existing?.rating || "NR",
       scores: existing?.scores || { priority: 0, productFit: 0, confidence: 0, readiness: 0 },
@@ -1353,6 +1425,8 @@
     dom.contactName.value = customer.contactName || "";
     dom.contactEmail.value = customer.contactEmail || "";
     dom.country.value = customer.country || "";
+    dom.city.value = customer.city || "";
+    dom.industry.value = customer.industry || "";
     dom.instagram.value = customer.socialMedia?.instagram || "";
     dom.facebook.value = customer.socialMedia?.facebook || "";
     dom.businessNotes.value = customer.notes || "";
@@ -1463,6 +1537,12 @@
     dom.productStatus.value = product?.status || "Active";
     dom.productInPool.checked = Boolean(product?.inRecommendationPool);
     dom.productPriority.checked = Boolean(product?.isPriority);
+    dom.productPriorityNumber.value = product?.priority ?? "";
+    dom.productSku.value = product?.sku || "";
+    dom.productDescription.value = product?.description || "";
+    dom.productPrice.value = product?.price ?? "";
+    dom.productUrl.value = product?.productUrl || "";
+    dom.productLaunchDate.value = product?.launchDate || "";
     dom.productDialog.showModal();
   }
 
@@ -1475,6 +1555,12 @@
       status: dom.productStatus.value,
       inRecommendationPool: dom.productInPool.checked,
       isPriority: dom.productPriority.checked,
+      priority: parseNumber(dom.productPriorityNumber.value, ""),
+      sku: normalizeText(dom.productSku.value),
+      description: normalizeText(dom.productDescription.value),
+      price: parseNumber(dom.productPrice.value, ""),
+      productUrl: normalizeUrl(dom.productUrl.value),
+      launchDate: dom.productLaunchDate.value,
       createdAt: new Date().toISOString()
     };
     if (!product.name) return;
@@ -1830,7 +1916,7 @@
     [
       "todayFollowCount", "todayFollowList", "toast", "pageTitle", "pageSubtitle",
       "overdueFollowCount", "dueTodayFollowCount", "statsSummary", "errorLogList", "clearErrorLogsBtn",
-      "loadCustomerSelect", "companyName", "website", "contactName", "contactEmail", "country",
+      "loadCustomerSelect", "companyName", "website", "contactName", "contactEmail", "country", "city", "industry",
       "instagram", "facebook", "emailPurpose", "businessNotes", "manualWebsiteSummary", "websiteExtract",
       "fetchWebsiteBtn", "runAnalysisBtn", "saveCustomerBtn", "clearAnalysisBtn", "staleBanner",
       "templatePurpose", "templateSubject", "templateBody", "attachmentType", "attachmentName", "attachmentUrl",
@@ -1844,6 +1930,7 @@
       "bulkAnalyzeAllBtn", "bulkDeleteBtn", "bulkConvertBtn", "bulkFollowStatus", "bulkNextFollowDate", "bulkProgressBar", "bulkProgressText", "customerList", "backupExportBtn",
       "backupImportBtn", "backupFileInput", "productDialog", "productForm", "productDialogTitle",
       "productId", "productName", "productCategory", "productStatus", "productInPool", "productPriority",
+      "productPriorityNumber", "productSku", "productDescription", "productPrice", "productUrl", "productLaunchDate",
       "saveProductDialogBtn", "customerDialog", "customerForm", "customerDialogTitle", "customerId",
       "dialogCompanyName", "dialogWebsite", "dialogContactName", "dialogContactEmail", "dialogCountry",
       "dialogCustomerType", "dialogFollowStatus", "dialogNextFollowDate", "saveCustomerDialogBtn",
@@ -2044,7 +2131,8 @@
       if (action === "toggle-product-pool" || action === "toggle-product-priority") {
         const products = DB.getProducts().map((item) => {
           if (item.id !== id) return item;
-          return action === "toggle-product-pool" ? { ...item, inRecommendationPool: target.checked } : { ...item, isPriority: target.checked };
+          if (action === "toggle-product-pool") return { ...item, inRecommendationPool: target.checked };
+          return { ...item, isPriority: target.checked, priority: target.checked && !item.priority ? 1 : item.priority };
         });
         DB.setProducts(products);
         UI.renderProductList();
