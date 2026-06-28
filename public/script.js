@@ -14,6 +14,8 @@
     analysisHistory: "phottix_analysis_history",
     errorLogs: "phottix_error_logs"
   };
+  const SHARED_STORAGE_KEYS = Object.values(STORAGE);
+  const SQLITE_SYNC_KEY = "phottix_sqlite_shared_sync";
 
   const PRODUCT_STATUSES = ["Active", "New", "Phase-Out", "Do Not Recommend"];
   const CUSTOMER_TYPES = ["prospect", "existing"];
@@ -231,6 +233,10 @@
   }
 
   const DB = {
+    sharedReady: false,
+    sharedSyncing: false,
+    sharedWarning: "",
+    pendingSharedWrites: {},
     read(key, fallback) {
       try {
         const value = localStorage.getItem(key);
@@ -241,6 +247,108 @@
     },
     write(key, value) {
       localStorage.setItem(key, JSON.stringify(value));
+      this.syncKey(key, value);
+    },
+    writeLocal(key, value) {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    localSnapshot() {
+      return {
+        [STORAGE.customers]: this.read(STORAGE.customers, []),
+        [STORAGE.products]: this.read(STORAGE.products, []),
+        [STORAGE.logs]: this.read(STORAGE.logs, {}),
+        [STORAGE.templates]: this.read(STORAGE.templates, DEFAULT_TEMPLATES),
+        [STORAGE.settings]: this.getSettings(),
+        [STORAGE.autoBackups]: this.read(STORAGE.autoBackups, {}),
+        [STORAGE.analysisHistory]: this.read(STORAGE.analysisHistory, {}),
+        [STORAGE.errorLogs]: this.read(STORAGE.errorLogs, [])
+      };
+    },
+    applySharedSnapshot(data = {}) {
+      SHARED_STORAGE_KEYS.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(data, key)) {
+          this.writeLocal(key, data[key]);
+        }
+      });
+    },
+    hasAnyLocalBusinessData() {
+      const customers = this.read(STORAGE.customers, []);
+      const products = this.read(STORAGE.products, []);
+      const logs = this.read(STORAGE.logs, {});
+      return customers.length > 0 || products.length > 0 || Object.keys(logs || {}).length > 0;
+    },
+    snapshotHasBusinessData(data = {}) {
+      return Array.isArray(data[STORAGE.customers]) && data[STORAGE.customers].length > 0
+        || Array.isArray(data[STORAGE.products]) && data[STORAGE.products].length > 0
+        || data[STORAGE.logs] && typeof data[STORAGE.logs] === "object" && Object.keys(data[STORAGE.logs]).length > 0;
+    },
+    async initSharedStore() {
+      try {
+        const response = await fetch(`${API_BASE}/api/db/snapshot`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || "SQLite shared database is unavailable.");
+        const sharedData = payload.data || {};
+        if (this.snapshotHasBusinessData(sharedData)) {
+          this.applySharedSnapshot(sharedData);
+        } else if (this.hasAnyLocalBusinessData()) {
+          await this.pushSnapshot();
+        } else {
+          await this.pushSnapshot();
+        }
+        this.sharedReady = true;
+        this.sharedWarning = "";
+        this.writeLocal(SQLITE_SYNC_KEY, { enabled: true, lastSyncAt: new Date().toISOString() });
+      } catch (error) {
+        this.sharedReady = false;
+        this.sharedWarning = error.message || "SQLite shared database is unavailable.";
+        this.writeLocal(SQLITE_SYNC_KEY, { enabled: false, error: this.sharedWarning, lastSyncAt: new Date().toISOString() });
+        console.warn("SQLite shared sync disabled:", error);
+      }
+    },
+    async pushSnapshot() {
+      const response = await fetch(`${API_BASE}/api/db/snapshot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: this.localSnapshot() })
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to save SQLite snapshot.");
+      if (payload.data) this.applySharedSnapshot(payload.data);
+      return payload;
+    },
+    syncKey(key, value) {
+      if (!SHARED_STORAGE_KEYS.includes(key)) return;
+      if (!this.sharedReady) return;
+      this.pendingSharedWrites[key] = value;
+      this.flushSharedWrites();
+    },
+    async flushSharedWrites() {
+      if (this.sharedSyncing) return;
+      this.sharedSyncing = true;
+      try {
+        while (Object.keys(this.pendingSharedWrites).length) {
+          const key = Object.keys(this.pendingSharedWrites)[0];
+          const value = this.pendingSharedWrites[key];
+          delete this.pendingSharedWrites[key];
+          const response = await fetch(`${API_BASE}/api/db/key/${encodeURIComponent(key)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ value })
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || !payload.success) throw new Error(payload.error || `Failed to sync ${key}.`);
+          this.sharedReady = true;
+          this.sharedWarning = "";
+          this.writeLocal(SQLITE_SYNC_KEY, { enabled: true, lastSyncAt: new Date().toISOString(), key });
+        }
+      } catch (error) {
+        this.sharedReady = false;
+        this.sharedWarning = error.message || "SQLite shared sync failed.";
+        this.writeLocal(SQLITE_SYNC_KEY, { enabled: false, error: this.sharedWarning, lastSyncAt: new Date().toISOString() });
+        console.warn("SQLite shared sync failed:", error);
+      } finally {
+        this.sharedSyncing = false;
+      }
     },
     getCustomers() {
       // TODO: 郵件附件功能預留。舊資料若沒有附件欄位，讀取時補空陣列，避免未來啟用時報錯。
@@ -597,7 +705,11 @@
     async listImportFiles() {
       const response = await fetch(`${API_BASE}/list-excel`);
       const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to list import files.");
+      if (!response.ok || !payload.success) {
+        const error = new Error(payload.error || "Failed to list import files.");
+        error.hostOnly = Boolean(payload.hostOnly);
+        throw error;
+      }
       return payload;
     },
     async parseConfigFile(filename) {
@@ -910,6 +1022,7 @@
       `).join("") : `<div class="empty">推薦池沒有可用產品，請先在產品資料庫選入 Recommendation Pool。</div>`;
       dom.actionSuggestions.innerHTML = buildSuggestions(analysis).map((item) => `<div class="recommend-card">${escapeHtml(item)}</div>`).join("");
       dom.emailPreview.textContent = `Subject: ${analysis.emailDraft.subject}\n\n${analysis.emailDraft.body}`;
+      dom.sendEmailBtn.disabled = false;
       this.renderTimeline(customer.id);
       this.renderAnalysisHistory(customer.id);
       this.toast(`${analysis.rating} / ${analysis.totalScore} analysis ready.`, "good");
@@ -1384,6 +1497,84 @@
     UI.toast("Follow-up log saved.", "good");
   }
 
+  function addEmailSentLog(customer, subject, messageId) {
+    if (!customer?.id) return;
+    const logs = DB.getLogs();
+    const logId = uid("log");
+    const log = {
+      logId,
+      customerId: customer.id,
+      logDate: todayString(),
+      channel: "Email",
+      contactPerson: customer.contactName || "",
+      subject,
+      summary: `郵件已發送給 ${customer.companyName || customer.contactEmail || "client"}${messageId ? ` (${messageId})` : ""}`,
+      response: "no_response",
+      nextAction: "",
+      nextFollowUpDate: customer.nextFollowUpDate || "",
+      status: "open",
+      createdAt: new Date().toISOString()
+    };
+    logs[logId] = log;
+    DB.setLogs(logs);
+
+    const customers = DB.getCustomers();
+    const index = customers.findIndex((item) => item.id === customer.id);
+    if (index >= 0) {
+      customers[index].lastContactDate = log.logDate;
+      customers[index].emailHistory = customers[index].emailHistory || [];
+      customers[index].emailHistory.unshift({ subject: log.subject, summary: log.summary, emailAttachments: [], createdAt: log.createdAt });
+      customers[index].emailHistory = customers[index].emailHistory.slice(0, 10);
+      DB.setCustomers(customers);
+    }
+  }
+
+  function textToHtml(text) {
+    return escapeHtml(text).replace(/\n/g, "<br>");
+  }
+
+  async function sendCurrentEmail() {
+    if (!state.currentAnalysis && !state.currentCustomerId) {
+      UI.toast("Run analysis first.", "warn");
+      return;
+    }
+
+    const customer = DB.getCustomers().find((item) => item.id === state.currentCustomerId) || formCustomer();
+    const to = normalizeText(customer.contactEmail || dom.contactEmail.value);
+    const subject = normalizeText(dom.templateSubject.value || state.currentAnalysis?.emailDraft?.subject || "");
+    const body = normalizeText(dom.templateBody.value || state.currentAnalysis?.emailDraft?.body || "");
+
+    if (!to) throw new Error("Missing customer email.");
+    if (!subject || !body) throw new Error("Missing email subject or body.");
+
+    const originalText = dom.sendEmailBtn.textContent;
+    dom.sendEmailBtn.disabled = true;
+    dom.sendEmailBtn.textContent = "發送中...";
+
+    try {
+      const response = await fetch(`${API_BASE}/api/send-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to,
+          subject,
+          html: textToHtml(body),
+          attachments: []
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Send email failed.");
+
+      addEmailSentLog(customer, subject, payload.messageId || "");
+      UI.renderTimeline(customer.id);
+      UI.refreshAll();
+      UI.toast("✅ 郵件已成功發送！", "good");
+    } finally {
+      dom.sendEmailBtn.textContent = originalText;
+      dom.sendEmailBtn.disabled = false;
+    }
+  }
+
   async function bulkAnalyze(customers) {
     DB.backup("before_bulk_analyze");
     const list = customers.filter((customer) => !customer.isManuallyReviewed);
@@ -1544,7 +1735,7 @@
       "fetchWebsiteBtn", "runAnalysisBtn", "saveCustomerBtn", "clearAnalysisBtn", "staleBanner",
       "templatePurpose", "templateSubject", "templateBody", "previewTemplateBtn", "saveTemplateBtn",
       "analysisResult", "manualOverrideBtn", "companyInfoTable", "ratingHero", "fourScores", "signalTags",
-      "scoringBreakdown", "recommendedProducts", "actionSuggestions", "copyEmailBtn", "emailPreview",
+      "scoringBreakdown", "recommendedProducts", "actionSuggestions", "copyEmailBtn", "sendEmailBtn", "emailPreview",
       "addLogBtn", "timeline", "analysisHistory", "addProductBtn", "importProductsBtn", "productImportFileSelect", "productImportIndex", "productSearch",
       "productView", "productTable", "addCustomerBtn", "importCustomersBtn", "importUpdateBtn",
       "exportCustomersBtn", "customerImportFileSelect", "customerImportIndex", "importCustomersConfigBtn", "excelFileList", "productExcelFileList", "customerTypeFilter", "ratingFilter",
@@ -1579,6 +1770,7 @@
       state.currentCustomerId = "";
       document.getElementById("analysisForm").reset();
       dom.analysisResult.classList.add("hidden");
+      dom.sendEmailBtn.disabled = true;
       UI.toast("Form cleared.", "good");
     });
     dom.loadCustomerSelect.addEventListener("change", () => {
@@ -1593,6 +1785,11 @@
       await navigator.clipboard.writeText(dom.emailPreview.textContent || "");
       UI.toast("Email copied.", "good");
     });
+    dom.sendEmailBtn.addEventListener("click", () => sendCurrentEmail().catch((error) => {
+      DB.addErrorLog("發送郵件", error, formCustomer());
+      UI.refreshAll();
+      UI.toast(`❌ 發送失敗：${error.message}`, "bad");
+    }));
     dom.manualOverrideBtn.addEventListener("click", () => {
       if (!state.currentCustomerId && !state.currentAnalysis) return UI.toast("Run analysis first.", "warn");
       dom.overrideReason.value = "";
@@ -1776,20 +1973,29 @@
     });
   }
 
-  function init() {
+  async function init() {
     bindDom();
+    UI.toast("Loading shared database...", "warn");
+    await DB.initSharedStore();
     DB.getProducts();
     DB.getTemplates();
     dom.templatePurpose.innerHTML = EMAIL_PURPOSES.map((purpose) => `<option>${purpose}</option>`).join("");
     bindEvents();
     UI.refreshAll();
     refreshImportFiles().catch((error) => {
+      if (error.hostOnly) {
+        UI.toast("Excel import is host-only. Colleagues can use shared data directly.", "warn");
+        return;
+      }
       DB.addErrorLog("列出導入文件", error);
       UI.renderErrorLogs();
     });
     UI.showPage("analysisPage");
-    UI.toast("Ready", "");
+    UI.toast(DB.sharedReady ? "Ready - SQLite shared database connected." : `Ready - local fallback (${DB.sharedWarning})`, DB.sharedReady ? "good" : "warn");
   }
 
-  init();
+  init().catch((error) => {
+    console.error(error);
+    UI.toast(error.message || "Startup failed.", "bad");
+  });
 })();

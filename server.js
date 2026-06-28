@@ -1,18 +1,33 @@
+require("dotenv").config({ quiet: true });
 const express = require("express");
 const axios = require("axios");
+const nodemailer = require("nodemailer");
 const XLSX = require("xlsx");
 const path = require("path");
 const fs = require("fs");
+const { DatabaseSync } = require("node:sqlite");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
 const CONFIG_PATH = path.join(__dirname, "config.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
+const DATA_DIR = path.join(__dirname, "data");
+const SQLITE_PATH = path.join(DATA_DIR, "phottix.sqlite");
 const DEFAULT_CONFIG = { import_folder: "./imports/" };
+const SHARED_STORAGE_KEYS = [
+  "phottix_customers",
+  "phottix_products",
+  "phottix_followup_logs",
+  "phottix_email_templates",
+  "phottix_settings",
+  "phottix_auto_backups",
+  "phottix_analysis_history",
+  "phottix_error_logs"
+];
 
 ensureImportFolder();
 
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "50mb" }));
 app.use(express.static(PUBLIC_DIR, {
   etag: false,
   maxAge: 0,
@@ -20,6 +35,96 @@ app.use(express.static(PUBLIC_DIR, {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   }
 }));
+
+let sqliteDb = null;
+
+function getSqliteDb() {
+  if (sqliteDb) return sqliteDb;
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  sqliteDb = new DatabaseSync(SQLITE_PATH);
+  sqliteDb.exec("PRAGMA journal_mode = WAL");
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS app_store (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+  return sqliteDb;
+}
+
+function isSharedStorageKey(key) {
+  return SHARED_STORAGE_KEYS.includes(String(key || ""));
+}
+
+function readSharedStore() {
+  const db = getSqliteDb();
+  const rows = db.prepare("SELECT key, value, updated_at FROM app_store").all();
+  const data = {};
+  const updatedAt = {};
+  rows.forEach((row) => {
+    try {
+      data[row.key] = JSON.parse(row.value);
+      updatedAt[row.key] = row.updated_at;
+    } catch (error) {
+      data[row.key] = null;
+      updatedAt[row.key] = row.updated_at;
+    }
+  });
+  return { data, updatedAt };
+}
+
+function writeSharedKey(key, value) {
+  if (!isSharedStorageKey(key)) throw new Error(`Unsupported shared storage key: ${key}`);
+  const db = getSqliteDb();
+  db.prepare(`
+    INSERT INTO app_store (key, value, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET
+      value = excluded.value,
+      updated_at = excluded.updated_at
+  `).run(key, JSON.stringify(value ?? null), new Date().toISOString());
+}
+
+function writeSharedSnapshot(data) {
+  if (!data || typeof data !== "object") throw new Error("Invalid shared data snapshot.");
+  const db = getSqliteDb();
+  const stmt = db.prepare(`
+    INSERT INTO app_store (key, value, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET
+      value = excluded.value,
+      updated_at = excluded.updated_at
+  `);
+  const now = new Date().toISOString();
+  db.exec("BEGIN");
+  try {
+    SHARED_STORAGE_KEYS.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(data, key)) {
+        stmt.run(key, JSON.stringify(data[key] ?? null), now);
+      }
+    });
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function isHostImportRequest(req) {
+  const host = String(req.headers.host || "").toLowerCase();
+  return host.startsWith("127.0.0.1") || host.startsWith("localhost") || host.startsWith("[::1]");
+}
+
+function rejectRemoteImport(req, res) {
+  if (isHostImportRequest(req)) return false;
+  res.status(403).json({
+    success: false,
+    hostOnly: true,
+    error: "Excel import is available only on the host computer. Open http://127.0.0.1:8787/ on the host machine to import files."
+  });
+  return true;
+}
 
 function stripHtml(html) {
   return String(html || "")
@@ -156,6 +261,26 @@ function readExcelRows(filePath) {
   return { sheetName, rows: attachNormalizedDomains(rows) };
 }
 
+function missingSmtpSettings() {
+  const placeholderValues = new Set(["your-email@gmail.com", "your-app-password"]);
+  return ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"].filter((key) => {
+    const value = String(process.env[key] || "").trim();
+    return !value || placeholderValues.has(value);
+  });
+}
+
+function createMailTransport() {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: Number(process.env.SMTP_PORT || 587) === 465,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    }
+  });
+}
+
 app.get("/", (req, res) => {
   res.type("html");
   res.sendFile(path.join(PUBLIC_DIR, "index.html"));
@@ -171,6 +296,7 @@ app.get("/health", (req, res) => {
 });
 
 app.get("/api/import-files", (req, res) => {
+  if (rejectRemoteImport(req, res)) return;
   try {
     res.json({ success: true, files: listExcelFiles() });
   } catch (error) {
@@ -179,6 +305,7 @@ app.get("/api/import-files", (req, res) => {
 });
 
 app.get("/list-excel", (req, res) => {
+  if (rejectRemoteImport(req, res)) return;
   try {
     res.json({ success: true, files: listExcelFiles() });
   } catch (error) {
@@ -216,7 +343,60 @@ app.post("/api/fetch-website", async (req, res) => {
   }
 });
 
+app.get("/api/db/status", (req, res) => {
+  try {
+    const { data } = readSharedStore();
+    res.json({
+      success: true,
+      database: "sqlite",
+      path: SQLITE_PATH,
+      keys: Object.keys(data),
+      counts: {
+        customers: Array.isArray(data.phottix_customers) ? data.phottix_customers.length : 0,
+        products: Array.isArray(data.phottix_products) ? data.phottix_products.length : 0,
+        logs: data.phottix_followup_logs && typeof data.phottix_followup_logs === "object" ? Object.keys(data.phottix_followup_logs).length : 0
+      }
+    });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "SQLite status failed." });
+  }
+});
+
+app.get("/api/db/snapshot", (req, res) => {
+  try {
+    const snapshot = readSharedStore();
+    res.json({ success: true, ...snapshot });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "SQLite snapshot failed." });
+  }
+});
+
+app.post("/api/db/snapshot", (req, res) => {
+  try {
+    writeSharedSnapshot(req.body?.data || {});
+    const snapshot = readSharedStore();
+    res.json({ success: true, ...snapshot });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "SQLite snapshot save failed." });
+  }
+});
+
+app.put("/api/db/key/:key", (req, res) => {
+  try {
+    const key = req.params.key;
+    if (!isSharedStorageKey(key)) {
+      res.status(400).json({ success: false, error: `Unsupported shared storage key: ${key}` });
+      return;
+    }
+    writeSharedKey(key, req.body?.value);
+    res.json({ success: true, key });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "SQLite key save failed." });
+  }
+});
+
 app.post("/api/parse-excel-config", (req, res) => {
+  if (rejectRemoteImport(req, res)) return;
   try {
     const filename = path.basename(String(req.body?.fileName || req.body?.filename || "").trim().replace(/^["']|["']$/g, ""));
     if (!filename) {
@@ -263,6 +443,40 @@ app.post("/api/generate-excel", (req, res) => {
   }
 });
 
+app.post("/api/send-email", async (req, res) => {
+  const missing = missingSmtpSettings();
+  if (missing.length) {
+    res.status(503).json({
+      success: false,
+      error: `SMTP is not configured. Missing: ${missing.join(", ")}`
+    });
+    return;
+  }
+
+  const to = String(req.body?.to || "").trim();
+  const subject = String(req.body?.subject || "").trim();
+  const html = String(req.body?.html || "").trim();
+  const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
+
+  if (!to || !subject || !html) {
+    res.status(400).json({ success: false, error: "Missing to, subject, or html." });
+    return;
+  }
+
+  try {
+    const info = await createMailTransport().sendMail({
+      from: process.env.SMTP_USER,
+      to,
+      subject,
+      html,
+      attachments
+    });
+    res.json({ success: true, messageId: info.messageId });
+  } catch (error) {
+    res.status(502).json({ success: false, error: error.message || "Failed to send email." });
+  }
+});
+
 // TODO: 郵件附件上傳功能預留
 // POST /api/upload-attachment
 // - 接收 multipart/form-data 檔案
@@ -274,6 +488,18 @@ app.use((req, res) => {
   res.status(404).send("Not Found");
 });
 
-app.listen(PORT, "127.0.0.1", () => {
-  console.log(`Phottix Customer Agent listening on http://127.0.0.1:${PORT}`);
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Phottix Customer Agent listening on http://0.0.0.0:${PORT}`);
+  console.log(`Local host URL: http://127.0.0.1:${PORT}/`);
+  console.log(`Running file: ${__filename}`);
+  console.log("Keep this window open. Press Ctrl+C to stop the server.");
+});
+
+server.on("error", (error) => {
+  if (error.code === "EADDRINUSE") {
+    console.error(`Port ${PORT} is already in use. Close the old Phottix server window, then run start.bat again.`);
+  } else {
+    console.error(`Server failed to start: ${error.message}`);
+  }
+  process.exit(1);
 });

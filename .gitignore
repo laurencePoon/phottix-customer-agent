@@ -1,3 +1,5 @@
 node_modules/
 *.log
 backup-before-restore-*/
+.env
+data/
