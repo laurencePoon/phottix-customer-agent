@@ -940,9 +940,83 @@ dialog::backdrop {
     grid-template-columns: 1fr;
   }
 
-  .rating-big strong {
-    font-size: 3rem;
-  }
+.rating-big strong {
+  font-size: 3rem;
+}
+}
+
+.attachment-placeholder {
+  border: 1px solid rgba(18, 28, 45, 0.1);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.attachment-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.attachment-head label {
+  font-weight: 700;
+}
+
+.attachment-head span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.attachment-grid {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.attachment-grid input,
+.attachment-grid select {
+  min-width: 0;
+}
+
+.attachment-grid #attachmentUrl,
+.attachment-grid #addAttachmentBtn {
+  grid-column: 1 / -1;
+}
+
+.attachment-placeholder input[type="file"] {
+  display: none;
+}
+
+.attachment-list-placeholder {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.attachment-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid rgba(18, 28, 45, 0.08);
+}
+
+.attachment-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-item a {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
 }
 
 /* TODO: 郵件附件功能啟用時取消註解 */

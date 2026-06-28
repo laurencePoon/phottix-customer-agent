@@ -136,7 +136,8 @@
     currentAnalysis: null,
     currentCustomerId: "",
     selectedCustomerIds: new Set(),
-    productView: "pool"
+    productView: "pool",
+    emailAttachments: []
   };
 
   function $(id) {
@@ -218,6 +219,58 @@
 
   function ratingClass(rating) {
     return `rating-${String(rating || "NR").toLowerCase()}`;
+  }
+
+  function normalizeAttachment(item = {}) {
+    const type = normalizeText(item.type || "hyperlink").toLowerCase();
+    const url = normalizeText(item.url || item.href || "");
+    const name = normalizeText(item.name || item.label || url || "Attachment");
+    return {
+      id: item.id || uid("att"),
+      type,
+      name,
+      url,
+      size: item.size || "",
+      createdAt: item.createdAt || new Date().toISOString()
+    };
+  }
+
+  function normalizeAttachments(items) {
+    return Array.isArray(items)
+      ? items.map(normalizeAttachment).filter((item) => item.name || item.url)
+      : [];
+  }
+
+  function attachmentTypeLabel(type) {
+    return {
+      pdf: "PDF",
+      word: "Word",
+      excel: "Excel",
+      image: "Image",
+      video: "Video",
+      hyperlink: "Hyper Link",
+      other: "Other"
+    }[String(type || "").toLowerCase()] || "Attachment";
+  }
+
+  function formatAttachmentText(items = []) {
+    const attachments = normalizeAttachments(items);
+    if (!attachments.length) return "";
+    return attachments.map((item) => `- [${attachmentTypeLabel(item.type)}] ${item.name}${item.url ? `: ${item.url}` : ""}`).join("\n");
+  }
+
+  function renderEmailText(subject, body, attachments = []) {
+    const attachmentText = formatAttachmentText(attachments);
+    const renderedBody = String(body || "").split("{{emailAttachments}}").join(attachmentText || "No attachments or links.");
+    const shouldAppend = attachmentText && !/Attachments \/ Links:/i.test(renderedBody);
+    return `Subject: ${subject || ""}\n\n${renderedBody}${shouldAppend ? `\n\nAttachments / Links:\n${attachmentText}` : ""}`;
+  }
+
+  function renderEmailBody(body, attachments = []) {
+    const attachmentText = formatAttachmentText(attachments);
+    const renderedBody = String(body || "").split("{{emailAttachments}}").join(attachmentText || "No attachments or links.");
+    const shouldAppend = attachmentText && !/Attachments \/ Links:/i.test(renderedBody);
+    return `${renderedBody}${shouldAppend ? `\n\nAttachments / Links:\n${attachmentText}` : ""}`;
   }
 
   function suggestAction(customer) {
@@ -357,10 +410,10 @@
         attachments: customer.attachments || [],
         emailDraft: {
           ...(customer.emailDraft || { subject: "", body: "" }),
-          emailAttachments: customer.emailDraft?.emailAttachments || []
+          emailAttachments: normalizeAttachments(customer.emailDraft?.emailAttachments)
         },
         emailHistory: Array.isArray(customer.emailHistory)
-          ? customer.emailHistory.map((item) => ({ ...item, emailAttachments: item.emailAttachments || [] }))
+          ? customer.emailHistory.map((item) => ({ ...item, emailAttachments: normalizeAttachments(item.emailAttachments) }))
           : customer.emailHistory
       }));
     },
@@ -620,7 +673,8 @@
         "{{官網發現的產品線}}": this.describeSignals(signals),
         "{{推薦產品}}": this.describeProducts(products),
         "{{評分}}": `${analysis?.rating || customer.rating || "NR"} / ${analysis?.totalScore || ""}`,
-        "{{郵件目的}}": customer.emailPurpose || dom.emailPurpose?.value || "First Touch"
+        "{{郵件目的}}": customer.emailPurpose || dom.emailPurpose?.value || "First Touch",
+        "{{emailAttachments}}": formatAttachmentText(state.emailAttachments) || "No attachments or links."
       };
     },
     renderTemplate(template, variables) {
@@ -1021,7 +1075,9 @@
         </div>
       `).join("") : `<div class="empty">推薦池沒有可用產品，請先在產品資料庫選入 Recommendation Pool。</div>`;
       dom.actionSuggestions.innerHTML = buildSuggestions(analysis).map((item) => `<div class="recommend-card">${escapeHtml(item)}</div>`).join("");
-      dom.emailPreview.textContent = `Subject: ${analysis.emailDraft.subject}\n\n${analysis.emailDraft.body}`;
+      state.emailAttachments = normalizeAttachments(customer.emailDraft?.emailAttachments || analysis.emailDraft.emailAttachments || state.emailAttachments);
+      this.renderAttachmentList();
+      dom.emailPreview.textContent = renderEmailText(analysis.emailDraft.subject, analysis.emailDraft.body, state.emailAttachments);
       dom.sendEmailBtn.disabled = false;
       this.renderTimeline(customer.id);
       this.renderAnalysisHistory(customer.id);
@@ -1062,6 +1118,22 @@
       const template = DB.getTemplates()[purposeKey(current)] || DEFAULT_TEMPLATES[purposeKey(current)] || DEFAULT_TEMPLATES.first_touch;
       dom.templateSubject.value = template.subject || "";
       dom.templateBody.value = template.body || "";
+      state.emailAttachments = normalizeAttachments(template.emailAttachments || []);
+      this.renderAttachmentList();
+    },
+    renderAttachmentList() {
+      if (!dom.attachmentList) return;
+      const attachments = normalizeAttachments(state.emailAttachments);
+      state.emailAttachments = attachments;
+      dom.attachmentList.innerHTML = attachments.length
+        ? attachments.map((item) => `
+          <div class="attachment-item">
+            <span><strong>${escapeHtml(attachmentTypeLabel(item.type))}</strong> ${escapeHtml(item.name)}</span>
+            ${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener">Open</a>` : ""}
+            <button class="mini-button" data-action="remove-attachment" data-id="${escapeHtml(item.id)}" type="button">移除</button>
+          </div>
+        `).join("")
+        : `<div class="empty">No attachments or links added.</div>`;
     }
   };
 
@@ -1257,7 +1329,7 @@
       attachments: existing?.attachments || [],
       emailDraft: {
         ...(existing?.emailDraft || { subject: "", body: "" }),
-        emailAttachments: existing?.emailDraft?.emailAttachments || []
+        emailAttachments: normalizeAttachments(state.emailAttachments.length ? state.emailAttachments : existing?.emailDraft?.emailAttachments)
       },
       followUpStatus: existing?.followUpStatus || "open",
       nextFollowUpDate: existing?.nextFollowUpDate || "",
@@ -1287,6 +1359,8 @@
     dom.manualWebsiteSummary.value = customer.manualWebsiteSummary || "";
     dom.websiteExtract.value = customer.websiteExtract || "";
     dom.emailPurpose.value = customer.emailPurpose || (customer.customerType === "existing" ? "Existing Customer Update" : "First Touch");
+    state.emailAttachments = normalizeAttachments(customer.emailDraft?.emailAttachments || []);
+    UI.renderAttachmentList();
     const stale = daysSince(customer.lastAnalyzedAt);
     if (stale !== null && stale > 30) {
       dom.staleBanner.classList.remove("hidden");
@@ -1354,7 +1428,7 @@
       scores: analysis.scores,
       businessSignals: analysis.businessSignals,
       recommendedProducts,
-      emailDraft: { ...emailDraft, emailAttachments: customer.emailDraft?.emailAttachments || [] },
+      emailDraft: { ...emailDraft, emailAttachments: normalizeAttachments(customer.emailDraft?.emailAttachments || state.emailAttachments) },
       lastAnalyzedAt: new Date().toISOString(),
       suggestedAction: suggestAction({ ...customer, ...analysis }),
       websiteExtract: customer.websiteExtract || dom.websiteExtract.value
@@ -1497,7 +1571,7 @@
     UI.toast("Follow-up log saved.", "good");
   }
 
-  function addEmailSentLog(customer, subject, messageId) {
+  function addEmailSentLog(customer, subject, messageId, attachments = []) {
     if (!customer?.id) return;
     const logs = DB.getLogs();
     const logId = uid("log");
@@ -1523,7 +1597,7 @@
     if (index >= 0) {
       customers[index].lastContactDate = log.logDate;
       customers[index].emailHistory = customers[index].emailHistory || [];
-      customers[index].emailHistory.unshift({ subject: log.subject, summary: log.summary, emailAttachments: [], createdAt: log.createdAt });
+      customers[index].emailHistory.unshift({ subject: log.subject, summary: log.summary, emailAttachments: normalizeAttachments(attachments), createdAt: log.createdAt });
       customers[index].emailHistory = customers[index].emailHistory.slice(0, 10);
       DB.setCustomers(customers);
     }
@@ -1531,6 +1605,28 @@
 
   function textToHtml(text) {
     return escapeHtml(text).replace(/\n/g, "<br>");
+  }
+
+  function addAttachmentFromEditor() {
+    const type = dom.attachmentType?.value || "hyperlink";
+    const name = normalizeText(dom.attachmentName?.value);
+    const url = normalizeText(dom.attachmentUrl?.value);
+    if (!name && !url) {
+      UI.toast("Please enter an attachment name or link.", "warn");
+      return;
+    }
+    if (url && !/^https?:\/\//i.test(url)) {
+      UI.toast("Please use a full URL starting with http:// or https://.", "warn");
+      return;
+    }
+    state.emailAttachments = normalizeAttachments([
+      ...state.emailAttachments,
+      { type, name: name || url, url }
+    ]);
+    if (dom.attachmentName) dom.attachmentName.value = "";
+    if (dom.attachmentUrl) dom.attachmentUrl.value = "";
+    UI.renderAttachmentList();
+    UI.toast("Attachment/link added.", "good");
   }
 
   async function sendCurrentEmail() {
@@ -1542,7 +1638,9 @@
     const customer = DB.getCustomers().find((item) => item.id === state.currentCustomerId) || formCustomer();
     const to = normalizeText(customer.contactEmail || dom.contactEmail.value);
     const subject = normalizeText(dom.templateSubject.value || state.currentAnalysis?.emailDraft?.subject || "");
-    const body = normalizeText(dom.templateBody.value || state.currentAnalysis?.emailDraft?.body || "");
+    const attachments = normalizeAttachments(state.emailAttachments);
+    const rawBody = normalizeText(dom.templateBody.value || state.currentAnalysis?.emailDraft?.body || "");
+    const body = rawBody.split("{{emailAttachments}}").join(formatAttachmentText(attachments) || "No attachments or links.");
 
     if (!to) throw new Error("Missing customer email.");
     if (!subject || !body) throw new Error("Missing email subject or body.");
@@ -1558,14 +1656,14 @@
         body: JSON.stringify({
           to,
           subject,
-          html: textToHtml(body),
+          html: textToHtml(renderEmailBody(body, attachments)),
           attachments: []
         })
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || "Send email failed.");
 
-      addEmailSentLog(customer, subject, payload.messageId || "");
+      addEmailSentLog(customer, subject, payload.messageId || "", attachments);
       UI.renderTimeline(customer.id);
       UI.refreshAll();
       UI.toast("✅ 郵件已成功發送！", "good");
@@ -1666,7 +1764,8 @@
     templates[purposeKey(purpose)] = {
       purpose,
       subject: dom.templateSubject.value,
-      body: dom.templateBody.value
+      body: dom.templateBody.value,
+      emailAttachments: normalizeAttachments(state.emailAttachments)
     };
     DB.setTemplates(templates);
     UI.toast("Template saved.", "good");
@@ -1679,8 +1778,9 @@
       { subject: dom.templateSubject.value, body: dom.templateBody.value },
       EmailEngine.variables(customer, analysis)
     );
-    dom.emailPreview.textContent = `Subject: ${rendered.subject}\n\n${rendered.body}`;
-    if (state.currentAnalysis) state.currentAnalysis.emailDraft = rendered;
+    const attachments = normalizeAttachments(state.emailAttachments);
+    dom.emailPreview.textContent = renderEmailText(rendered.subject, rendered.body, attachments);
+    if (state.currentAnalysis) state.currentAnalysis.emailDraft = { ...rendered, emailAttachments: attachments };
     UI.toast("Template preview rendered.", "good");
   }
 
@@ -1733,7 +1833,8 @@
       "loadCustomerSelect", "companyName", "website", "contactName", "contactEmail", "country",
       "instagram", "facebook", "emailPurpose", "businessNotes", "manualWebsiteSummary", "websiteExtract",
       "fetchWebsiteBtn", "runAnalysisBtn", "saveCustomerBtn", "clearAnalysisBtn", "staleBanner",
-      "templatePurpose", "templateSubject", "templateBody", "previewTemplateBtn", "saveTemplateBtn",
+      "templatePurpose", "templateSubject", "templateBody", "attachmentType", "attachmentName", "attachmentUrl",
+      "addAttachmentBtn", "attachmentFileInput", "attachmentList", "previewTemplateBtn", "saveTemplateBtn",
       "analysisResult", "manualOverrideBtn", "companyInfoTable", "ratingHero", "fourScores", "signalTags",
       "scoringBreakdown", "recommendedProducts", "actionSuggestions", "copyEmailBtn", "sendEmailBtn", "emailPreview",
       "addLogBtn", "timeline", "analysisHistory", "addProductBtn", "importProductsBtn", "productImportFileSelect", "productImportIndex", "productSearch",
@@ -1820,6 +1921,12 @@
     dom.templatePurpose.addEventListener("change", () => UI.renderTemplateEditor());
     dom.saveTemplateBtn.addEventListener("click", saveTemplate);
     dom.previewTemplateBtn.addEventListener("click", previewTemplate);
+    dom.addAttachmentBtn?.addEventListener("click", addAttachmentFromEditor);
+    [dom.attachmentName, dom.attachmentUrl].forEach((input) => input?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      addAttachmentFromEditor();
+    }));
     dom.addProductBtn.addEventListener("click", () => openProductDialog());
     dom.saveProductDialogBtn.addEventListener("click", saveProductFromDialog);
     dom.importProductsBtn.addEventListener("click", () => ExcelHandler.importProductsFromConfig().catch((error) => {
@@ -1921,6 +2028,11 @@
           navigator.clipboard.writeText(`Subject: ${log.subject || ""}\n\n${log.summary || ""}`);
           UI.toast("Historical email copied.", "good");
         }
+      }
+      if (action === "remove-attachment") {
+        state.emailAttachments = normalizeAttachments(state.emailAttachments).filter((item) => item.id !== id);
+        UI.renderAttachmentList();
+        previewTemplate();
       }
     });
 
