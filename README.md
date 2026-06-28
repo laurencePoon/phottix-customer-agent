@@ -24,6 +24,11 @@ http://127.0.0.1:8787/
 - If the server window is closed, the website will stop working.
 - Excel import/export may require Python and `openpyxl`.
 
+## Excel Fields
+
+- Product Excel may include `Recommended For`: `A`, `B`, `C`, `D`, or `All`. Empty values default to `All`.
+- Customer Excel may include `Customer Score`: optional manual value from `1` to `100`. It is for sales reference only and does not affect product recommendation.
+
 ```cmd
 pip install openpyxl
 ```

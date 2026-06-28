@@ -802,6 +802,28 @@ td {
   margin: 8px 0;
 }
 
+.customer-role-edit {
+  max-width: 280px;
+  margin: 8px 0;
+}
+
+.customer-role-edit label {
+  gap: 5px;
+}
+
+.customer-role-edit select {
+  padding: 7px 9px;
+  border-radius: 10px;
+  font-size: 0.88rem;
+}
+
+.compact-select {
+  min-width: 82px;
+  padding: 6px 8px;
+  border-radius: 9px;
+  font-size: 0.86rem;
+}
+
 .bulk-box {
   padding: 12px;
   border: 1px solid var(--line);

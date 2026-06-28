@@ -17,7 +17,7 @@
   const SHARED_STORAGE_KEYS = Object.values(STORAGE);
   const SQLITE_SYNC_KEY = "phottix_sqlite_shared_sync";
 
-  const PRODUCT_STATUSES = ["Active", "New", "Phase-Out", "Do Not Recommend"];
+  const RECOMMENDED_FOR_OPTIONS = ["All", "A", "B", "C", "D"];
   const CUSTOMER_TYPES = ["prospect", "existing"];
   const INDUSTRY_TYPES = ["", "Wholesale", "Retail", "Studio", "Events", "Creator", "Camera Store", "Online Shop", "Physical Store", "Services", "Other"];
   const FOLLOW_STATUSES = ["open", "completed", "pending", "cancelled", "deferred"];
@@ -30,18 +30,25 @@
     "Reactivation",
     "Holiday Greeting"
   ];
+  const BUYING_ROLES = ["Unknown", "Wholesaler", "Reseller - Physical", "Reseller - Online", "End User - Studio"];
+  const BUYING_ROLE_KEYWORDS = {
+    "Wholesaler": ["wholesale", "bulk order", "bulk purchase", "distributor", "volume pricing", "b2b", "bulk discount"],
+    "Reseller - Physical": ["store", "showroom", "retail store", "visit us", "location", "our store", "shop"],
+    "Reseller - Online": ["online store", "e-commerce", "ecommerce", "shopify", "add to cart", "buy now", "shipping", "delivery", "checkout"],
+    "End User - Studio": ["studio", "photography", "service", "booking", "gallery", "portfolio", "hire us", "creative", "production"]
+  };
 
   const DEFAULT_PRODUCTS = [
-    { name: "Phottix Kali50Ra RGB LED Light", category: "Lighting", status: "Active", inRecommendationPool: true, isPriority: true },
-    { name: "Phottix X160 COB LED Light", category: "Lighting", status: "Active", inRecommendationPool: true, isPriority: true },
-    { name: "Phottix X600 COB LED Light", category: "Lighting", status: "Active", inRecommendationPool: true, isPriority: false },
-    { name: "Phottix M200R RGB Panel", category: "Lighting", status: "New", inRecommendationPool: true, isPriority: true },
-    { name: "Phottix M500R RGB Panel", category: "Lighting", status: "New", inRecommendationPool: true, isPriority: false },
-    { name: "Phottix G-Capsule Softbox 85cm", category: "Modifiers", status: "Active", inRecommendationPool: true, isPriority: true },
-    { name: "Phottix G-Capsule Softbox 105cm", category: "Modifiers", status: "Active", inRecommendationPool: true, isPriority: false },
-    { name: "Phottix Odin II TTL Flash Trigger", category: "Flash & Trigger", status: "Active", inRecommendationPool: true, isPriority: false },
-    { name: "Phottix Juno Flash", category: "Flash & Trigger", status: "Phase-Out", inRecommendationPool: false, isPriority: false },
-    { name: "Phottix Light Stand", category: "Support & Accessories", status: "Active", inRecommendationPool: true, isPriority: false }
+    { name: "Phottix Kali50Ra RGB LED Light", category: "Lighting", recommendedFor: "All", inRecommendationPool: true, isPriority: true },
+    { name: "Phottix X160 COB LED Light", category: "Lighting", recommendedFor: "All", inRecommendationPool: true, isPriority: true },
+    { name: "Phottix X600 COB LED Light", category: "Lighting", recommendedFor: "All", inRecommendationPool: true, isPriority: false },
+    { name: "Phottix M200R RGB Panel", category: "Lighting", recommendedFor: "All", inRecommendationPool: true, isPriority: true },
+    { name: "Phottix M500R RGB Panel", category: "Lighting", recommendedFor: "All", inRecommendationPool: true, isPriority: false },
+    { name: "Phottix G-Capsule Softbox 85cm", category: "Modifiers", recommendedFor: "All", inRecommendationPool: true, isPriority: true },
+    { name: "Phottix G-Capsule Softbox 105cm", category: "Modifiers", recommendedFor: "All", inRecommendationPool: true, isPriority: false },
+    { name: "Phottix Odin II TTL Flash Trigger", category: "Flash & Trigger", recommendedFor: "All", inRecommendationPool: true, isPriority: false },
+    { name: "Phottix Juno Flash", category: "Flash & Trigger", recommendedFor: "All", inRecommendationPool: false, isPriority: false },
+    { name: "Phottix Light Stand", category: "Support & Accessories", recommendedFor: "All", inRecommendationPool: true, isPriority: false }
   ];
 
   const DEFAULT_TEMPLATES = {
@@ -138,7 +145,8 @@
     currentCustomerId: "",
     selectedCustomerIds: new Set(),
     productView: "pool",
-    emailAttachments: []
+    emailAttachments: [],
+    buyingRoleManualDirty: false
   };
 
   function $(id) {
@@ -160,6 +168,81 @@
     if (/^www\./i.test(text)) return `https://${text}`;
     if (/^[a-z0-9.-]+\.[a-z]{2,}/i.test(text)) return `https://${text}`;
     return text;
+  }
+
+  function normalizeBuyingRole(value) {
+    const text = normalizeText(value);
+    const found = BUYING_ROLES.find((role) => role.toLowerCase() === text.toLowerCase());
+    return found || "Unknown";
+  }
+
+  function recommendedForFromBuyingRole(value) {
+    const role = normalizeBuyingRole(value);
+    return {
+      "Wholesaler": "A",
+      "Reseller - Physical": "B",
+      "Reseller - Online": "C",
+      "End User - Studio": "D"
+    }[role] || "All";
+  }
+
+  function normalizeRecommendedFor(value) {
+    const text = normalizeText(value).toLowerCase();
+    const aliases = {
+      wholesaler: "A",
+      "resellerphysical": "B",
+      "reseller-physical": "B",
+      "physicalreseller": "B",
+      "reselleronline": "C",
+      "reseller-online": "C",
+      "onlinereseller": "C",
+      "enduserstudio": "D",
+      "enduser-studio": "D",
+      studio: "D",
+      unknown: "All",
+      all: "All"
+    };
+    const compact = text.replace(/[\s_]+/g, "");
+    const direct = RECOMMENDED_FOR_OPTIONS.find((option) => option.toLowerCase() === text);
+    return direct || aliases[compact] || "All";
+  }
+
+  function recommendedForOptionsHtml(selected = "All") {
+    const current = normalizeRecommendedFor(selected);
+    return RECOMMENDED_FOR_OPTIONS.map((option) => `<option value="${escapeHtml(option)}" ${option === current ? "selected" : ""}>${escapeHtml(option)}</option>`).join("");
+  }
+
+  function normalizeCustomerScore(value) {
+    const text = normalizeText(value);
+    if (!text) return null;
+    const score = Number(text);
+    if (!Number.isFinite(score)) return null;
+    return Math.min(100, Math.max(1, Math.round(score)));
+  }
+
+  function keywordHit(text, keyword) {
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(text);
+  }
+
+  function determineBuyingRole(websiteText) {
+    const text = normalizeText(websiteText);
+    if (!text) return "Unknown";
+
+    const scores = Object.entries(BUYING_ROLE_KEYWORDS).map(([role, keywords]) => ({
+      role,
+      hits: keywords.filter((keyword) => keywordHit(text, keyword)).length
+    }));
+    const highest = Math.max(...scores.map((item) => item.hits));
+    if (highest <= 0) return "Unknown";
+
+    const winners = scores.filter((item) => item.hits === highest);
+    return winners.length === 1 ? winners[0].role : "Unknown";
+  }
+
+  function buyingRoleOptionsHtml(selected = "Unknown") {
+    const current = normalizeBuyingRole(selected);
+    return BUYING_ROLES.map((role) => `<option value="${escapeHtml(role)}" ${role === current ? "selected" : ""}>${escapeHtml(role)}</option>`).join("");
   }
 
   function todayString(date = new Date()) {
@@ -410,6 +493,9 @@
         ...customer,
         city: customer.city || "",
         industry: customer.industry || "",
+        buyingRole: normalizeBuyingRole(customer.buyingRole),
+        isBuyingRoleManuallyReviewed: Boolean(customer.isBuyingRoleManuallyReviewed),
+        customerScore: normalizeCustomerScore(customer.customerScore),
         emailPurpose: customer.emailPurpose || "First Touch",
         attachments: customer.attachments || [],
         emailDraft: {
@@ -424,16 +510,26 @@
     setCustomers(customers) {
       this.write(STORAGE.customers, customers);
     },
+    normalizeProduct(product = {}) {
+      const {
+        status: _deprecatedStatus,
+        Status: _deprecatedStatusLabel,
+        productStatus: _deprecatedProductStatus,
+        ...cleanProduct
+      } = product;
+      return {
+        ...cleanProduct,
+        priority: cleanProduct.priority ?? "",
+        sku: cleanProduct.sku || "",
+        description: cleanProduct.description || "",
+        price: cleanProduct.price ?? "",
+        productUrl: cleanProduct.productUrl || "",
+        launchDate: cleanProduct.launchDate || "",
+        recommendedFor: normalizeRecommendedFor(cleanProduct.recommendedFor)
+      };
+    },
     getProducts() {
-      const products = this.read(STORAGE.products, []).map((product) => ({
-        ...product,
-        priority: product.priority ?? "",
-        sku: product.sku || "",
-        description: product.description || "",
-        price: product.price ?? "",
-        productUrl: product.productUrl || "",
-        launchDate: product.launchDate || ""
-      }));
+      const products = this.read(STORAGE.products, []).map((product) => this.normalizeProduct(product));
       if (products.length) return products;
       const seeded = DEFAULT_PRODUCTS.map((item) => ({
         id: uid("prod"),
@@ -444,7 +540,7 @@
       return seeded;
     },
     setProducts(products) {
-      this.write(STORAGE.products, products);
+      this.write(STORAGE.products, (products || []).map((product) => this.normalizeProduct(product)));
     },
     getLogs() {
       return this.read(STORAGE.logs, {});
@@ -617,31 +713,35 @@
 
   const RecommendationEngine = {
     isProductReadyLead(scoring) {
-      return ["A", "B", "C"].includes(scoring?.rating) && Boolean(scoring?.businessSignals?.length);
+      return Boolean(scoring);
     },
     recommend(customer, scoring) {
       if (!this.isProductReadyLead(scoring)) return [];
+      const target = recommendedForFromBuyingRole(customer.buyingRole);
       const products = DB.getProducts()
-        .filter((product) => product.status !== "Do Not Recommend" && product.inRecommendationPool);
+        .filter((product) => {
+          if (!product.inRecommendationPool) return false;
+          const recommendedFor = normalizeRecommendedFor(product.recommendedFor);
+          if (target === "All") return recommendedFor === "All";
+          return recommendedFor === target || recommendedFor === "All";
+        });
       const signals = scoring.businessSignals.join(" ").toLowerCase();
       const scored = products.map((product) => {
         const text = `${product.name} ${product.category}`.toLowerCase();
         let score = product.isPriority ? 20 : 0;
-        if (product.status === "New") score += 8;
-        if (product.status === "Phase-Out") score -= 10;
+        if (normalizeRecommendedFor(product.recommendedFor) === target) score += 30;
         if (/wholesale|retail|camera store|online shop/.test(signals) && /lighting|modifier|flash|trigger|accessor/i.test(text)) score += 20;
         if (/studio|creator|events/.test(signals) && /lighting|softbox|panel|stand|modifier/i.test(text)) score += 18;
         if (/services/.test(signals) && /support|accessor|stand|trigger/i.test(text)) score += 10;
         if (/lighting|led|rgb|cob|softbox/i.test(text)) score += 8;
         return { ...product, matchScore: score };
-      }).filter((item) => item.matchScore > 0)
-        .sort((a, b) => b.matchScore - a.matchScore || Number(a.priority || 999) - Number(b.priority || 999) || a.name.localeCompare(b.name))
-        .slice(0, 5);
+      })
+        .sort((a, b) => Number(a.priority || 999) - Number(b.priority || 999) || b.matchScore - a.matchScore || a.name.localeCompare(b.name))
+        .slice(0, 3);
       return scored.map((product) => ({
         id: product.id,
         name: product.name,
         category: product.category,
-        status: product.status,
         sku: product.sku || "",
         description: product.description || "",
         productUrl: product.productUrl || "",
@@ -649,9 +749,6 @@
       }));
     },
     reason(product, scoring) {
-      const signals = scoring.businessSignals;
-      if (product.status === "New") return `New product suitable for ${signals.slice(0, 2).join(" / ") || "current channel"} discussions.`;
-      if (product.status === "Phase-Out") return `Phase-out item. Use only as availability or last-chance angle.`;
       if (/Lighting|Modifiers/i.test(product.category)) return `Strong fit for photo/video partners, stores, studios, and lighting-related assortment.`;
       if (/Flash|Trigger/i.test(product.category)) return `Good add-on for camera retailers and photographer-focused channels.`;
       return `Relevant accessory or support item for bundle and upsell discussion.`;
@@ -679,9 +776,31 @@
       if (names.length === 1) return names[0];
       return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
     },
+    strategy(customer) {
+      const role = normalizeBuyingRole(customer.buyingRole);
+      const map = {
+        "Wholesaler": {
+          message: "professional and pricing-oriented, with priority on high-value Priority 1 products"
+        },
+        "Reseller - Physical": {
+          message: "friendly and showroom-oriented, with priority on easy-to-display popular products"
+        },
+        "Reseller - Online": {
+          message: "concise and logistics-oriented, with priority on lightweight or entry-level products"
+        },
+        "End User - Studio": {
+          message: "warm and service-oriented, with priority on bundles and after-sales support"
+        }
+      };
+      return map[role] || null;
+    },
+    recommendedProductsForEmail(customer, analysis) {
+      return (analysis?.recommendedProducts || []).slice(0, 3);
+    },
     variables(customer, analysis) {
-      const products = analysis?.recommendedProducts || customer.recommendedProducts || [];
+      const products = analysis?.emailRecommendedProducts || analysis?.recommendedProducts || customer.recommendedProducts || [];
       const signals = analysis?.businessSignals || customer.businessSignals || [];
+      const emailStrategy = analysis?.emailStrategy || this.strategy(customer, analysis);
       return {
         "{{公司名}}": customer.companyName || "your team",
         "{{聯絡人}}": customer.contactName || "there",
@@ -691,6 +810,7 @@
         "{{推薦產品}}": this.describeProducts(products),
         "{{評分}}": `${analysis?.rating || customer.rating || "NR"} / ${analysis?.totalScore || ""}`,
         "{{郵件目的}}": customer.emailPurpose || dom.emailPurpose?.value || "First Touch",
+        "{{郵件推薦策略}}": emailStrategy?.message || "",
         "{{emailAttachments}}": formatAttachmentText(state.emailAttachments) || "No attachments or links."
       };
     },
@@ -704,7 +824,10 @@
       return { subject, body };
     },
     generate(customer, analysis) {
-      if (!analysis?.recommendedProducts?.length && !["A", "B", "C"].includes(analysis?.rating)) {
+      const emailStrategy = this.strategy(customer, analysis);
+      const emailRecommendedProducts = this.recommendedProductsForEmail(customer, analysis);
+      const emailAnalysis = { ...analysis, emailStrategy, emailRecommendedProducts };
+      if (!analysis?.recommendedProducts?.length) {
         const company = customer.companyName || "your team";
         const greeting = customer.contactName || "there";
         return {
@@ -729,9 +852,12 @@
       if ((customer.emailPurpose || "") === "New Product Promotion") {
         const company = customer.companyName || "your team";
         const greeting = customer.contactName || "there";
-        const products = this.describeProducts(analysis?.recommendedProducts || customer.recommendedProducts || []);
+        const products = this.describeProducts(emailRecommendedProducts || customer.recommendedProducts || []);
+        const strategyLine = emailStrategy ? `For this account, I would keep the angle ${emailStrategy.message}.` : "";
         const isExisting = customer.customerType === "existing";
         return {
+          emailRecommendedProducts,
+          emailStrategy,
           subject: isExisting
             ? `New Phottix product update for ${company}`
             : `New Phottix products for ${company}`,
@@ -741,18 +867,22 @@
             `I wanted to share a quick update on our new Phottix products that may be useful for ${company}'s next product refresh or reorder planning.`,
             "",
             `The items I would suggest reviewing first are ${products}.`,
+            strategyLine ? "" : null,
+            strategyLine || null,
             "",
             "Would you like me to send the latest overview, availability, and sample pricing?",
             "",
             "Best regards,",
             "[Your Name]",
             "Phottix Business Development Team"
-          ].join("\n") : [
+          ].filter((line) => line !== null).join("\n") : [
             `Hi ${greeting},`,
             "",
             `I came across ${company} and wanted to briefly introduce a few new Phottix products that may fit your photo/video equipment range.`,
             "",
             `A few items that may be worth a quick look are ${products}.`,
+            strategyLine ? "" : null,
+            strategyLine || null,
             "",
             "No pressure at all, but would it be alright if I sent over a short product overview for the right person on your team?",
             "",
@@ -761,14 +891,17 @@
             "Best regards,",
             "[Your Name]",
             "Phottix Business Development Team"
-          ].join("\n")
+          ].filter((line) => line !== null).join("\n")
         };
       }
       const templates = DB.getTemplates();
       const key = purposeKey(customer.emailPurpose || "First Touch");
       const template = templates[key] || templates.first_touch || DEFAULT_TEMPLATES.first_touch;
-      const rendered = this.renderTemplate(template, this.variables(customer, analysis));
-      return rendered;
+      const rendered = this.renderTemplate(template, this.variables(customer, emailAnalysis));
+      if (emailStrategy && !rendered.body.includes(emailStrategy.message)) {
+        rendered.body = `${rendered.body}\n\nSuggested angle: ${emailStrategy.message}.`;
+      }
+      return { ...rendered, emailRecommendedProducts, emailStrategy };
     }
   };
 
@@ -814,7 +947,16 @@
         const index = customers.findIndex((item) => isDuplicateCustomer(item, incoming));
         if (index >= 0) {
           if (isForceUpdateRow(row)) {
-            customers[index] = { ...customers[index], ...removeEmpty(stripTransientCustomerFields(incoming)), id: customers[index].id };
+            const cleanIncoming = removeEmpty(stripTransientCustomerFields(incoming));
+            if (!incoming.isBuyingRoleManuallyReviewed) {
+              delete cleanIncoming.buyingRole;
+            }
+            customers[index] = {
+              ...customers[index],
+              ...cleanIncoming,
+              id: customers[index].id,
+              isBuyingRoleManuallyReviewed: customers[index].isBuyingRoleManuallyReviewed || incoming.isBuyingRoleManuallyReviewed
+            };
             forceUpdated += 1;
           } else {
             skipped += 1;
@@ -874,6 +1016,9 @@
         country: customer.country,
         city: customer.city,
         industry: customer.industry,
+        buying_role: normalizeBuyingRole(customer.buyingRole),
+        buying_role_manually_reviewed: customer.isBuyingRoleManuallyReviewed ? "YES" : "NO",
+        customer_score: customer.customerScore ?? "",
         customer_type: customer.customerType,
         rating: customer.rating,
         customer_priority: customer.scores?.priority || "",
@@ -929,7 +1074,10 @@
           followUpStatus: normalized.followupstatus || normalized.follow_up_status || customers[index].followUpStatus,
           nextFollowUpDate: normalized.nextfollowupdate || normalized.next_follow_up_date || customers[index].nextFollowUpDate,
           lastContactDate: normalized.lastcontactdate || normalized.last_contact_date || customers[index].lastContactDate,
-          notes: [customers[index].notes, normalized.notes].filter(Boolean).join(" | ")
+          notes: [customers[index].notes, normalized.notes].filter(Boolean).join(" | "),
+          buyingRole: incoming.isBuyingRoleManuallyReviewed ? incoming.buyingRole : customers[index].buyingRole,
+          isBuyingRoleManuallyReviewed: customers[index].isBuyingRoleManuallyReviewed || incoming.isBuyingRoleManuallyReviewed,
+          customerScore: incoming.customerScore ?? customers[index].customerScore
         };
         updated += 1;
       }
@@ -954,7 +1102,7 @@
       document.querySelectorAll(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.page === pageId));
       const titles = {
         analysisPage: ["客戶分析 / Customer Analysis", "抓取官網、提取業務信號、評分、推薦產品並生成英文開發信。"],
-        productsPage: ["產品資料庫 / Product Database", "管理完整目錄、推薦池、產品狀態與 Priority。"],
+        productsPage: ["產品資料庫 / Product Database", "管理完整目錄、推薦池、Recommended For 與 Priority。"],
         customersPage: ["客戶池 / Customer Pool", "管理 Prospect / Existing、批量分析、跟進狀態和 Excel 決策表。"]
       };
       dom.pageTitle.textContent = titles[pageId]?.[0] || "Phottix Customer Agent";
@@ -1020,21 +1168,23 @@
       const view = dom.productView.value;
       let products = DB.getProducts();
       if (view === "pool") products = products.filter((item) => item.inRecommendationPool);
-      if (query) products = products.filter((item) => `${item.name} ${item.category} ${item.status} ${item.sku || ""} ${item.description || ""}`.toLowerCase().includes(query));
+      if (query) products = products.filter((item) => `${item.name} ${item.category} ${item.recommendedFor || ""} ${item.description || ""}`.toLowerCase().includes(query));
       dom.productTable.innerHTML = products.length ? `
         <table>
-          <thead><tr><th>產品名稱</th><th>分類</th><th>狀態</th><th>SKU</th><th>Price</th><th>URL</th><th>推薦池</th><th>Priority</th><th>操作</th></tr></thead>
+          <thead><tr><th>Product Name</th><th>Category</th><th>Priority</th><th>Recommended For</th><th>Description</th><th>推薦池</th><th>操作</th></tr></thead>
           <tbody>
             ${products.map((item) => `
               <tr>
                 <td>${escapeHtml(item.name)}</td>
                 <td>${escapeHtml(item.category)}</td>
-                <td>${escapeHtml(item.status)}</td>
-                <td>${escapeHtml(item.sku || "—")}</td>
-                <td>${escapeHtml(item.price !== "" && item.price !== undefined ? String(item.price) : "—")}</td>
-                <td>${item.productUrl ? `<a href="${escapeHtml(item.productUrl)}" target="_blank" rel="noopener">Link</a>` : "—"}</td>
-                <td><input type="checkbox" data-action="toggle-product-pool" data-id="${escapeHtml(item.id)}" ${item.inRecommendationPool ? "checked" : ""}></td>
                 <td><input type="checkbox" data-action="toggle-product-priority" data-id="${escapeHtml(item.id)}" ${item.isPriority ? "checked" : ""}> ${escapeHtml(item.priority !== "" && item.priority !== undefined ? String(item.priority) : "")}</td>
+                <td>
+                  <select class="compact-select" data-action="change-product-recommended-for" data-id="${escapeHtml(item.id)}">
+                    ${recommendedForOptionsHtml(item.recommendedFor)}
+                  </select>
+                </td>
+                <td>${escapeHtml(item.description || "—")}</td>
+                <td><input type="checkbox" data-action="toggle-product-pool" data-id="${escapeHtml(item.id)}" ${item.inRecommendationPool ? "checked" : ""}></td>
                 <td>
                   <button class="mini-button" data-action="edit-product" data-id="${escapeHtml(item.id)}">編輯</button>
                   <button class="danger-button" data-action="delete-product" data-id="${escapeHtml(item.id)}">刪除</button>
@@ -1061,8 +1211,20 @@
             </header>
             <div class="customer-meta">
               <span class="status-pill">${escapeHtml(customer.customerType || "prospect")}</span>
+              <span class="status-pill">Buying Role: ${escapeHtml(normalizeBuyingRole(customer.buyingRole))}${customer.isBuyingRoleManuallyReviewed ? " / Manual" : ""}</span>
+              <span class="status-pill">Customer Score: ${escapeHtml(customer.customerScore ?? "—")}</span>
               <span class="status-pill">${escapeHtml(customer.followUpStatus || "open")}</span>
               <span class="status-pill">Next: ${escapeHtml(customer.nextFollowUpDate || "—")}</span>
+            </div>
+            <div class="customer-role-edit">
+              <label>購買角色
+                <select data-action="change-buying-role" data-id="${escapeHtml(customer.id)}">
+                  ${buyingRoleOptionsHtml(customer.buyingRole)}
+                </select>
+              </label>
+              <label>Customer Score
+                <input data-action="change-customer-score" data-id="${escapeHtml(customer.id)}" type="number" min="1" max="100" step="1" value="${escapeHtml(customer.customerScore ?? "")}" placeholder="1-100">
+              </label>
             </div>
             <p>${escapeHtml([customer.contactName, customer.contactEmail, customer.country, customer.city, customer.industry].filter(Boolean).join(" · ") || "No contact info")}</p>
             <p><strong>Suggested Action:</strong> ${escapeHtml(suggestAction(customer))}</p>
@@ -1094,7 +1256,7 @@
       dom.recommendedProducts.innerHTML = analysis.recommendedProducts.length ? analysis.recommendedProducts.map((product) => `
         <div class="recommend-card">
           <strong>${escapeHtml(product.name)}</strong>
-          <p>${escapeHtml(product.category)} · ${escapeHtml(product.status)}</p>
+          <p>${escapeHtml(product.category)}</p>
           ${product.description ? `<p>${escapeHtml(product.description)}</p>` : ""}
           ${product.productUrl ? `<p><a href="${escapeHtml(product.productUrl)}" target="_blank" rel="noopener">Product link</a></p>` : ""}
           <p>${escapeHtml(product.reason)}</p>
@@ -1172,6 +1334,8 @@
       ["國家", customer.country],
       ["城市", customer.city],
       ["行業", customer.industry],
+      ["Buying Role / 購買角色", `${normalizeBuyingRole(customer.buyingRole)}${customer.isBuyingRoleManuallyReviewed ? " (Manual)" : ""}`],
+      ["Customer Score", customer.customerScore ?? ""],
       ["客戶類型", customer.customerType],
       ["Instagram", customer.socialMedia?.instagram],
       ["Facebook", customer.socialMedia?.facebook],
@@ -1245,12 +1409,6 @@
     return Number.isFinite(num) ? num : fallback;
   }
 
-  function normalizeStatus(value) {
-    const text = normalizeText(value);
-    const found = PRODUCT_STATUSES.find((status) => status.toLowerCase() === text.toLowerCase());
-    return found || "Active";
-  }
-
   function normalizeCustomerType(value) {
     const text = normalizeText(value).toLowerCase();
     return CUSTOMER_TYPES.includes(text) ? text : "prospect";
@@ -1260,6 +1418,8 @@
     const n = normalizeKeys(row);
     const customerTypeText = getAny(n, "Customer Type", "customer_type", "客戶類型", "客户类型");
     const industry = getAny(n, "Industry", "industry", "行業類別", "行业类别", "行業", "行业");
+    const buyingRole = normalizeBuyingRole(getAny(n, "Buying Role", "buying_role", "buyingRole", "購買角色", "购买角色"));
+    const customerScore = normalizeCustomerScore(getAny(n, "Customer Score", "customer_score", "customerScore", "客戶價值分數", "客户价值分数", "客戶分數", "客户分数"));
     const country = getAny(n, "Country", "country", "國家", "国家", "地區", "地区", "國家地區名", "国家地区名", "國家地區名稱", "国家地区名称");
     const city = getAny(n, "City", "city", "城市", "城巿");
     const notes = [
@@ -1277,6 +1437,9 @@
       country,
       city,
       industry,
+      buyingRole,
+      isBuyingRoleManuallyReviewed: buyingRole !== "Unknown",
+      customerScore,
       customerType: normalizeCustomerType(customerTypeText),
       rating: getAny(n, "Rating", "rating", "評級", "评级") || "NR",
       scores: { priority: 0, productFit: 0, confidence: 0, readiness: 0 },
@@ -1307,8 +1470,8 @@
       id: uid("prod"),
       name: getAny(n, "Product Name", "product_name", "name", "product", "產品名稱", "产品名称"),
       category: getAny(n, "Category", "category", "分類", "分类") || "Uncategorized",
-      status: normalizeStatus(getAny(n, "Status", "status", "產品狀態", "产品状态")),
       inRecommendationPool: parseBoolean(getAny(n, "In Recommendation Pool", "in_recommendation_pool", "recommendation pool", "納入推薦池", "纳入推荐池"), false),
+      recommendedFor: normalizeRecommendedFor(getAny(n, "Recommended For", "recommended_for", "recommendedFor", "適合角色", "适合角色", "推薦對象", "推荐对象")),
       priority: priorityNumber,
       isPriority: priorityNumber !== "" ? Number(priorityNumber) <= 3 : parseBoolean(priorityValue, false),
       sku: getAny(n, "SKU", "sku", "產品編號", "产品编号"),
@@ -1377,7 +1540,7 @@
       if (type && customer.customerType !== type) return false;
       if (rating && customer.rating !== rating) return false;
       if (status && customer.followUpStatus !== status) return false;
-      if (query && !`${customer.companyName} ${customer.website} ${customer.contactEmail}`.toLowerCase().includes(query)) return false;
+      if (query && !`${customer.companyName} ${customer.website} ${customer.contactEmail} ${customer.buyingRole || ""}`.toLowerCase().includes(query)) return false;
       return true;
     });
   }
@@ -1393,6 +1556,9 @@
       country: normalizeText(dom.country.value),
       city: normalizeText(dom.city.value),
       industry: normalizeText(dom.industry.value),
+      buyingRole: normalizeBuyingRole(dom.buyingRole?.value || existing?.buyingRole),
+      isBuyingRoleManuallyReviewed: Boolean(existing?.isBuyingRoleManuallyReviewed || state.buyingRoleManualDirty),
+      customerScore: normalizeCustomerScore(existing?.customerScore),
       customerType: existing?.customerType || "prospect",
       rating: existing?.rating || "NR",
       scores: existing?.scores || { priority: 0, productFit: 0, confidence: 0, readiness: 0 },
@@ -1420,6 +1586,7 @@
 
   function fillAnalysisForm(customer) {
     state.currentCustomerId = customer.id || "";
+    state.buyingRoleManualDirty = false;
     dom.companyName.value = customer.companyName || "";
     dom.website.value = customer.website || "";
     dom.contactName.value = customer.contactName || "";
@@ -1427,6 +1594,12 @@
     dom.country.value = customer.country || "";
     dom.city.value = customer.city || "";
     dom.industry.value = customer.industry || "";
+    if (dom.buyingRole) dom.buyingRole.value = normalizeBuyingRole(customer.buyingRole);
+    if (dom.buyingRoleManualStatus) {
+      dom.buyingRoleManualStatus.textContent = customer.isBuyingRoleManuallyReviewed
+        ? "Manual value saved. Auto detection will not overwrite it."
+        : "Auto detection will update this after analysis.";
+    }
     dom.instagram.value = customer.socialMedia?.instagram || "";
     dom.facebook.value = customer.socialMedia?.facebook || "";
     dom.businessNotes.value = customer.notes || "";
@@ -1444,8 +1617,8 @@
     }
   }
 
-  async function fetchWebsite() {
-    const url = normalizeUrl(dom.website.value);
+  async function fetchWebsite(urlOverride = "") {
+    const url = normalizeUrl(urlOverride || dom.website.value);
     if (!url) {
       UI.toast("Please enter a website URL first.", "warn");
       return "";
@@ -1463,7 +1636,9 @@
       UI.toast(payload.error || "Website fetch failed.", "bad");
       return "";
     }
-    dom.websiteExtract.value = payload.content || "";
+    if (!urlOverride || normalizeUrl(dom.website.value) === url) {
+      dom.websiteExtract.value = payload.content || "";
+    }
     UI.toast("Website fetched and extract filled.", "good");
     return payload.content || "";
   }
@@ -1476,12 +1651,27 @@
       return null;
     }
     if (autoFetch && customer.website && !customer.websiteExtract && !customer.manualWebsiteSummary) {
-      const content = await fetchWebsite().catch((error) => {
+      const content = await fetchWebsite(customer.website).catch((error) => {
         DB.addErrorLog("抓取官網", error, customer);
         UI.renderErrorLogs();
         return "";
       });
       customer.websiteExtract = content || customer.websiteExtract;
+    }
+    const roleEvidence = [
+      customer.websiteExtract,
+      customer.manualWebsiteSummary,
+      customer.notes,
+      customer.industry
+    ].filter(Boolean).join("\n");
+    if (!customer.isBuyingRoleManuallyReviewed) {
+      customer.buyingRole = determineBuyingRole(roleEvidence);
+      if (!customerOverride && dom.buyingRole) dom.buyingRole.value = customer.buyingRole;
+      if (!customerOverride && dom.buyingRoleManualStatus) {
+        dom.buyingRoleManualStatus.textContent = `Auto detected: ${customer.buyingRole}`;
+      }
+    } else {
+      customer.buyingRole = normalizeBuyingRole(customer.buyingRole);
     }
     const scoring = ScoringEngine.calculate({
       ...customer,
@@ -1496,6 +1686,8 @@
     };
     const emailDraft = EmailEngine.generate({ ...customer, emailPurpose: customer.emailPurpose || dom.emailPurpose.value }, analysis);
     analysis.emailDraft = emailDraft;
+    analysis.emailRecommendedProducts = emailDraft.emailRecommendedProducts || recommendedProducts;
+    analysis.emailStrategy = emailDraft.emailStrategy || null;
     customer = {
       ...customer,
       rating: analysis.rating,
@@ -1534,10 +1726,10 @@
     dom.productId.value = product?.id || "";
     dom.productName.value = product?.name || "";
     dom.productCategory.value = product?.category || "";
-    dom.productStatus.value = product?.status || "Active";
     dom.productInPool.checked = Boolean(product?.inRecommendationPool);
     dom.productPriority.checked = Boolean(product?.isPriority);
     dom.productPriorityNumber.value = product?.priority ?? "";
+    dom.productRecommendedFor.value = normalizeRecommendedFor(product?.recommendedFor);
     dom.productSku.value = product?.sku || "";
     dom.productDescription.value = product?.description || "";
     dom.productPrice.value = product?.price ?? "";
@@ -1552,10 +1744,10 @@
       id: dom.productId.value || uid("prod"),
       name: normalizeText(dom.productName.value),
       category: normalizeText(dom.productCategory.value),
-      status: dom.productStatus.value,
       inRecommendationPool: dom.productInPool.checked,
       isPriority: dom.productPriority.checked,
       priority: parseNumber(dom.productPriorityNumber.value, ""),
+      recommendedFor: normalizeRecommendedFor(dom.productRecommendedFor.value),
       sku: normalizeText(dom.productSku.value),
       description: normalizeText(dom.productDescription.value),
       price: parseNumber(dom.productPrice.value, ""),
@@ -1580,6 +1772,8 @@
     dom.dialogContactName.value = customer?.contactName || "";
     dom.dialogContactEmail.value = customer?.contactEmail || "";
     dom.dialogCountry.value = customer?.country || "";
+    dom.dialogCustomerScore.value = customer?.customerScore ?? "";
+    dom.dialogBuyingRole.value = normalizeBuyingRole(customer?.buyingRole);
     dom.dialogCustomerType.value = customer?.customerType || "prospect";
     dom.dialogFollowStatus.value = customer?.followUpStatus || "open";
     dom.dialogNextFollowDate.value = customer?.nextFollowUpDate || "";
@@ -1588,6 +1782,8 @@
 
   function saveCustomerFromDialog() {
     const existing = DB.getCustomers().find((item) => item.id === dom.customerId.value);
+    const selectedBuyingRole = normalizeBuyingRole(dom.dialogBuyingRole.value);
+    const buyingRoleWasChanged = selectedBuyingRole !== normalizeBuyingRole(existing?.buyingRole);
     const customer = {
       ...(existing || normalizeImportedCustomer({})),
       id: dom.customerId.value || uid("cust"),
@@ -1596,6 +1792,9 @@
       contactName: normalizeText(dom.dialogContactName.value),
       contactEmail: normalizeText(dom.dialogContactEmail.value),
       country: normalizeText(dom.dialogCountry.value),
+      customerScore: normalizeCustomerScore(dom.dialogCustomerScore.value),
+      buyingRole: selectedBuyingRole,
+      isBuyingRoleManuallyReviewed: Boolean(existing?.isBuyingRoleManuallyReviewed || buyingRoleWasChanged && selectedBuyingRole !== "Unknown"),
       customerType: dom.dialogCustomerType.value,
       followUpStatus: dom.dialogFollowStatus.value,
       nextFollowUpDate: dom.dialogNextFollowDate.value,
@@ -1844,6 +2043,13 @@
     UI.toast(`Updated follow-up fields for ${selected.length} customers.`, "good");
   }
 
+  function purgeDeprecatedProductStatus() {
+    const rawProducts = DB.read(STORAGE.products, []);
+    const deprecatedKeys = ["status", "Status", "productStatus"];
+    if (!rawProducts.some((product) => deprecatedKeys.some((key) => Object.prototype.hasOwnProperty.call(product || {}, key)))) return;
+    DB.setProducts(rawProducts.map((product) => DB.normalizeProduct(product)));
+  }
+
   function saveTemplate() {
     const templates = DB.getTemplates();
     const purpose = dom.templatePurpose.value;
@@ -1860,13 +2066,22 @@
   function previewTemplate() {
     const customer = formCustomer();
     const analysis = state.currentAnalysis || { recommendedProducts: [], businessSignals: [], rating: "NR", totalScore: 0 };
+    const emailAnalysis = {
+      ...analysis,
+      emailStrategy: EmailEngine.strategy(customer, analysis),
+      emailRecommendedProducts: EmailEngine.recommendedProductsForEmail(customer, analysis)
+    };
     const rendered = EmailEngine.renderTemplate(
       { subject: dom.templateSubject.value, body: dom.templateBody.value },
-      EmailEngine.variables(customer, analysis)
+      EmailEngine.variables(customer, emailAnalysis)
     );
     const attachments = normalizeAttachments(state.emailAttachments);
     dom.emailPreview.textContent = renderEmailText(rendered.subject, rendered.body, attachments);
-    if (state.currentAnalysis) state.currentAnalysis.emailDraft = { ...rendered, emailAttachments: attachments };
+    if (state.currentAnalysis) {
+      state.currentAnalysis.emailDraft = { ...rendered, emailAttachments: attachments };
+      state.currentAnalysis.emailRecommendedProducts = emailAnalysis.emailRecommendedProducts;
+      state.currentAnalysis.emailStrategy = emailAnalysis.emailStrategy;
+    }
     UI.toast("Template preview rendered.", "good");
   }
 
@@ -1917,7 +2132,7 @@
       "todayFollowCount", "todayFollowList", "toast", "pageTitle", "pageSubtitle",
       "overdueFollowCount", "dueTodayFollowCount", "statsSummary", "errorLogList", "clearErrorLogsBtn",
       "loadCustomerSelect", "companyName", "website", "contactName", "contactEmail", "country", "city", "industry",
-      "instagram", "facebook", "emailPurpose", "businessNotes", "manualWebsiteSummary", "websiteExtract",
+      "buyingRole", "buyingRoleManualStatus", "instagram", "facebook", "emailPurpose", "businessNotes", "manualWebsiteSummary", "websiteExtract",
       "fetchWebsiteBtn", "runAnalysisBtn", "saveCustomerBtn", "clearAnalysisBtn", "staleBanner",
       "templatePurpose", "templateSubject", "templateBody", "attachmentType", "attachmentName", "attachmentUrl",
       "addAttachmentBtn", "attachmentFileInput", "attachmentList", "previewTemplateBtn", "saveTemplateBtn",
@@ -1929,11 +2144,11 @@
       "followStatusFilter", "customerSearch", "selectAllCustomers", "bulkAnalyzeSelectedBtn",
       "bulkAnalyzeAllBtn", "bulkDeleteBtn", "bulkConvertBtn", "bulkFollowStatus", "bulkNextFollowDate", "bulkProgressBar", "bulkProgressText", "customerList", "backupExportBtn",
       "backupImportBtn", "backupFileInput", "productDialog", "productForm", "productDialogTitle",
-      "productId", "productName", "productCategory", "productStatus", "productInPool", "productPriority",
-      "productPriorityNumber", "productSku", "productDescription", "productPrice", "productUrl", "productLaunchDate",
+      "productId", "productName", "productCategory", "productInPool", "productPriority",
+      "productPriorityNumber", "productRecommendedFor", "productSku", "productDescription", "productPrice", "productUrl", "productLaunchDate",
       "saveProductDialogBtn", "customerDialog", "customerForm", "customerDialogTitle", "customerId",
-      "dialogCompanyName", "dialogWebsite", "dialogContactName", "dialogContactEmail", "dialogCountry",
-      "dialogCustomerType", "dialogFollowStatus", "dialogNextFollowDate", "saveCustomerDialogBtn",
+      "dialogCompanyName", "dialogWebsite", "dialogContactName", "dialogContactEmail", "dialogCountry", "dialogCustomerScore",
+      "dialogBuyingRole", "dialogCustomerType", "dialogFollowStatus", "dialogNextFollowDate", "saveCustomerDialogBtn",
       "overrideDialog", "overrideForm", "overrideRating", "overrideReason", "saveOverrideBtn",
       "logDialog", "logForm", "logCustomerId", "logDate", "logChannel", "logContactPerson", "logSubject",
       "logSummary", "logResponse", "logNextAction", "logNextFollowDate", "saveLogBtn"
@@ -1956,7 +2171,10 @@
     dom.clearAnalysisBtn.addEventListener("click", () => {
       state.currentAnalysis = null;
       state.currentCustomerId = "";
+      state.buyingRoleManualDirty = false;
       document.getElementById("analysisForm").reset();
+      if (dom.buyingRole) dom.buyingRole.value = "Unknown";
+      if (dom.buyingRoleManualStatus) dom.buyingRoleManualStatus.textContent = "Auto detection will update this after analysis.";
       dom.analysisResult.classList.add("hidden");
       dom.sendEmailBtn.disabled = true;
       UI.toast("Form cleared.", "good");
@@ -1967,6 +2185,12 @@
         fillAnalysisForm(customer);
         UI.renderTimeline(customer.id);
         UI.toast("Customer loaded.", "good");
+      }
+    });
+    dom.buyingRole?.addEventListener("change", () => {
+      state.buyingRoleManualDirty = true;
+      if (dom.buyingRoleManualStatus) {
+        dom.buyingRoleManualStatus.textContent = "Manual value selected. Save customer to keep it.";
       }
     });
     dom.copyEmailBtn.addEventListener("click", async () => {
@@ -2137,9 +2361,40 @@
         DB.setProducts(products);
         UI.renderProductList();
       }
+      if (action === "change-product-recommended-for") {
+        const nextRecommendedFor = normalizeRecommendedFor(target.value);
+        const products = DB.getProducts().map((item) => item.id === id
+          ? { ...item, recommendedFor: nextRecommendedFor }
+          : item);
+        DB.setProducts(products);
+        UI.renderProductList();
+        UI.toast(`Recommended For saved: ${nextRecommendedFor}`, "good");
+      }
       if (action === "select-customer") {
         if (target.checked) state.selectedCustomerIds.add(id);
         else state.selectedCustomerIds.delete(id);
+      }
+      if (action === "change-buying-role") {
+        const nextRole = normalizeBuyingRole(target.value);
+        const customers = DB.getCustomers().map((item) => item.id === id
+          ? { ...item, buyingRole: nextRole, isBuyingRoleManuallyReviewed: true }
+          : item);
+        DB.setCustomers(customers);
+        if (state.currentCustomerId === id) {
+          const current = customers.find((item) => item.id === id);
+          if (current) fillAnalysisForm(current);
+        }
+        UI.renderCustomerList();
+        UI.toast(`Buying Role saved: ${nextRole}`, "good");
+      }
+      if (action === "change-customer-score") {
+        const nextScore = normalizeCustomerScore(target.value);
+        const customers = DB.getCustomers().map((item) => item.id === id
+          ? { ...item, customerScore: nextScore }
+          : item);
+        DB.setCustomers(customers);
+        UI.renderCustomerList();
+        UI.toast(`Customer Score saved: ${nextScore ?? "empty"}`, "good");
       }
     });
     document.addEventListener("keydown", (event) => {
@@ -2177,6 +2432,7 @@
     bindDom();
     UI.toast("Loading shared database...", "warn");
     await DB.initSharedStore();
+    purgeDeprecatedProductStatus();
     DB.getProducts();
     DB.getTemplates();
     dom.templatePurpose.innerHTML = EMAIL_PURPOSES.map((purpose) => `<option>${purpose}</option>`).join("");

@@ -109,6 +109,16 @@
                   <option>Other</option>
                 </select>
               </label>
+              <label>Buying Role / 購買角色
+                <select id="buyingRole">
+                  <option>Unknown</option>
+                  <option>Wholesaler</option>
+                  <option>Reseller - Physical</option>
+                  <option>Reseller - Online</option>
+                  <option>End User - Studio</option>
+                </select>
+                <small id="buyingRoleManualStatus">Auto detection will update this after analysis.</small>
+              </label>
               <label>Instagram
                 <input id="instagram" type="url" placeholder="https://instagram.com/...">
               </label>
@@ -206,6 +216,7 @@
               <span>{{推薦產品}}</span>
               <span>{{評分}}</span>
               <span>{{郵件目的}}</span>
+              <span>{{郵件推薦策略}}</span>
               <span>{{emailAttachments}}</span>
             </div>
             <div class="action-row">
@@ -392,17 +403,18 @@
       <input id="productId" type="hidden">
       <label>產品名稱 <input id="productName" required></label>
       <label>分類 <input id="productCategory" required></label>
-      <label>狀態
-        <select id="productStatus">
-          <option>Active</option>
-          <option>New</option>
-          <option>Phase-Out</option>
-          <option>Do Not Recommend</option>
-        </select>
-      </label>
       <label><input id="productInPool" type="checkbox"> 進入推薦池</label>
       <label><input id="productPriority" type="checkbox"> Priority</label>
       <label>Priority Number <input id="productPriorityNumber" type="number" min="1" step="1" placeholder="1"></label>
+      <label>Recommended For
+        <select id="productRecommendedFor">
+          <option>All</option>
+          <option>A</option>
+          <option>B</option>
+          <option>C</option>
+          <option>D</option>
+        </select>
+      </label>
       <label>SKU <input id="productSku" placeholder="SKU-001"></label>
       <label>Description <textarea id="productDescription" rows="3" placeholder="Short product description"></textarea></label>
       <label>Price <input id="productPrice" type="number" min="0" step="0.01" placeholder="0.00"></label>
@@ -424,6 +436,16 @@
       <label>聯絡人 <input id="dialogContactName"></label>
       <label>郵箱 <input id="dialogContactEmail" type="email"></label>
       <label>國家/城市 <input id="dialogCountry"></label>
+      <label>Customer Score <input id="dialogCustomerScore" type="number" min="1" max="100" step="1" placeholder="1-100"></label>
+      <label>Buying Role / 購買角色
+        <select id="dialogBuyingRole">
+          <option>Unknown</option>
+          <option>Wholesaler</option>
+          <option>Reseller - Physical</option>
+          <option>Reseller - Online</option>
+          <option>End User - Studio</option>
+        </select>
+      </label>
       <label>客戶類型
         <select id="dialogCustomerType">
           <option value="prospect">prospect</option>
@@ -503,6 +525,6 @@
     </form>
   </dialog>
 
-  <script src="script.js?v=20260628-config2"></script>
+  <script src="script.js?v=20260629-buying-role"></script>
 </body>
 </html>
