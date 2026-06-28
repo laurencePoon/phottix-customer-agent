@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Phottix Customer Agent</title>
-  <link rel="stylesheet" href="style.css?v=20260628-qa5">
+  <link rel="stylesheet" href="style.css?v=20260628-qa24">
 </head>
 <body>
   <div class="app-shell">
@@ -65,7 +65,8 @@
       </header>
 
       <section id="analysisPage" class="page active">
-        <div class="grid two">
+        <div class="analysis-workspace">
+          <div class="analysis-main">
           <section class="card">
             <div class="card-head">
               <h3>輸入資料</h3>
@@ -127,7 +128,9 @@
 
             <div id="staleBanner" class="banner hidden"></div>
           </section>
+          </div>
 
+          <aside class="analysis-side">
           <section class="card">
             <div class="card-head">
               <h3>郵件範本編輯器</h3>
@@ -154,7 +157,6 @@
               <button id="saveTemplateBtn" class="secondary-button" type="button">儲存範本</button>
             </div>
           </section>
-        </div>
 
         <section id="analysisResult" class="card result-card hidden">
           <div class="card-head">
@@ -216,6 +218,8 @@
             <div id="analysisHistory" class="timeline"></div>
           </div>
         </section>
+          </aside>
+        </div>
       </section>
 
       <section id="productsPage" class="page">
@@ -228,7 +232,6 @@
             <div class="action-row">
               <button id="addProductBtn" class="secondary-button" type="button">新增產品</button>
               <button id="importProductsBtn" class="ghost-button" type="button">導入產品 Excel</button>
-              <input id="productFileInput" type="file" accept=".xlsx,.xls,.csv" hidden>
             </div>
           </div>
           <div class="toolbar">
@@ -237,6 +240,14 @@
               <option value="pool">推薦池</option>
               <option value="all">完整目錄</option>
             </select>
+          </div>
+          <div class="toolbar">
+            <select id="productImportFileSelect"></select>
+            <input id="productImportIndex" type="number" min="1" placeholder="Type file number, e.g. 1">
+            <div class="excel-import-section">
+              <label>Excel 文件清單 / Excel Files</label>
+              <div id="productExcelFileList" class="excel-file-list"></div>
+            </div>
           </div>
           <div id="productTable" class="table-wrap"></div>
         </section>
@@ -251,17 +262,20 @@
             </div>
             <div class="action-row">
               <button id="addCustomerBtn" class="secondary-button" type="button">新增客戶</button>
-              <button id="importCustomersBtn" class="secondary-button" type="button">直接導入桌面客戶 Excel</button>
+              <button id="importCustomersBtn" class="secondary-button" type="button">刷新導入文件</button>
               <button id="importUpdateBtn" class="ghost-button" type="button">匯入更新 Excel</button>
               <button id="exportCustomersBtn" class="primary-button" type="button">導出決策表</button>
-              <input id="customerFileInput" type="file" accept=".xlsx,.xls,.csv" hidden>
-              <input id="updateFileInput" type="file" accept=".xlsx,.xls,.csv" hidden>
             </div>
           </div>
 
           <div class="toolbar">
-            <input id="customerPathInput" type="text" value="D:\Desktop\Phottix  clients 100.xlsx" placeholder="Paste local Excel path, e.g. D:\Desktop\Phottix  clients 100.xlsx">
-            <button id="importCustomersPathBtn" class="secondary-button" type="button">導入這個本機 Excel / Import This Local Excel</button>
+            <select id="customerImportFileSelect"></select>
+            <input id="customerImportIndex" type="number" min="1" placeholder="Type file number, e.g. 1">
+            <button id="importCustomersConfigBtn" class="secondary-button" type="button">導入選中文件 / Import Selected File</button>
+            <div class="excel-import-section">
+              <label>Excel 文件清單 / Excel Files</label>
+              <div id="excelFileList" class="excel-file-list"></div>
+            </div>
           </div>
 
           <div class="toolbar">
@@ -425,6 +439,6 @@
     </form>
   </dialog>
 
-  <script src="script.js?v=20260628-qa6"></script>
+  <script src="script.js?v=20260628-config2"></script>
 </body>
 </html>

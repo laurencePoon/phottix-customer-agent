@@ -583,65 +583,64 @@
   };
 
   const ExcelHandler = {
-    async parseFile(file) {
-      const formData = new FormData();
-      formData.append("file", file);
-      const response = await fetch(`${API_BASE}/api/parse-excel`, { method: "POST", body: formData });
+    async listImportFiles() {
+      const response = await fetch(`${API_BASE}/list-excel`);
       const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || "Excel parse failed.");
-      return payload.rows || [];
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to list import files.");
+      return payload;
     },
-    async parsePath(filePath) {
-      const response = await fetch(`${API_BASE}/api/parse-excel-path`, {
+    async parseConfigFile(filename) {
+      const response = await fetch(`${API_BASE}/api/parse-excel-config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: filePath })
+        body: JSON.stringify({ fileName: filename })
       });
       const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || "Excel path parse failed.");
-      return payload.rows || [];
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Excel config import failed.");
+      return payload.data || payload.rows || [];
+    },
+    selectedImportFilename(selectEl = dom.customerImportFileSelect, indexEl = dom.customerImportIndex) {
+      const files = Array.from(selectEl.options).map((option) => option.value).filter(Boolean);
+      const index = Number(indexEl.value || selectEl.selectedIndex + 1);
+      if (!Number.isInteger(index) || index < 1 || index > files.length) {
+        throw new Error(`Please enter a file number from 1 to ${files.length || 0}.`);
+      }
+      return files[index - 1];
     },
     importCustomerRows(rows) {
       DB.backup("before_customer_import");
       const customers = DB.getCustomers();
       let added = 0;
-      let merged = 0;
       let skipped = 0;
-      let duplicateMode = "";
+      let forceUpdated = 0;
       for (const row of rows) {
         const incoming = normalizeImportedCustomer(row);
+        incoming._normalizedDomain = importedRowDomain(row) || normalizeDomain(incoming.website);
         if (!incoming.companyName && !incoming.website && !incoming.contactEmail) continue;
         const index = customers.findIndex((item) => isDuplicateCustomer(item, incoming));
         if (index >= 0) {
-          if (!duplicateMode) {
-            duplicateMode = confirm("Duplicate customers found. Click OK to merge all duplicates, or Cancel to skip all duplicates.") ? "merge" : "skip";
-          }
-          if (duplicateMode === "merge") {
-            customers[index] = { ...customers[index], ...removeEmpty(incoming), id: customers[index].id };
-            merged += 1;
+          if (isForceUpdateRow(row)) {
+            customers[index] = { ...customers[index], ...removeEmpty(stripTransientCustomerFields(incoming)), id: customers[index].id };
+            forceUpdated += 1;
           } else {
             skipped += 1;
           }
         } else {
-          customers.push(incoming);
+          customers.push(stripTransientCustomerFields(incoming));
           added += 1;
         }
       }
       DB.setCustomers(customers);
       UI.refreshAll();
-      UI.toast(`Imported customers. Added: ${added}. Merged: ${merged}. Skipped: ${skipped}.`, "good");
+      UI.toast(`新增：${added} 筆，跳過：${skipped} 筆（重複客戶），強制更新：${forceUpdated} 筆。`, "good");
     },
-    async importCustomers(file) {
-      this.importCustomerRows(await this.parseFile(file));
+    async importCustomersFromConfig(filename) {
+      const cleanName = normalizeText(filename || this.selectedImportFilename()).replace(/^["']|["']$/g, "");
+      if (!cleanName) throw new Error("Please type or select an Excel filename first.");
+      this.importCustomerRows(await this.parseConfigFile(cleanName));
     },
-    async importCustomersFromPath(filePath) {
-      const cleanPath = normalizeText(filePath).replace(/^["']|["']$/g, "");
-      if (!cleanPath) throw new Error("Please paste a local Excel path first.");
-      this.importCustomerRows(await this.parsePath(cleanPath));
-    },
-    async importProducts(file) {
+    importProductRows(rows) {
       DB.backup("before_product_import");
-      const rows = await this.parseFile(file);
       const products = DB.getProducts();
       let added = 0;
       let overwritten = 0;
@@ -666,6 +665,11 @@
       DB.setProducts(products);
       UI.renderProductList();
       UI.toast(`Imported products. Added: ${added}. Overwritten: ${overwritten}. Skipped: ${skipped}.`, "good");
+    },
+    async importProductsFromConfig(filename) {
+      const cleanName = normalizeText(filename || this.selectedImportFilename(dom.productImportFileSelect, dom.productImportIndex)).replace(/^["']|["']$/g, "");
+      if (!cleanName) throw new Error("Please type or select an Excel filename first.");
+      this.importProductRows(await this.parseConfigFile(cleanName));
     },
     async exportCustomers() {
       const customers = DB.getCustomers().map((customer) => ({
@@ -701,20 +705,25 @@
       downloadBlob(await response.blob(), `phottix_decision_table_${Date.now()}.xlsx`);
       UI.toast("Excel exported.", "good");
     },
-    async importUpdate(file) {
+    async importUpdateRows(rows) {
       DB.backup("before_excel_update_import");
-      const rows = await this.parseFile(file);
       const customers = DB.getCustomers();
       let updated = 0;
       let added = 0;
+      let skipped = 0;
       for (const row of rows) {
         const normalized = normalizeKeys(row);
         const id = normalized.id || "";
         const incoming = normalizeImportedCustomer(row);
+        incoming._normalizedDomain = importedRowDomain(row) || normalizeDomain(incoming.website);
         const index = customers.findIndex((item) => (id && item.id === id) || isDuplicateCustomer(item, incoming));
         if (index < 0) {
-          customers.push(incoming);
+          customers.push(stripTransientCustomerFields(incoming));
           added += 1;
+          continue;
+        }
+        if (!isForceUpdateRow(row)) {
+          skipped += 1;
           continue;
         }
         customers[index] = {
@@ -728,7 +737,12 @@
       }
       DB.setCustomers(customers);
       UI.refreshAll();
-      UI.toast(`Imported update. Updated ${updated}. Added ${added}.`, updated || added ? "good" : "warn");
+      UI.toast(`Imported update. Updated ${updated}. Added ${added}. Skipped ${skipped}.`, updated || added ? "good" : "warn");
+    },
+    async importUpdateFromConfig(filename) {
+      const cleanName = normalizeText(filename || this.selectedImportFilename()).replace(/^["']|["']$/g, "");
+      if (!cleanName) throw new Error("Please type or select an Excel filename first.");
+      this.importUpdateRows(await this.parseConfigFile(cleanName));
     }
   };
 
@@ -1043,15 +1057,48 @@
     return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== "" && value !== null && value !== undefined));
   }
 
+  function stripTransientCustomerFields(customer) {
+    const { _normalizedDomain, ...clean } = customer;
+    return clean;
+  }
+
   function customerKey(customer) {
     const company = normalizeText(customer.companyName).toLowerCase();
-    const website = normalizeText(customer.website).toLowerCase().replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, "");
+    const website = normalizeDomain(customer.website);
     return `${company}|${website}`;
   }
 
+  function normalizeDomain(value) {
+    const text = normalizeText(value).toLowerCase();
+    if (!text) return "";
+    try {
+      const url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
+      return url.hostname.replace(/^www\./i, "");
+    } catch {
+      return text.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split("/")[0];
+    }
+  }
+
+  function websiteDomain(customer) {
+    return customer._normalizedDomain || normalizeDomain(customer.website);
+  }
+
+  function importedRowDomain(row) {
+    return normalizeDomain(getAny(normalizeKeys(row), "_normalizedDomain", "_normalized_domain", "normalizedDomain"));
+  }
+
   function isDuplicateCustomer(a, b) {
-    if (a.contactEmail && b.contactEmail && a.contactEmail.toLowerCase() === b.contactEmail.toLowerCase()) return true;
-    return customerKey(a) !== "|" && customerKey(a) === customerKey(b);
+    const companyA = normalizeText(a.companyName).toLowerCase();
+    const companyB = normalizeText(b.companyName).toLowerCase();
+    if (companyA && companyB && companyA === companyB) return true;
+    const domainA = websiteDomain(a);
+    const domainB = websiteDomain(b);
+    return Boolean(domainA && domainB && domainA === domainB);
+  }
+
+  function isForceUpdateRow(row) {
+    const n = normalizeKeys(row);
+    return /^(yes|1)$/i.test(getAny(n, "Force_Update", "Force Update", "force_update"));
   }
 
   function filterCustomers(customers) {
@@ -1329,6 +1376,8 @@
       return;
     }
     let done = 0;
+    let success = 0;
+    let failed = 0;
     const all = DB.getCustomers();
     for (const customer of list) {
       dom.bulkProgressText.textContent = `Analyzing ${done + 1}/${list.length}: ${customer.companyName}`;
@@ -1337,17 +1386,19 @@
         const analyzed = await runAnalysis({ autoFetch: true, save: false, customerOverride: customer });
         const index = all.findIndex((item) => item.id === customer.id);
         if (index >= 0 && analyzed) all[index] = analyzed;
+        if (analyzed) success += 1;
       } catch (error) {
         console.error(error);
         DB.addErrorLog("批量分析", error, customer);
+        failed += 1;
       }
       done += 1;
       dom.bulkProgressBar.style.width = `${Math.round((done / list.length) * 100)}%`;
     }
     DB.setCustomers(all);
     UI.refreshAll();
-    dom.bulkProgressText.textContent = `Completed ${done}/${list.length}.`;
-    UI.toast(`Bulk analysis completed: ${done}`, "good");
+    dom.bulkProgressText.textContent = `Completed ${done}/${list.length}. Success: ${success}. Failed: ${failed}.`;
+    UI.toast(`Bulk analysis completed. Success: ${success}. Failed: ${failed}.`, failed ? "warn" : "good");
   }
 
   function selectedCustomers() {
@@ -1450,6 +1501,24 @@
     UI.toast("Backup restored.", "good");
   }
 
+    async function refreshImportFiles() {
+      const payload = await ExcelHandler.listImportFiles();
+      const files = payload.files || [];
+      const options = files.length
+        ? files.map((file, index) => `<option value="${escapeHtml(file)}">${index + 1}. ${escapeHtml(file)}</option>`).join("")
+        : `<option value="">No Excel files found</option>`;
+      const listHtml = files.length
+        ? files.map((file, index) => `<button class="excel-file-item" type="button" data-file-index="${index + 1}">${index + 1}. ${escapeHtml(file)}</button>`).join("")
+        : `<div class="empty">No Excel files found.</div>`;
+      dom.customerImportFileSelect.innerHTML = options;
+      dom.productImportFileSelect.innerHTML = options;
+      if (dom.excelFileList) dom.excelFileList.innerHTML = listHtml;
+      if (dom.productExcelFileList) dom.productExcelFileList.innerHTML = listHtml;
+      if (files.length && !dom.customerImportIndex.value) dom.customerImportIndex.value = "1";
+      if (files.length && !dom.productImportIndex.value) dom.productImportIndex.value = "1";
+      UI.toast(`Excel files: ${files.length}`, files.length ? "good" : "warn");
+  }
+
   function bindDom() {
     [
       "todayFollowCount", "todayFollowList", "toast", "pageTitle", "pageSubtitle",
@@ -1460,9 +1529,9 @@
       "templatePurpose", "templateSubject", "templateBody", "previewTemplateBtn", "saveTemplateBtn",
       "analysisResult", "manualOverrideBtn", "companyInfoTable", "ratingHero", "fourScores", "signalTags",
       "scoringBreakdown", "recommendedProducts", "actionSuggestions", "copyEmailBtn", "emailPreview",
-      "addLogBtn", "timeline", "analysisHistory", "addProductBtn", "importProductsBtn", "productFileInput", "productSearch",
+      "addLogBtn", "timeline", "analysisHistory", "addProductBtn", "importProductsBtn", "productImportFileSelect", "productImportIndex", "productSearch",
       "productView", "productTable", "addCustomerBtn", "importCustomersBtn", "importUpdateBtn",
-      "exportCustomersBtn", "customerFileInput", "updateFileInput", "customerPathInput", "importCustomersPathBtn", "customerTypeFilter", "ratingFilter",
+      "exportCustomersBtn", "customerImportFileSelect", "customerImportIndex", "importCustomersConfigBtn", "excelFileList", "productExcelFileList", "customerTypeFilter", "ratingFilter",
       "followStatusFilter", "customerSearch", "selectAllCustomers", "bulkAnalyzeSelectedBtn",
       "bulkAnalyzeAllBtn", "bulkDeleteBtn", "bulkConvertBtn", "bulkFollowStatus", "bulkNextFollowDate", "bulkProgressBar", "bulkProgressText", "customerList", "backupExportBtn",
       "backupImportBtn", "backupFileInput", "productDialog", "productForm", "productDialogTitle",
@@ -1540,9 +1609,8 @@
     dom.previewTemplateBtn.addEventListener("click", previewTemplate);
     dom.addProductBtn.addEventListener("click", () => openProductDialog());
     dom.saveProductDialogBtn.addEventListener("click", saveProductFromDialog);
-    dom.importProductsBtn.addEventListener("click", () => dom.productFileInput.click());
-    dom.productFileInput.addEventListener("change", () => dom.productFileInput.files[0] && ExcelHandler.importProducts(dom.productFileInput.files[0]).catch((error) => {
-      DB.addErrorLog("導入產品 Excel", error);
+    dom.importProductsBtn.addEventListener("click", () => ExcelHandler.importProductsFromConfig().catch((error) => {
+      DB.addErrorLog("導入 config 產品 Excel", error);
       UI.refreshAll();
       UI.toast(error.message, "bad");
     }));
@@ -1550,24 +1618,36 @@
     dom.productView.addEventListener("change", () => UI.renderProductList());
     dom.addCustomerBtn.addEventListener("click", () => openCustomerDialog());
     dom.saveCustomerDialogBtn.addEventListener("click", saveCustomerFromDialog);
-    dom.importCustomersBtn.addEventListener("click", () => ExcelHandler.importCustomersFromPath(dom.customerPathInput.value).catch((error) => {
-      DB.addErrorLog("導入本機路徑 Excel", error);
+    dom.importCustomersBtn.addEventListener("click", () => refreshImportFiles().catch((error) => {
+      DB.addErrorLog("列出導入文件", error);
       UI.refreshAll();
       UI.toast(error.message, "bad");
     }));
-    dom.importCustomersPathBtn.addEventListener("click", () => ExcelHandler.importCustomersFromPath(dom.customerPathInput.value).catch((error) => {
-      DB.addErrorLog("導入本機路徑 Excel", error);
+    dom.customerImportFileSelect.addEventListener("change", () => {
+      dom.customerImportIndex.value = String(dom.customerImportFileSelect.selectedIndex + 1);
+    });
+    dom.productImportFileSelect.addEventListener("change", () => {
+      dom.productImportIndex.value = String(dom.productImportFileSelect.selectedIndex + 1);
+    });
+    dom.excelFileList?.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-file-index]");
+      if (!button) return;
+      dom.customerImportIndex.value = button.dataset.fileIndex;
+      dom.customerImportFileSelect.selectedIndex = Number(button.dataset.fileIndex) - 1;
+    });
+    dom.productExcelFileList?.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-file-index]");
+      if (!button) return;
+      dom.productImportIndex.value = button.dataset.fileIndex;
+      dom.productImportFileSelect.selectedIndex = Number(button.dataset.fileIndex) - 1;
+    });
+    dom.importCustomersConfigBtn.addEventListener("click", () => ExcelHandler.importCustomersFromConfig().catch((error) => {
+      DB.addErrorLog("導入 config Excel", error);
       UI.refreshAll();
       UI.toast(error.message, "bad");
     }));
-    dom.importUpdateBtn.addEventListener("click", () => dom.updateFileInput.click());
-    dom.customerFileInput.addEventListener("change", () => dom.customerFileInput.files[0] && ExcelHandler.importCustomers(dom.customerFileInput.files[0]).catch((error) => {
-      DB.addErrorLog("導入客戶 Excel", error);
-      UI.refreshAll();
-      UI.toast(error.message, "bad");
-    }));
-    dom.updateFileInput.addEventListener("change", () => dom.updateFileInput.files[0] && ExcelHandler.importUpdate(dom.updateFileInput.files[0]).catch((error) => {
-      DB.addErrorLog("匯入更新 Excel", error);
+    dom.importUpdateBtn.addEventListener("click", () => ExcelHandler.importUpdateFromConfig().catch((error) => {
+      DB.addErrorLog("匯入 config 更新 Excel", error);
       UI.refreshAll();
       UI.toast(error.message, "bad");
     }));
@@ -1687,6 +1767,10 @@
     dom.templatePurpose.innerHTML = EMAIL_PURPOSES.map((purpose) => `<option>${purpose}</option>`).join("");
     bindEvents();
     UI.refreshAll();
+    refreshImportFiles().catch((error) => {
+      DB.addErrorLog("列出導入文件", error);
+      UI.renderErrorLogs();
+    });
     UI.showPage("analysisPage");
     UI.toast("Ready", "");
   }
