@@ -2,6 +2,8 @@ require("dotenv").config({ quiet: true });
 const express = require("express");
 const axios = require("axios");
 const nodemailer = require("nodemailer");
+const Imap = require("imap");
+const { simpleParser } = require("mailparser");
 const XLSX = require("xlsx");
 const path = require("path");
 const fs = require("fs");
@@ -184,6 +186,170 @@ function writeSharedSnapshot(data) {
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+function normalizeCustomerEmailContacts(items) {
+  let contacts = items;
+  if (typeof contacts === "string") {
+    try {
+      contacts = JSON.parse(contacts);
+    } catch {
+      contacts = [];
+    }
+  }
+  contacts = Array.isArray(contacts) ? contacts : [];
+  const seen = new Set();
+  return contacts.map((item) => ({
+    email: String(item?.email || item?.address || "").trim(),
+    role: ["to", "cc", "bcc"].includes(String(item?.role || "").trim().toLowerCase())
+      ? String(item.role).trim().toLowerCase()
+      : "to"
+  }))
+    .filter((item) => item.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.email))
+    .filter((item) => {
+      const key = `${item.role}:${item.email.toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function missingImapSettings() {
+  const required = ["IMAP_HOST", "IMAP_PORT", "IMAP_USER", "IMAP_PASS"];
+  return required.filter((key) => !String(process.env[key] || "").trim());
+}
+
+function normalizeAddress(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function todayPlusDays(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatImapSearchDate(date) {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${date.getUTCDate()}-${months[date.getUTCMonth()]}-${date.getUTCFullYear()}`;
+}
+
+function imapSearchAsync(imap, criteria) {
+  return new Promise((resolve, reject) => {
+    imap.search(criteria, (error, results) => error ? reject(error) : resolve(results || []));
+  });
+}
+
+function imapOpenBoxAsync(imap, boxName) {
+  return new Promise((resolve, reject) => {
+    imap.openBox(boxName, false, (error, box) => error ? reject(error) : resolve(box));
+  });
+}
+
+function fetchImapMessages(imap, uids) {
+  return new Promise((resolve, reject) => {
+    if (!uids.length) {
+      resolve([]);
+      return;
+    }
+    const messages = [];
+    const pendingParses = [];
+    const fetcher = imap.fetch(uids, { bodies: "", struct: false, markSeen: false });
+    fetcher.on("message", (message) => {
+      const chunks = [];
+      let attrs = {};
+      message.on("body", (stream) => {
+        stream.on("data", (chunk) => chunks.push(chunk));
+      });
+      message.once("attributes", (attributes) => {
+        attrs = attributes || {};
+      });
+      const parsedMessage = new Promise((resolveMessage) => {
+        message.once("end", async () => {
+          try {
+            const parsed = await simpleParser(Buffer.concat(chunks));
+            messages.push({ parsed, attrs });
+          } catch (error) {
+            messages.push({ error, attrs });
+          } finally {
+            resolveMessage();
+          }
+        });
+      });
+      pendingParses.push(parsedMessage);
+    });
+    fetcher.once("error", reject);
+    fetcher.once("end", () => {
+      Promise.all(pendingParses).then(() => resolve(messages)).catch(reject);
+    });
+  });
+}
+
+function syncInboxMessages() {
+  return new Promise((resolve, reject) => {
+    const imap = new Imap({
+      user: process.env.IMAP_USER,
+      password: process.env.IMAP_PASS,
+      host: process.env.IMAP_HOST || "imap.gmail.com",
+      port: Number(process.env.IMAP_PORT || 993),
+      tls: String(process.env.IMAP_TLS || "true").toLowerCase() !== "false"
+    });
+    let settled = false;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      try {
+        imap.end();
+      } catch {}
+      error ? reject(error) : resolve(value);
+    };
+    imap.once("ready", async () => {
+      try {
+        await imapOpenBoxAsync(imap, "INBOX");
+        const since = formatImapSearchDate(new Date(Date.now() - 7 * 86400000));
+        const unread = await imapSearchAsync(imap, ["UNSEEN", ["SINCE", since]]);
+        const fallback = unread.length ? unread : await imapSearchAsync(imap, [["SINCE", since]]);
+        const latest = fallback.slice(-50);
+        const messages = await fetchImapMessages(imap, latest);
+        finish(null, messages);
+      } catch (error) {
+        finish(error);
+      }
+    });
+    imap.once("error", (error) => finish(error));
+    imap.connect();
+  });
+}
+
+function findCustomerByReplyEmail(customers, fromEmail) {
+  const target = normalizeAddress(fromEmail);
+  if (!target) return null;
+  return customers.find((customer) => {
+    if (normalizeAddress(customer.contactEmail) === target) return true;
+    if (normalizeAddress(customer.email) === target) return true;
+    return normalizeCustomerEmailContacts(customer.emailContacts)
+      .some((contact) => normalizeAddress(contact.email) === target);
+  }) || null;
+}
+
+function applyInboxReplySignal(customers, customerId) {
+  return customers.map((customer) => {
+    if (customer.id !== customerId) return customer;
+    const signals = Array.isArray(customer.businessSignals) ? customer.businessSignals : [];
+    const hasReplySignal = signals.some((item) => {
+      if (typeof item === "string") return /email_reply|客戶已回覆|客户已回复/i.test(item);
+      return item?.type === "email_reply";
+    });
+    const currentScore = Number(customer.customerScore);
+    const nextScore = Math.min(100, (Number.isFinite(currentScore) ? currentScore : 0) + 15);
+    return {
+      ...customer,
+      businessSignals: hasReplySignal ? signals : [...signals, { type: "email_reply", value: "高潛力 - 客戶已回覆" }],
+      customerScore: nextScore,
+      nextFollowUpDate: todayPlusDays(2),
+      followUpStatus: "pending"
+    };
+  });
 }
 
 function isHostImportRequest(req) {
@@ -531,6 +697,50 @@ app.put("/api/db/key/:key", (req, res) => {
   }
 });
 
+app.get("/api/customers", (req, res) => {
+  try {
+    const { data } = readSharedStore();
+    const customers = Array.isArray(data.phottix_customers) ? data.phottix_customers : [];
+    res.json({
+      success: true,
+      customers: customers.map((customer) => ({
+        ...customer,
+        emailContacts: normalizeCustomerEmailContacts(customer.emailContacts)
+      }))
+    });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to load customers." });
+  }
+});
+
+app.put("/api/customers/:id", (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!id) {
+      res.status(400).json({ success: false, error: "Missing customer id." });
+      return;
+    }
+    const snapshot = readSharedStore();
+    const customers = Array.isArray(snapshot.data.phottix_customers) ? snapshot.data.phottix_customers : [];
+    const index = customers.findIndex((customer) => String(customer.id || "") === id);
+    if (index < 0) {
+      res.status(404).json({ success: false, error: "Customer not found." });
+      return;
+    }
+    const nextCustomer = {
+      ...customers[index],
+      ...(req.body || {}),
+      id,
+      emailContacts: normalizeCustomerEmailContacts(req.body?.emailContacts ?? customers[index].emailContacts)
+    };
+    customers[index] = nextCustomer;
+    writeSharedKey("phottix_customers", customers);
+    res.json({ success: true, customer: nextCustomer });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to update customer." });
+  }
+});
+
 app.get("/api/senders", (req, res) => {
   try {
     const rows = getSqliteDb()
@@ -683,6 +893,8 @@ app.post("/api/generate-excel", (req, res) => {
 
 app.post("/api/send-email", async (req, res) => {
   const to = String(req.body?.to || "").trim();
+  const cc = String(req.body?.cc || "").trim();
+  const bcc = String(req.body?.bcc || "").trim();
   const subject = String(req.body?.subject || "").trim();
   const html = String(req.body?.html || "").trim();
   const senderId = String(req.body?.senderId || "").trim();
@@ -727,6 +939,8 @@ app.post("/api/send-email", async (req, res) => {
     const info = await transporter.sendMail({
       from,
       to,
+      cc: cc || undefined,
+      bcc: bcc || undefined,
       subject,
       html,
       attachments
@@ -745,6 +959,90 @@ app.post("/api/send-email", async (req, res) => {
 // - 儲存至 ./uploads/ 或雲端
 // - 回傳檔案 metadata (name, size, type, path, url)
 // 目前此路由尚未實作；前端只保存附件名稱、影片連結與 hyper link metadata
+
+app.post("/api/sync-inbox", async (req, res) => {
+  const missing = missingImapSettings();
+  if (missing.includes("IMAP_PASS")) {
+    res.status(503).json({ success: false, error: "IMAP 密碼未設定" });
+    return;
+  }
+  if (missing.length) {
+    res.status(503).json({ success: false, error: `IMAP 連線失敗，請檢查設定：${missing.join(", ")}` });
+    return;
+  }
+
+  try {
+    const messages = await syncInboxMessages();
+    const snapshot = readSharedStore();
+    let customers = Array.isArray(snapshot.data.phottix_customers) ? snapshot.data.phottix_customers : [];
+    const logs = snapshot.data.phottix_followup_logs && typeof snapshot.data.phottix_followup_logs === "object"
+      ? snapshot.data.phottix_followup_logs
+      : {};
+    let newReplies = 0;
+    let failed = 0;
+    const markedCustomers = new Set();
+
+    for (const item of messages) {
+      try {
+        if (item.error) throw item.error;
+        const parsed = item.parsed;
+        const fromEmail = parsed.from?.value?.[0]?.address || "";
+        const customer = findCustomerByReplyEmail(customers, fromEmail);
+        if (!customer) continue;
+
+        const messageId = String(parsed.messageId || item.attrs?.uid || `${fromEmail}-${parsed.date || ""}`).trim();
+        const duplicate = Object.values(logs).some((log) => log.messageId && String(log.messageId) === messageId);
+        if (duplicate) continue;
+
+        const text = String(parsed.text || parsed.html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+        const logId = uid("log");
+        const receivedAt = parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString();
+        logs[logId] = {
+          logId,
+          customerId: customer.id,
+          logDate: receivedAt.slice(0, 10),
+          channel: "Email",
+          type: "email_received",
+          signal: "high_potential",
+          messageId,
+          contactPerson: fromEmail,
+          subject: parsed.subject || "(No subject)",
+          summary: `客戶回信：${parsed.subject || "(No subject)"}\n${text.slice(0, 500)}`,
+          content: text.slice(0, 500),
+          response: "positive",
+          nextAction: "High-potential reply detected. Follow up within 2 days.",
+          nextFollowUpDate: todayPlusDays(2),
+          status: "pending",
+          receivedAt,
+          createdAt: new Date().toISOString()
+        };
+        customers = applyInboxReplySignal(customers, customer.id);
+        markedCustomers.add(customer.id);
+        newReplies += 1;
+      } catch (error) {
+        failed += 1;
+        console.warn(`Inbox message skipped: ${error.message}`);
+      }
+    }
+
+    writeSharedSnapshot({
+      ...snapshot.data,
+      phottix_customers: customers,
+      phottix_followup_logs: logs
+    });
+
+    res.json({
+      success: true,
+      processed: messages.length,
+      newReplies,
+      markedCustomers: markedCustomers.size,
+      failed
+    });
+  } catch (error) {
+    console.error(`IMAP sync failed: ${error.message}`);
+    res.status(503).json({ success: false, error: "IMAP 連線失敗，請檢查設定", details: error.message });
+  }
+});
 
 app.use((req, res) => {
   res.status(404).send("Not Found");

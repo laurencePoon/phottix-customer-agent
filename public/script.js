@@ -147,6 +147,7 @@
     productView: "pool",
     emailAttachments: [],
     buyingRoleManualDirty: false,
+    emailContactsDraft: [],
     senders: [],
     isHostAdmin: false
   };
@@ -273,6 +274,38 @@
     const score = Number(text);
     if (!Number.isFinite(score)) return null;
     return Math.min(100, Math.max(1, Math.round(score)));
+  }
+
+  function splitEmailList(value) {
+    return String(value || "")
+      .split(",")
+      .map((item) => normalizeText(item))
+      .filter(Boolean);
+  }
+
+  function normalizeEmailRole(value) {
+    const role = normalizeText(value).toLowerCase();
+    return ["to", "cc", "bcc"].includes(role) ? role : "to";
+  }
+
+  function normalizeEmailContacts(items) {
+    const contacts = Array.isArray(items) ? items : [];
+    const seen = new Set();
+    return contacts.map((item) => ({
+      email: normalizeText(item?.email || item?.address || ""),
+      role: normalizeEmailRole(item?.role)
+    }))
+      .filter((item) => item.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.email))
+      .filter((item) => {
+        const key = `${item.role}:${item.email.toLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }
+
+  function contactsByRole(contacts, role) {
+    return normalizeEmailContacts(contacts).filter((item) => item.role === role).map((item) => item.email).join(", ");
   }
 
   function keywordHit(text, keyword) {
@@ -551,6 +584,7 @@
         buyingRole: normalizeBuyingRole(customer.buyingRole),
         isBuyingRoleManuallyReviewed: Boolean(customer.isBuyingRoleManuallyReviewed),
         customerScore: normalizeCustomerScore(customer.customerScore),
+        emailContacts: normalizeEmailContacts(customer.emailContacts),
         emailPurpose: customer.emailPurpose || "First Touch",
         attachments: customer.attachments || [],
         emailDraft: {
@@ -1389,6 +1423,7 @@
             <footer>
               <button class="mini-button" data-action="load-customer" data-id="${escapeHtml(customer.id)}">載入分析</button>
               <button class="mini-button" data-action="edit-customer" data-id="${escapeHtml(customer.id)}">編輯</button>
+              <button class="mini-button" data-action="manage-email-contacts" data-id="${escapeHtml(customer.id)}">Contacts</button>
               <button class="mini-button" data-action="add-log" data-id="${escapeHtml(customer.id)}">新增跟進</button>
               <button class="danger-button" data-action="delete-customer" data-id="${escapeHtml(customer.id)}">刪除</button>
             </footer>
@@ -1604,6 +1639,7 @@
       businessSignals: [],
       recommendedProducts: [],
       attachments: [],
+      emailContacts: [],
       emailDraft: { subject: "", body: "", emailAttachments: [] },
       followUpStatus: FOLLOW_STATUSES.includes(getAny(n, "Follow-up Status", "follow_up_status").toLowerCase()) ? getAny(n, "Follow-up Status", "follow_up_status").toLowerCase() : "open",
       nextFollowUpDate: getAny(n, "Next Follow-up Date", "next_follow_up_date"),
@@ -1723,6 +1759,7 @@
       businessSignals: existing?.businessSignals || [],
       recommendedProducts: existing?.recommendedProducts || [],
       attachments: existing?.attachments || [],
+      emailContacts: normalizeEmailContacts(existing?.emailContacts),
       emailDraft: {
         ...(existing?.emailDraft || { subject: "", body: "" }),
         emailAttachments: normalizeAttachments(state.emailAttachments.length ? state.emailAttachments : existing?.emailDraft?.emailAttachments)
@@ -1740,6 +1777,14 @@
       emailPurpose: dom.emailPurpose.value,
       createdAt: existing?.createdAt || new Date().toISOString()
     };
+  }
+
+  function fillEmailRecipientFields(customer = {}) {
+    const contacts = normalizeEmailContacts(customer.emailContacts);
+    const isExisting = normalizeCustomerType(customer.customerType) === "existing";
+    if (dom.emailTo) dom.emailTo.value = isExisting && contacts.length ? contactsByRole(contacts, "to") : "";
+    if (dom.emailCc) dom.emailCc.value = isExisting && contacts.length ? contactsByRole(contacts, "cc") : "";
+    if (dom.emailBcc) dom.emailBcc.value = isExisting && contacts.length ? contactsByRole(contacts, "bcc") : "";
   }
 
   function fillAnalysisForm(customer) {
@@ -1764,6 +1809,7 @@
     dom.manualWebsiteSummary.value = customer.manualWebsiteSummary || "";
     dom.websiteExtract.value = cleanWebsiteExtract(customer.websiteExtract || "");
     dom.emailPurpose.value = customer.emailPurpose || (customer.customerType === "existing" ? "Existing Customer Update" : "First Touch");
+    fillEmailRecipientFields(customer);
     state.emailAttachments = normalizeAttachments(customer.emailDraft?.emailAttachments || []);
     UI.renderAttachmentList();
     const stale = daysSince(customer.lastAnalyzedAt);
@@ -1954,6 +2000,7 @@
       contactEmail: normalizeText(dom.dialogContactEmail.value),
       country: normalizeText(dom.dialogCountry.value),
       customerScore: normalizeCustomerScore(dom.dialogCustomerScore.value),
+      emailContacts: normalizeEmailContacts(existing?.emailContacts),
       buyingRole: selectedBuyingRole,
       isBuyingRoleManuallyReviewed: Boolean(existing?.isBuyingRoleManuallyReviewed || buyingRoleWasChanged && selectedBuyingRole !== "Unknown"),
       customerType: dom.dialogCustomerType.value,
@@ -1962,6 +2009,71 @@
       createdAt: existing?.createdAt || new Date().toISOString()
     };
     upsertCustomer(customer);
+  }
+
+  function renderEmailContactsDialog() {
+    const contacts = normalizeEmailContacts(state.emailContactsDraft);
+    state.emailContactsDraft = contacts;
+    dom.emailContactsList.innerHTML = contacts.length
+      ? contacts.map((contact, index) => `
+        <div class="email-contact-row">
+          <input data-action="edit-email-contact-email" data-id="${index}" type="email" value="${escapeHtml(contact.email)}">
+          <select data-action="edit-email-contact-role" data-id="${index}">
+            <option value="to" ${contact.role === "to" ? "selected" : ""}>To</option>
+            <option value="cc" ${contact.role === "cc" ? "selected" : ""}>CC</option>
+            <option value="bcc" ${contact.role === "bcc" ? "selected" : ""}>BCC</option>
+          </select>
+          <button class="danger-button" data-action="remove-email-contact" data-id="${index}" type="button">Delete</button>
+        </div>
+      `).join("")
+      : `<div class="empty">No email contacts yet.</div>`;
+  }
+
+  function openEmailContactsDialog(customerId = state.currentCustomerId) {
+    const customer = DB.getCustomers().find((item) => item.id === customerId);
+    if (!customer) {
+      UI.toast("Please load or save a customer first.", "warn");
+      return;
+    }
+    dom.emailContactsCustomerId.value = customer.id;
+    state.emailContactsDraft = normalizeEmailContacts(customer.emailContacts);
+    if (!state.emailContactsDraft.length && customer.contactEmail) {
+      state.emailContactsDraft = [{ email: customer.contactEmail, role: "to" }];
+    }
+    dom.emailContactAddress.value = "";
+    dom.emailContactRole.value = "to";
+    renderEmailContactsDialog();
+    dom.emailContactsDialog.showModal();
+  }
+
+  function addEmailContactFromDialog() {
+    const email = normalizeText(dom.emailContactAddress.value);
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      UI.toast("Please enter a valid email address.", "warn");
+      return;
+    }
+    state.emailContactsDraft = normalizeEmailContacts([
+      ...state.emailContactsDraft,
+      { email, role: normalizeEmailRole(dom.emailContactRole.value) }
+    ]);
+    dom.emailContactAddress.value = "";
+    dom.emailContactRole.value = "to";
+    renderEmailContactsDialog();
+  }
+
+  function saveEmailContactsFromDialog() {
+    const customerId = dom.emailContactsCustomerId.value;
+    const contacts = normalizeEmailContacts(state.emailContactsDraft);
+    const customers = DB.getCustomers().map((item) => item.id === customerId
+      ? { ...item, emailContacts: contacts }
+      : item);
+    DB.setCustomers(customers);
+    const current = customers.find((item) => item.id === customerId);
+    if (current && state.currentCustomerId === customerId) {
+      fillEmailRecipientFields(current);
+    }
+    UI.refreshAll();
+    UI.toast("Email contacts saved.", "good");
   }
 
   function openLogDialog(customerId = state.currentCustomerId) {
@@ -2082,7 +2194,9 @@
     }
 
     const customer = DB.getCustomers().find((item) => item.id === state.currentCustomerId) || formCustomer();
-    const to = normalizeText(customer.contactEmail || dom.contactEmail.value);
+    const to = normalizeText(dom.emailTo?.value || customer.contactEmail || dom.contactEmail.value);
+    const cc = normalizeText(dom.emailCc?.value || "");
+    const bcc = normalizeText(dom.emailBcc?.value || "");
     const subject = normalizeText(dom.templateSubject.value || state.currentAnalysis?.emailDraft?.subject || "");
     const senderId = normalizeText(dom.senderSelect?.value);
     const attachments = normalizeAttachments(state.emailAttachments);
@@ -2103,6 +2217,8 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           to,
+          cc,
+          bcc,
           subject,
           senderId,
           html: textToHtml(renderEmailBody(body, attachments)),
@@ -2335,6 +2451,35 @@
     UI.renderSenderList();
   }
 
+  async function syncInboxReplies() {
+    const originalText = dom.syncInboxBtn?.textContent || "📥 同步回信";
+    if (dom.syncInboxBtn) {
+      dom.syncInboxBtn.disabled = true;
+      dom.syncInboxBtn.textContent = "同步中...";
+    }
+    try {
+      const response = await fetch(`${API_BASE}/api/sync-inbox`, { method: "POST" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Inbox sync failed.");
+      await DB.initSharedStore();
+      UI.refreshAll();
+      if (payload.newReplies > 0) {
+        UI.toast(`成功同步 ${payload.newReplies} 封新回信，${payload.markedCustomers} 位客戶已標記為高潛力`, "good");
+      } else {
+        UI.toast("目前沒有新的客戶回信", "warn");
+      }
+      if (payload.failed) {
+        DB.addErrorLog("同步回信", new Error(`Some inbox messages failed: ${payload.failed}`), payload);
+        UI.renderErrorLogs();
+      }
+    } finally {
+      if (dom.syncInboxBtn) {
+        dom.syncInboxBtn.textContent = originalText;
+        dom.syncInboxBtn.disabled = false;
+      }
+    }
+  }
+
   function clearSenderForm() {
     if (!dom.senderId) return;
     dom.senderId.value = "";
@@ -2364,13 +2509,13 @@
       "loadCustomerSelect", "companyName", "website", "contactName", "contactEmail", "country", "city", "industry",
       "buyingRole", "buyingRoleManualStatus", "instagram", "facebook", "emailPurpose", "businessNotes", "manualWebsiteSummary", "websiteExtract",
       "fetchWebsiteBtn", "runAnalysisBtn", "saveCustomerBtn", "clearAnalysisBtn", "staleBanner",
-      "templatePurpose", "templateSubject", "templateBody", "templatePreviewPane", "emailEditModeBtn", "emailPreviewModeBtn",
+      "templatePurpose", "templateSubject", "emailTo", "emailCc", "emailBcc", "manageEmailContactsBtn", "templateBody", "templatePreviewPane", "emailEditModeBtn", "emailPreviewModeBtn",
       "senderSelect", "senderStatus", "attachmentType", "attachmentName", "attachmentUrl",
       "addAttachmentBtn", "attachmentFileInput", "attachmentList", "previewTemplateBtn", "saveTemplateBtn",
       "analysisResult", "manualOverrideBtn", "companyInfoTable", "ratingHero", "fourScores", "signalTags",
       "scoringBreakdown", "recommendedProducts", "actionSuggestions", "copyEmailBtn", "sendEmailBtn", "emailPreview",
       "addLogBtn", "timeline", "analysisHistory", "addProductBtn", "importProductsBtn", "productImportFileSelect", "productImportIndex", "productSearch",
-      "productView", "productTable", "addCustomerBtn", "importCustomersBtn", "importUpdateBtn",
+      "productView", "productTable", "addCustomerBtn", "importCustomersBtn", "syncInboxBtn", "importUpdateBtn",
       "exportCustomersBtn", "customerImportFileSelect", "customerImportIndex", "importCustomersConfigBtn", "excelFileList", "productExcelFileList", "customerTypeFilter", "ratingFilter",
       "followStatusFilter", "customerSearch", "selectAllCustomers", "bulkAnalyzeSelectedBtn",
       "bulkAnalyzeAllBtn", "bulkDeleteBtn", "bulkConvertBtn", "bulkFollowStatus", "bulkNextFollowDate", "bulkProgressBar", "bulkProgressText", "customerList", "backupExportBtn",
@@ -2384,7 +2529,9 @@
       "logDialog", "logForm", "logCustomerId", "logDate", "logChannel", "logContactPerson", "logSubject",
       "logSummary", "logResponse", "logNextAction", "logNextFollowDate", "saveLogBtn",
       "sendersNavBtn", "refreshSendersBtn", "senderForm", "senderId", "senderName", "senderEmail",
-      "senderAppPassword", "saveSenderBtn", "resetSenderFormBtn", "senderList"
+      "senderAppPassword", "saveSenderBtn", "resetSenderFormBtn", "senderList",
+      "emailContactsDialog", "emailContactsForm", "emailContactsCustomerId", "emailContactsList",
+      "emailContactAddress", "emailContactRole", "addEmailContactBtn", "saveEmailContactsBtn"
     ].forEach((id) => { dom[id] = $(id); });
   }
 
@@ -2408,6 +2555,9 @@
       document.getElementById("analysisForm").reset();
       if (dom.buyingRole) dom.buyingRole.value = "Unknown";
       if (dom.buyingRoleManualStatus) dom.buyingRoleManualStatus.textContent = "Auto detection will update this after analysis.";
+      if (dom.emailTo) dom.emailTo.value = "";
+      if (dom.emailCc) dom.emailCc.value = "";
+      if (dom.emailBcc) dom.emailBcc.value = "";
       dom.analysisResult.classList.add("hidden");
       dom.sendEmailBtn.disabled = true;
       UI.toast("Form cleared.", "good");
@@ -2471,6 +2621,14 @@
       button.addEventListener("click", () => insertIntoTemplateBody(button.dataset.insert || ""));
     });
     dom.addAttachmentBtn?.addEventListener("click", addAttachmentFromEditor);
+    dom.manageEmailContactsBtn?.addEventListener("click", () => openEmailContactsDialog());
+    dom.addEmailContactBtn?.addEventListener("click", addEmailContactFromDialog);
+    dom.saveEmailContactsBtn?.addEventListener("click", saveEmailContactsFromDialog);
+    dom.emailContactAddress?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      addEmailContactFromDialog();
+    });
     dom.refreshSendersBtn?.addEventListener("click", () => refreshSenders().catch((error) => UI.toast(error.message, "bad")));
     dom.saveSenderBtn?.addEventListener("click", () => SenderApi.save().catch((error) => UI.toast(error.message, "bad")));
     dom.resetSenderFormBtn?.addEventListener("click", clearSenderForm);
@@ -2492,6 +2650,11 @@
     dom.saveCustomerDialogBtn.addEventListener("click", saveCustomerFromDialog);
     dom.importCustomersBtn.addEventListener("click", () => refreshImportFiles().catch((error) => {
       DB.addErrorLog("列出導入文件", error);
+      UI.refreshAll();
+      UI.toast(error.message, "bad");
+    }));
+    dom.syncInboxBtn?.addEventListener("click", () => syncInboxReplies().catch((error) => {
+      DB.addErrorLog("同步回信", error);
       UI.refreshAll();
       UI.toast(error.message, "bad");
     }));
@@ -2573,6 +2736,7 @@
           UI.showPage("analysisPage");
         }
       }
+      if (action === "manage-email-contacts") openEmailContactsDialog(id);
       if (action === "add-log") openLogDialog(id);
       if (action === "copy-log-email") {
         const log = DB.getLogs()[id];
@@ -2592,6 +2756,10 @@
       }
       if (action === "delete-sender" && confirm("Delete this sender?")) {
         SenderApi.remove(id).catch((error) => UI.toast(error.message, "bad"));
+      }
+      if (action === "remove-email-contact") {
+        state.emailContactsDraft = normalizeEmailContacts(state.emailContactsDraft).filter((_, index) => String(index) !== String(id));
+        renderEmailContactsDialog();
       }
     });
 
@@ -2643,6 +2811,15 @@
         DB.setCustomers(customers);
         UI.renderCustomerList();
         UI.toast(`Customer Score saved: ${nextScore ?? "empty"}`, "good");
+      }
+      if (action === "edit-email-contact-email" || action === "edit-email-contact-role") {
+        const index = Number(id);
+        const contacts = normalizeEmailContacts(state.emailContactsDraft);
+        if (!Number.isInteger(index) || !contacts[index]) return;
+        if (action === "edit-email-contact-email") contacts[index].email = normalizeText(target.value);
+        if (action === "edit-email-contact-role") contacts[index].role = normalizeEmailRole(target.value);
+        state.emailContactsDraft = normalizeEmailContacts(contacts);
+        renderEmailContactsDialog();
       }
     });
     document.addEventListener("keydown", (event) => {

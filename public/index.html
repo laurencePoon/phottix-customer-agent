@@ -210,6 +210,18 @@
             <label>郵件主題 / Subject
               <textarea id="templateSubject" rows="2" class="subject-textarea"></textarea>
             </label>
+            <div class="email-copy-fields">
+              <label>To / 收件人
+                <input id="emailTo" type="text" inputmode="email" placeholder="buyer@example.com">
+              </label>
+              <label>CC / 副本
+                <input id="emailCc" type="text" inputmode="email" placeholder="cc1@example.com, cc2@example.com">
+              </label>
+              <label>BCC / 密件副本
+                <input id="emailBcc" type="text" inputmode="email" placeholder="bcc1@example.com, bcc2@example.com">
+              </label>
+              <button id="manageEmailContactsBtn" class="ghost-button" type="button">Contacts</button>
+            </div>
             <label>正文 / Body
               <div class="rich-toolbar" aria-label="Formatting toolbar">
                 <button class="mini-button" type="button" data-insert="**粗體文字**">B</button>
@@ -424,6 +436,7 @@
 
           <div class="bulk-box">
             <label><input id="selectAllCustomers" type="checkbox"> 全選目前列表</label>
+            <button id="syncInboxBtn" class="secondary-button" type="button">📥 同步回信</button>
             <button id="bulkAnalyzeSelectedBtn" class="secondary-button" type="button">批量分析：選中客戶</button>
             <button id="bulkAnalyzeAllBtn" class="secondary-button" type="button">批量分析：全部</button>
             <button id="bulkDeleteBtn" class="ghost-button" type="button">批量刪除</button>
@@ -547,6 +560,28 @@
       <menu>
         <button value="cancel" class="ghost-button">取消</button>
         <button id="saveCustomerDialogBtn" value="default" class="primary-button">保存</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="emailContactsDialog">
+    <form method="dialog" id="emailContactsForm" class="dialog-form">
+      <h3>郵件聯絡人 / Email Contacts</h3>
+      <input id="emailContactsCustomerId" type="hidden">
+      <div id="emailContactsList" class="email-contacts-list"></div>
+      <div class="email-contact-editor">
+        <input id="emailContactAddress" type="email" placeholder="contact@example.com">
+        <select id="emailContactRole">
+          <option value="to">To</option>
+          <option value="cc">CC</option>
+          <option value="bcc">BCC</option>
+        </select>
+        <button id="addEmailContactBtn" class="secondary-button" type="button">Add</button>
+      </div>
+      <small>Existing customers can auto-fill To / CC / BCC from this list. Manual edits before sending will not overwrite it.</small>
+      <menu>
+        <button value="cancel" class="ghost-button">Cancel</button>
+        <button id="saveEmailContactsBtn" value="default" class="primary-button">Save Contacts</button>
       </menu>
     </form>
   </dialog>
