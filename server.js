@@ -65,6 +65,17 @@ function getSqliteDb() {
       updatedAt TEXT
     )
   `);
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS custom_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      subject TEXT NOT NULL,
+      body TEXT NOT NULL,
+      purpose TEXT,
+      createdAt TEXT,
+      updatedAt TEXT
+    )
+  `);
   seedDefaultSender(sqliteDb);
   return sqliteDb;
 }
@@ -104,6 +115,18 @@ function publicSender(row) {
     name: row.name,
     email: row.email,
     isActive: Boolean(row.isActive),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+function publicCustomTemplate(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    subject: row.subject,
+    body: row.body,
+    purpose: row.purpose || "custom",
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   };
@@ -840,6 +863,117 @@ app.patch("/api/senders/:id/toggle", (req, res) => {
     res.json({ success: true, sender: publicSender(sender) });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to toggle sender." });
+  }
+});
+
+app.get("/api/custom-templates", (req, res) => {
+  try {
+    const rows = getSqliteDb()
+      .prepare("SELECT id, name, subject, body, purpose, createdAt, updatedAt FROM custom_templates ORDER BY name COLLATE NOCASE")
+      .all();
+    res.json({ success: true, templates: rows.map(publicCustomTemplate) });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to load custom templates." });
+  }
+});
+
+app.post("/api/custom-templates", (req, res) => {
+  try {
+    const name = String(req.body?.name || "").trim();
+    const subject = String(req.body?.subject || "").trim();
+    const body = String(req.body?.body || "").trim();
+    const purpose = String(req.body?.purpose || "custom").trim() || "custom";
+    if (!name) {
+      res.status(400).json({ success: false, error: "Template name is required." });
+      return;
+    }
+    if (!subject || !body) {
+      res.status(400).json({ success: false, error: "Template subject and body are required." });
+      return;
+    }
+    const now = new Date().toISOString();
+    const existing = getSqliteDb().prepare("SELECT id FROM custom_templates WHERE lower(name) = lower(?)").get(name);
+    if (existing) {
+      getSqliteDb().prepare(`
+        UPDATE custom_templates
+        SET subject = ?, body = ?, purpose = ?, updatedAt = ?
+        WHERE id = ?
+      `).run(subject, body, purpose, now, existing.id);
+      const updated = getSqliteDb()
+        .prepare("SELECT id, name, subject, body, purpose, createdAt, updatedAt FROM custom_templates WHERE id = ?")
+        .get(existing.id);
+      res.json({ success: true, updated: true, template: publicCustomTemplate(updated) });
+      return;
+    }
+    const id = uid("template");
+    getSqliteDb().prepare(`
+      INSERT INTO custom_templates (id, name, subject, body, purpose, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, name, subject, body, purpose, now, now);
+    const template = getSqliteDb()
+      .prepare("SELECT id, name, subject, body, purpose, createdAt, updatedAt FROM custom_templates WHERE id = ?")
+      .get(id);
+    res.json({ success: true, updated: false, template: publicCustomTemplate(template) });
+  } catch (error) {
+    const message = String(error.message || "");
+    const duplicate = /UNIQUE constraint failed/i.test(message);
+    res.status(duplicate ? 409 : 503).json({ success: false, error: duplicate ? "Template name already exists." : message || "Failed to save custom template." });
+  }
+});
+
+app.put("/api/custom-templates/:id", (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    const existing = getSqliteDb().prepare("SELECT id FROM custom_templates WHERE id = ?").get(id);
+    if (!existing) {
+      res.status(404).json({ success: false, error: "Custom template not found." });
+      return;
+    }
+    const name = String(req.body?.name || "").trim();
+    const subject = String(req.body?.subject || "").trim();
+    const body = String(req.body?.body || "").trim();
+    const purpose = String(req.body?.purpose || "custom").trim() || "custom";
+    if (!name) {
+      res.status(400).json({ success: false, error: "Template name is required." });
+      return;
+    }
+    if (!subject || !body) {
+      res.status(400).json({ success: false, error: "Template subject and body are required." });
+      return;
+    }
+    const duplicate = getSqliteDb()
+      .prepare("SELECT id FROM custom_templates WHERE lower(name) = lower(?) AND id <> ?")
+      .get(name, id);
+    if (duplicate) {
+      res.status(409).json({ success: false, error: "Template name already exists." });
+      return;
+    }
+    getSqliteDb().prepare(`
+      UPDATE custom_templates
+      SET name = ?, subject = ?, body = ?, purpose = ?, updatedAt = ?
+      WHERE id = ?
+    `).run(name, subject, body, purpose, new Date().toISOString(), id);
+    const template = getSqliteDb()
+      .prepare("SELECT id, name, subject, body, purpose, createdAt, updatedAt FROM custom_templates WHERE id = ?")
+      .get(id);
+    res.json({ success: true, template: publicCustomTemplate(template) });
+  } catch (error) {
+    const message = String(error.message || "");
+    const duplicate = /UNIQUE constraint failed/i.test(message);
+    res.status(duplicate ? 409 : 503).json({ success: false, error: duplicate ? "Template name already exists." : message || "Failed to update custom template." });
+  }
+});
+
+app.delete("/api/custom-templates/:id", (req, res) => {
+  try {
+    const result = getSqliteDb().prepare("DELETE FROM custom_templates WHERE id = ?").run(String(req.params.id || ""));
+    if (!result.changes) {
+      res.status(404).json({ success: false, error: "Custom template not found." });
+      return;
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to delete custom template." });
   }
 });
 

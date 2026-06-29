@@ -185,17 +185,24 @@
               <div class="mail-editor-head">
                 <div>
                   <h3>郵件範本編輯器 / Email Template</h3>
-                  <p>選模板、選寄件者，再預覽成品郵件。</p>
+                  <p>先改 Subject / Body，再點右側「儲存為範本」。</p>
                 </div>
-                <div class="editor-mode-toggle" aria-label="Email editor mode">
-                  <button id="emailEditModeBtn" class="mini-button active" type="button">編輯 / Edit</button>
-                  <button id="emailPreviewModeBtn" class="mini-button" type="button">預覽 / Preview</button>
+                <div class="editor-head-actions">
+                  <div class="editor-mode-toggle" aria-label="Email editor mode">
+                    <button id="emailEditModeBtn" class="mini-button active" type="button">編輯 / Edit</button>
+                    <button id="emailPreviewModeBtn" class="mini-button" type="button">預覽 / Preview</button>
+                  </div>
+                  <button id="saveTemplateTopBtn" class="secondary-button template-save-top" type="button">💾 儲存為範本</button>
+                  <button id="deleteTemplateTopBtn" class="ghost-button hidden" type="button">🗑️ 刪除</button>
                 </div>
               </div>
               <div class="template-toolbar">
-                <label>模板預設 / Template
-                  <select id="templatePurpose"></select>
-                </label>
+                <div class="template-picker">
+                  <label>模板預設 / Template
+                    <select id="templatePurpose"></select>
+                  </label>
+                  <button id="newBlankTemplateBtn" class="ghost-button" type="button">📄 新增範本</button>
+                </div>
                 <div class="sender-selector">
                   <span class="sender-avatar" aria-hidden="true">P</span>
                   <label>寄件者 / Sender
@@ -207,8 +214,9 @@
                 </div>
               </div>
             </div>
-            <label>郵件主題 / Subject
+            <label class="template-edit-field">① 編輯郵件主題 / Edit Subject
               <textarea id="templateSubject" rows="2" class="subject-textarea"></textarea>
+              <small class="template-help">在這裡修改要保存到自訂範本的 Subject。</small>
             </label>
             <div class="email-copy-fields">
               <label>To / 收件人
@@ -222,7 +230,7 @@
               </label>
               <button id="manageEmailContactsBtn" class="ghost-button" type="button">Contacts</button>
             </div>
-            <label>正文 / Body
+            <label class="template-edit-field">② 編輯郵件正文 / Edit Body
               <div class="rich-toolbar" aria-label="Formatting toolbar">
                 <button class="mini-button" type="button" data-insert="**粗體文字**">B</button>
                 <button class="mini-button" type="button" data-insert="- ">• List</button>
@@ -231,6 +239,7 @@
               </div>
               <textarea id="templateBody" rows="10"></textarea>
               <div id="templatePreviewPane" class="template-preview-pane hidden"></div>
+              <small class="template-help">在這裡修改郵件內容，可保留 {{公司名}}、{{聯絡人}}、{{推薦產品}} 等變數。</small>
             </label>
             <!-- TODO: 郵件附件上傳功能預留（支援：jpg/png/pdf/doc/docx/xls/xlsx） -->
             <!--
@@ -281,9 +290,11 @@
               <span>{{郵件推薦策略}}</span>
               <span>{{emailAttachments}}</span>
             </div>
-            <div class="action-row">
+            <div class="action-row template-actions">
               <button id="previewTemplateBtn" class="ghost-button" type="button">預覽範本</button>
-              <button id="saveTemplateBtn" class="secondary-button" type="button">儲存範本</button>
+              <button id="saveTemplateBtn" class="secondary-button" type="button">💾 儲存為範本</button>
+              <button id="deleteTemplateBtn" class="ghost-button hidden" type="button">🗑️ 刪除範本</button>
+              <small class="template-help">③ 修改 Subject / Body 後，點「儲存為範本」並輸入名稱，例如：報價信。</small>
             </div>
           </section>
 
@@ -582,6 +593,39 @@
       <menu>
         <button value="cancel" class="ghost-button">Cancel</button>
         <button id="saveEmailContactsBtn" value="default" class="primary-button">Save Contacts</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="customTemplateDialog">
+    <form method="dialog" id="customTemplateForm" class="dialog-form">
+      <h3>儲存自訂範本 / Save Custom Template</h3>
+      <label>範本名稱 / Template Name
+        <input id="customTemplateName" type="text" placeholder="例如：報價信 / Quotation Email" required>
+      </label>
+      <small>同名範本會更新 Subject 和 Body；預設範本不會被覆蓋。</small>
+      <menu>
+        <button value="cancel" class="ghost-button">取消</button>
+        <button id="saveCustomTemplateDialogBtn" value="default" class="primary-button">保存範本</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="blankTemplateDialog">
+    <form method="dialog" id="blankTemplateForm" class="dialog-form">
+      <h3>新增空白範本 / New Template</h3>
+      <label>範本名稱 / Template Name
+        <input id="blankTemplateName" type="text" placeholder="例如：報價信 / Quotation Email" required>
+      </label>
+      <label>主旨 / Subject
+        <textarea id="blankTemplateSubject" rows="2" placeholder="Subject..." required></textarea>
+      </label>
+      <label>內文 / Body
+        <textarea id="blankTemplateBody" rows="8" placeholder="Hi {{聯絡人}}, ..." required></textarea>
+      </label>
+      <menu>
+        <button value="cancel" class="ghost-button">取消</button>
+        <button id="saveBlankTemplateBtn" value="default" class="primary-button">保存範本</button>
       </menu>
     </form>
   </dialog>

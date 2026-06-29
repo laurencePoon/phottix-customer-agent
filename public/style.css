@@ -887,6 +887,10 @@ dialog::backdrop {
   margin: 8px 0 0;
 }
 
+#blankTemplateBody {
+  min-height: 220px;
+}
+
 .empty {
   color: var(--faint);
   padding: 12px;
@@ -1460,6 +1464,23 @@ textarea:user-invalid {
   margin-top: 10px;
 }
 
+.template-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: end;
+  min-width: 0;
+}
+
+.template-picker label,
+.template-picker select {
+  min-width: 0;
+}
+
+#newBlankTemplateBtn {
+  white-space: nowrap;
+}
+
 .editor-mode-toggle {
   display: flex;
   gap: 6px;
@@ -1467,6 +1488,19 @@ textarea:user-invalid {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
   background: #232730;
+}
+
+.editor-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.template-save-top {
+  border-color: rgba(52, 168, 124, 0.48);
+  box-shadow: 0 0 0 1px rgba(52, 168, 124, 0.14);
 }
 
 .editor-mode-toggle .active,
@@ -1504,6 +1538,32 @@ textarea:user-invalid {
 
 .subject-textarea {
   min-height: 58px;
+}
+
+.template-edit-field {
+  padding: 8px;
+  border-left: 3px solid rgba(54, 105, 208, 0.78);
+  border-radius: 6px;
+  background: rgba(54, 105, 208, 0.06);
+}
+
+.template-help {
+  color: #a9b4c3;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.template-actions {
+  align-items: center;
+}
+
+.template-actions #saveTemplateBtn {
+  border-color: rgba(52, 168, 124, 0.45);
+  box-shadow: 0 0 0 1px rgba(52, 168, 124, 0.12);
+}
+
+.template-actions .template-help {
+  flex: 1 1 180px;
 }
 
 #templateBody {

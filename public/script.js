@@ -148,6 +148,9 @@
     emailAttachments: [],
     buyingRoleManualDirty: false,
     emailContactsDraft: [],
+    customTemplates: [],
+    selectedTemplateKind: "default",
+    selectedCustomTemplateId: "",
     senders: [],
     isHostAdmin: false
   };
@@ -1181,6 +1184,52 @@
     }
   };
 
+  const CustomTemplateApi = {
+    async list() {
+      const response = await fetch(`${API_BASE}/api/custom-templates`, { cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to load custom templates.");
+      state.customTemplates = Array.isArray(payload.templates) ? payload.templates : [];
+      return state.customTemplates;
+    },
+    async save(name, templateInput = {}) {
+      const body = {
+        name: normalizeText(name),
+        subject: String(templateInput.subject ?? dom.templateSubject.value ?? "").trim(),
+        body: String(templateInput.body ?? dom.templateBody.value ?? "").trim(),
+        purpose: String(templateInput.purpose || "custom").trim() || "custom"
+      };
+      if (!body.name) throw new Error("Template name is required.");
+      if (!body.subject || !body.body) throw new Error("Template subject and body are required.");
+      const response = await fetch(`${API_BASE}/api/custom-templates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to save custom template.");
+      await this.list();
+      state.selectedTemplateKind = "custom";
+      state.selectedCustomTemplateId = payload.template?.id || "";
+      UI.renderTemplateEditor({
+        preserveContent: Boolean(templateInput.preserveCurrentEditor),
+        selectedValue: `custom:${state.selectedCustomTemplateId}`
+      });
+      UI.toast(payload.updated ? "Custom template updated." : "Custom template saved.", "good");
+      return payload.template;
+    },
+    async remove(id) {
+      const response = await fetch(`${API_BASE}/api/custom-templates/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to delete custom template.");
+      await this.list();
+      state.selectedTemplateKind = "default";
+      state.selectedCustomTemplateId = "";
+      UI.renderTemplateEditor({ selectedValue: `default:${purposeKey("First Touch")}` });
+      UI.toast("Custom template deleted.", "good");
+    }
+  };
+
   const SenderApi = {
     async list() {
       const response = await fetch(`${API_BASE}/api/senders`, { cache: "no-store" });
@@ -1492,13 +1541,39 @@
         }).join("")
         : `<div class="empty">沒有分析歷史。</div>`;
     },
-    renderTemplateEditor() {
-      const current = dom.templatePurpose.value || "First Touch";
-      dom.templatePurpose.innerHTML = EMAIL_PURPOSES.map((purpose) => `<option ${purpose === current ? "selected" : ""}>${purpose}</option>`).join("");
-      const template = DB.getTemplates()[purposeKey(current)] || DEFAULT_TEMPLATES[purposeKey(current)] || DEFAULT_TEMPLATES.first_touch;
-      dom.templateSubject.value = template.subject || "";
-      dom.templateBody.value = template.body || "";
-      state.emailAttachments = normalizeAttachments(template.emailAttachments || []);
+    renderTemplateEditor(options = {}) {
+      const previousValue = options.selectedValue || dom.templatePurpose.value || `default:${purposeKey("First Touch")}`;
+      const defaultOptions = EMAIL_PURPOSES.map((purpose) => {
+        const key = purposeKey(purpose);
+        return `<option value="default:${escapeHtml(key)}">${escapeHtml(purpose)}</option>`;
+      }).join("");
+      const customOptions = state.customTemplates.length
+        ? `<option disabled>──────── 自訂範本 / Custom Templates ────────</option>${state.customTemplates.map((template) => (
+          `<option value="custom:${escapeHtml(template.id)}">${escapeHtml(template.name)}</option>`
+        )).join("")}`
+        : `<option disabled>──────── 自訂範本 / Custom Templates ────────</option><option disabled>No custom templates yet</option>`;
+      dom.templatePurpose.innerHTML = `<option disabled>預設範本 / Default Templates</option>${defaultOptions}${customOptions}`;
+
+      const selectedOption = Array.from(dom.templatePurpose.options)
+        .find((option) => !option.disabled && option.value === previousValue)
+        || Array.from(dom.templatePurpose.options).find((option) => !option.disabled);
+      if (selectedOption) dom.templatePurpose.value = selectedOption.value;
+
+      const [kind, id] = String(dom.templatePurpose.value || "").split(":");
+      state.selectedTemplateKind = kind === "custom" ? "custom" : "default";
+      state.selectedCustomTemplateId = state.selectedTemplateKind === "custom" ? id : "";
+      const template = state.selectedTemplateKind === "custom"
+        ? state.customTemplates.find((item) => item.id === id)
+        : DB.getTemplates()[id] || DEFAULT_TEMPLATES[id] || DEFAULT_TEMPLATES.first_touch;
+
+      if (!options.preserveContent) {
+        dom.templateSubject.value = template?.subject || "";
+        dom.templateBody.value = template?.body || "";
+        state.emailAttachments = normalizeAttachments(template?.emailAttachments || []);
+      }
+      [dom.deleteTemplateBtn, dom.deleteTemplateTopBtn].forEach((button) => {
+        button?.classList.toggle("hidden", state.selectedTemplateKind !== "custom");
+      });
       this.renderAttachmentList();
       setEmailEditorMode("edit");
     },
@@ -2330,17 +2405,52 @@
     DB.setProducts(rawProducts.map((product) => DB.normalizeProduct(product)));
   }
 
-  function saveTemplate() {
-    const templates = DB.getTemplates();
-    const purpose = dom.templatePurpose.value;
-    templates[purposeKey(purpose)] = {
-      purpose,
-      subject: dom.templateSubject.value,
-      body: dom.templateBody.value,
-      emailAttachments: normalizeAttachments(state.emailAttachments)
-    };
-    DB.setTemplates(templates);
-    UI.toast("Template saved.", "good");
+  function openSaveTemplateDialog() {
+    if (!String(dom.templateSubject.value || "").trim() || !String(dom.templateBody.value || "").trim()) {
+      UI.toast("Subject and Body are required before saving a template.", "warn");
+      return;
+    }
+    const selected = state.selectedTemplateKind === "custom"
+      ? state.customTemplates.find((item) => item.id === state.selectedCustomTemplateId)
+      : null;
+    dom.customTemplateName.value = selected?.name || "";
+    dom.customTemplateDialog.showModal();
+    setTimeout(() => dom.customTemplateName.focus(), 0);
+  }
+
+  async function saveCustomTemplateFromDialog() {
+    await CustomTemplateApi.save(dom.customTemplateName.value, { preserveCurrentEditor: true });
+    dom.customTemplateDialog.close();
+  }
+
+  function openBlankTemplateDialog() {
+    dom.blankTemplateName.value = "";
+    dom.blankTemplateSubject.value = "";
+    dom.blankTemplateBody.value = "";
+    dom.blankTemplateDialog.showModal();
+    setTimeout(() => dom.blankTemplateName.focus(), 0);
+  }
+
+  async function saveBlankTemplateFromDialog() {
+    await CustomTemplateApi.save(dom.blankTemplateName.value, {
+      subject: dom.blankTemplateSubject.value,
+      body: dom.blankTemplateBody.value
+    });
+    dom.blankTemplateDialog.close();
+  }
+
+  async function deleteSelectedCustomTemplate() {
+    if (state.selectedTemplateKind !== "custom" || !state.selectedCustomTemplateId) {
+      UI.toast("Please select a custom template first.", "warn");
+      return;
+    }
+    const template = state.customTemplates.find((item) => item.id === state.selectedCustomTemplateId);
+    if (!template) {
+      UI.toast("Custom template not found.", "warn");
+      return;
+    }
+    if (!confirm(`Delete custom template "${template.name}"?`)) return;
+    await CustomTemplateApi.remove(template.id);
   }
 
   function previewTemplate() {
@@ -2509,9 +2619,9 @@
       "loadCustomerSelect", "companyName", "website", "contactName", "contactEmail", "country", "city", "industry",
       "buyingRole", "buyingRoleManualStatus", "instagram", "facebook", "emailPurpose", "businessNotes", "manualWebsiteSummary", "websiteExtract",
       "fetchWebsiteBtn", "runAnalysisBtn", "saveCustomerBtn", "clearAnalysisBtn", "staleBanner",
-      "templatePurpose", "templateSubject", "emailTo", "emailCc", "emailBcc", "manageEmailContactsBtn", "templateBody", "templatePreviewPane", "emailEditModeBtn", "emailPreviewModeBtn",
+      "templatePurpose", "newBlankTemplateBtn", "templateSubject", "emailTo", "emailCc", "emailBcc", "manageEmailContactsBtn", "templateBody", "templatePreviewPane", "emailEditModeBtn", "emailPreviewModeBtn",
       "senderSelect", "senderStatus", "attachmentType", "attachmentName", "attachmentUrl",
-      "addAttachmentBtn", "attachmentFileInput", "attachmentList", "previewTemplateBtn", "saveTemplateBtn",
+      "addAttachmentBtn", "attachmentFileInput", "attachmentList", "previewTemplateBtn", "saveTemplateBtn", "saveTemplateTopBtn", "deleteTemplateBtn", "deleteTemplateTopBtn",
       "analysisResult", "manualOverrideBtn", "companyInfoTable", "ratingHero", "fourScores", "signalTags",
       "scoringBreakdown", "recommendedProducts", "actionSuggestions", "copyEmailBtn", "sendEmailBtn", "emailPreview",
       "addLogBtn", "timeline", "analysisHistory", "addProductBtn", "importProductsBtn", "productImportFileSelect", "productImportIndex", "productSearch",
@@ -2531,7 +2641,9 @@
       "sendersNavBtn", "refreshSendersBtn", "senderForm", "senderId", "senderName", "senderEmail",
       "senderAppPassword", "saveSenderBtn", "resetSenderFormBtn", "senderList",
       "emailContactsDialog", "emailContactsForm", "emailContactsCustomerId", "emailContactsList",
-      "emailContactAddress", "emailContactRole", "addEmailContactBtn", "saveEmailContactsBtn"
+      "emailContactAddress", "emailContactRole", "addEmailContactBtn", "saveEmailContactsBtn",
+      "customTemplateDialog", "customTemplateForm", "customTemplateName", "saveCustomTemplateDialogBtn",
+      "blankTemplateDialog", "blankTemplateForm", "blankTemplateName", "blankTemplateSubject", "blankTemplateBody", "saveBlankTemplateBtn"
     ].forEach((id) => { dom[id] = $(id); });
   }
 
@@ -2613,7 +2725,24 @@
     dom.addLogBtn.addEventListener("click", () => openLogDialog());
     dom.saveLogBtn.addEventListener("click", saveLogFromDialog);
     dom.templatePurpose.addEventListener("change", () => UI.renderTemplateEditor());
-    dom.saveTemplateBtn.addEventListener("click", saveTemplate);
+    dom.newBlankTemplateBtn?.addEventListener("click", openBlankTemplateDialog);
+    dom.saveTemplateBtn.addEventListener("click", openSaveTemplateDialog);
+    dom.saveTemplateTopBtn?.addEventListener("click", openSaveTemplateDialog);
+    dom.deleteTemplateBtn?.addEventListener("click", () => deleteSelectedCustomTemplate().catch((error) => UI.toast(error.message, "bad")));
+    dom.deleteTemplateTopBtn?.addEventListener("click", () => deleteSelectedCustomTemplate().catch((error) => UI.toast(error.message, "bad")));
+    dom.saveCustomTemplateDialogBtn?.addEventListener("click", (event) => {
+      event.preventDefault();
+      saveCustomTemplateFromDialog().catch((error) => UI.toast(error.message, "bad"));
+    });
+    dom.customTemplateName?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      saveCustomTemplateFromDialog().catch((error) => UI.toast(error.message, "bad"));
+    });
+    dom.saveBlankTemplateBtn?.addEventListener("click", (event) => {
+      event.preventDefault();
+      saveBlankTemplateFromDialog().catch((error) => UI.toast(error.message, "bad"));
+    });
     dom.previewTemplateBtn.addEventListener("click", previewTemplate);
     dom.emailEditModeBtn?.addEventListener("click", () => setEmailEditorMode("edit"));
     dom.emailPreviewModeBtn?.addEventListener("click", () => setEmailEditorMode("preview"));
@@ -2860,12 +2989,15 @@
     purgeDeprecatedProductStatus();
     DB.getProducts();
     DB.getTemplates();
+    await CustomTemplateApi.list().catch((error) => {
+      DB.addErrorLog("載入自訂範本", error);
+      state.customTemplates = [];
+    });
     await refreshSenders().catch((error) => {
       DB.addErrorLog("載入寄件者", error);
       UI.renderSenderSelector();
       UI.renderSenderList();
     });
-    dom.templatePurpose.innerHTML = EMAIL_PURPOSES.map((purpose) => `<option>${purpose}</option>`).join("");
     bindEvents();
     UI.refreshAll();
     refreshImportFiles().catch((error) => {
