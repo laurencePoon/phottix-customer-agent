@@ -2369,3 +2369,209 @@ textarea {
     padding: 8px;
   }
 }
+
+/* UI TEST: button-only color differentiation.
+   Safe to remove if the test direction is rejected. */
+#analysisPage .form-actions {
+  display: grid;
+  grid-template-columns: minmax(64px, 0.8fr) minmax(118px, 1.45fr) minmax(72px, 0.85fr) minmax(64px, 0.72fr);
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+  flex-wrap: nowrap;
+}
+
+#analysisPage .form-actions button {
+  min-width: 0;
+  min-height: 36px;
+  border-radius: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease, background 0.16s ease;
+}
+
+#analysisPage .form-actions button {
+  font-size: 0;
+}
+
+#analysisPage .form-actions button::after {
+  font-size: 0.78rem;
+  line-height: 1.1;
+}
+
+#fetchWebsiteBtn::after {
+  content: "抓取 / Fetch";
+}
+
+#fetchWebsiteBtn {
+  background: rgba(54, 105, 208, 0.12);
+  border: 1px solid rgba(54, 105, 208, 0.32);
+  color: #c9d8ff;
+  font-weight: 600;
+}
+
+#runAnalysisBtn {
+  width: 100%;
+  padding: 9px 10px;
+  background: linear-gradient(135deg, #1f7d59 0%, #34a87c 100%);
+  border: 1px solid rgba(91, 232, 174, 0.4);
+  color: #ffffff;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.24);
+}
+
+#runAnalysisBtn::after {
+  content: "生成 / Generate";
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+#runAnalysisBtn:hover,
+#runAnalysisBtn:focus-visible {
+  background: linear-gradient(135deg, #238f66 0%, #3bbd8c 100%);
+  border-color: rgba(128, 255, 203, 0.74);
+  box-shadow: 0 0 0 3px rgba(52, 168, 124, 0.22), 0 0 18px rgba(52, 168, 124, 0.35);
+  transform: translateY(-1px);
+}
+
+#saveCustomerBtn {
+  background: #236e50;
+  border: 1px solid rgba(156, 232, 199, 0.22);
+  color: rgba(255, 255, 255, 0.92);
+  font-weight: 700;
+}
+
+#saveCustomerBtn::after {
+  content: "保存 / Save";
+}
+
+#saveCustomerBtn:hover,
+#saveCustomerBtn:focus-visible {
+  background: #287a59;
+  border-color: rgba(156, 232, 199, 0.44);
+  box-shadow: 0 0 0 2px rgba(35, 110, 80, 0.28);
+}
+
+#clearAnalysisBtn {
+  background: #2a2f38;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: #b5bfcc;
+  font-weight: 600;
+}
+
+#clearAnalysisBtn::after {
+  content: "清空 / Clear";
+}
+
+#clearAnalysisBtn:hover,
+#clearAnalysisBtn:focus-visible {
+  background: #333944;
+  color: #d4dbe6;
+}
+
+.editor-mode-toggle .mini-button.active,
+.editor-mode-toggle .active,
+.mini-button.active {
+  background: #3669d0;
+  border-color: rgba(136, 173, 255, 0.42);
+  color: #ffffff;
+}
+
+.form-section legend {
+  background: #3669d0;
+  color: #ffffff;
+}
+
+/* Compact analysis-result typography so right-panel tables never overflow. */
+.analysis-side .result-card {
+  font-size: 0.76rem;
+}
+
+.analysis-side .result-block h4,
+.analysis-side .result-card h3 {
+  font-size: 0.88rem;
+  line-height: 1.2;
+}
+
+.analysis-side .table-wrap {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.analysis-side table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.analysis-side th,
+.analysis-side td {
+  padding: 6px 7px;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.analysis-side th {
+  width: 36%;
+  font-weight: 700;
+}
+
+.analysis-side td {
+  width: 64%;
+}
+
+.analysis-side .tag-list span,
+.analysis-side .status-pill,
+.analysis-side .recommend-card,
+.analysis-side .timeline-item,
+.analysis-side .suggestion-list {
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.analysis-side .recommend-card,
+.analysis-side .timeline-item {
+  padding: 8px;
+}
+
+.analysis-side .rating-big strong {
+  font-size: 2.4rem;
+}
+
+.analysis-side .score-row header {
+  font-size: 0.72rem;
+}
+
+/* Topbar anti-jam: keep import note and status pill from overlapping. */
+.topbar {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  overflow: hidden;
+}
+
+.topbar > div:first-child {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.topbar .import-hint {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar #toast {
+  width: auto;
+  min-width: 118px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
