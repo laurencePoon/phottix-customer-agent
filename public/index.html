@@ -19,7 +19,7 @@
 
       <section class="today-widget">
         <div class="widget-head">
-          <span>今日待跟進</span>
+          <span><span class="widget-icon" aria-hidden="true">◷</span> 今日待跟進 / Follow-ups</span>
           <strong id="todayFollowCount">0</strong>
         </div>
         <div class="today-stats">
@@ -30,19 +30,20 @@
       </section>
 
       <section class="stats-widget">
-        <h3>統計摘要</h3>
+        <h3><span class="widget-icon" aria-hidden="true">◌</span> 統計摘要 / Summary</h3>
         <div id="statsSummary" class="stats-grid"></div>
       </section>
 
       <nav class="side-nav" aria-label="Main navigation">
-        <button class="nav-button active" data-page="analysisPage" type="button">客戶分析</button>
-        <button class="nav-button" data-page="productsPage" type="button">產品資料庫</button>
-        <button class="nav-button" data-page="customersPage" type="button">客戶池</button>
+        <button class="nav-button active" data-page="analysisPage" type="button">客戶分析 / Analysis</button>
+        <button class="nav-button" data-page="productsPage" type="button">產品資料庫 / Products</button>
+        <button class="nav-button" data-page="customersPage" type="button">客戶池 / Customers</button>
+        <button id="sendersNavBtn" class="nav-button hidden" data-page="sendersPage" type="button">寄件者管理 / Senders</button>
       </nav>
 
       <section class="error-widget">
         <div class="widget-head">
-          <span>錯誤日誌</span>
+          <span><span class="widget-icon" aria-hidden="true">!</span> 錯誤日誌 / Errors</span>
           <button id="clearErrorLogsBtn" class="mini-button" type="button">清除</button>
         </div>
         <div id="errorLogList" class="today-list"></div>
@@ -60,6 +61,7 @@
         <div>
           <h2 id="pageTitle">客戶分析 / Customer Analysis</h2>
           <p id="pageSubtitle">抓取官網、提取業務信號、評分、推薦產品並生成英文開發信。</p>
+          <div class="import-hint"><span aria-hidden="true">ⓘ</span><strong>導入提示 / Import Note:</strong> 「從客戶池載入」會讀取團隊共享客戶池資料，不會覆蓋目前輸入，直到你保存。</div>
         </div>
         <div id="toast" class="toast" role="status">Ready</div>
       </header>
@@ -68,32 +70,50 @@
         <div class="analysis-workspace">
           <div class="analysis-main">
           <section class="card">
-            <div class="card-head">
-              <h3>輸入資料</h3>
-              <select id="loadCustomerSelect">
-                <option value="">從客戶池載入 / Load from Customer Pool</option>
-              </select>
+            <div class="card-head sticky-panel-head">
+              <div>
+                <h3>輸入資料 / Customer Input</h3>
+                <p>先填客戶基礎資料，再生成分析與郵件。</p>
+              </div>
+              <div class="load-customer-wrap" title="讀取 SQLite 團隊共享客戶池資料 / Load shared customer pool data">
+                <span>客戶池 / Pool</span>
+                <select id="loadCustomerSelect">
+                  <option value="">從客戶池載入 / Load from Customer Pool</option>
+                </select>
+              </div>
             </div>
 
             <form id="analysisForm" class="form-grid">
-              <label>公司名 / Company
-                <input id="companyName" type="text" placeholder="B&H Photo Video">
-              </label>
-              <label>官網 / Website
-                <input id="website" type="url" placeholder="https://example.com">
-              </label>
-              <label>聯絡人 / Contact
-                <input id="contactName" type="text" placeholder="Daniel">
-              </label>
-              <label>郵箱 / Email
-                <input id="contactEmail" type="email" placeholder="buyer@example.com">
-              </label>
-              <label>國家/城市 / Country or City
-                <input id="country" type="text" placeholder="Germany">
-              </label>
-              <label>城市 / City
-                <input id="city" type="text" placeholder="Berlin">
-              </label>
+              <fieldset class="form-section">
+                <legend>公司資訊 / Company Info</legend>
+                <label>公司名 / Company <span class="required">*</span>
+                  <input id="companyName" type="text" placeholder="B&H Photo Video" required>
+                </label>
+                <label>官網 / Website
+                  <input id="website" type="text" inputmode="url" pattern="^(https?://)?[^\s]+\.[^\s]+.*$" placeholder="shturl.cc/PJ832">
+                  <small class="field-help">支援完整網址或短網址 / Full URL or short link accepted</small>
+                </label>
+                <label>國家/城市 / Country or Region
+                  <input id="country" type="text" placeholder="Germany">
+                </label>
+                <label>城市 / City
+                  <input id="city" type="text" placeholder="Berlin">
+                </label>
+              </fieldset>
+
+              <fieldset class="form-section">
+                <legend>聯絡資訊 / Contact Info</legend>
+                <label>聯絡人 / Contact <span class="required">*</span>
+                  <input id="contactName" type="text" placeholder="Daniel" required>
+                </label>
+                <label>郵箱 / Email <span class="required">*</span>
+                  <input id="contactEmail" type="email" placeholder="buyer@example.com" required>
+                  <small class="field-help">請輸入標準 email 格式 / Use a valid email address</small>
+                </label>
+              </fieldset>
+
+              <fieldset class="form-section">
+                <legend>業務信號 / Business Signals</legend>
               <label>行業 / Industry
                 <select id="industry">
                   <option value="">Select industry</option>
@@ -145,13 +165,14 @@
               <label class="wide">官網社媒摘錄 / Website & Social Extract
                 <textarea id="websiteExtract" rows="5" placeholder="Fetched website text or copied social media captions will appear here."></textarea>
               </label>
+              </fieldset>
             </form>
 
-            <div class="action-row">
-              <button id="fetchWebsiteBtn" class="secondary-button" type="button">抓取官網</button>
-              <button id="runAnalysisBtn" class="primary-button" type="button">執行分析</button>
-              <button id="saveCustomerBtn" class="secondary-button" type="button">保存到客戶池</button>
-              <button id="clearAnalysisBtn" class="ghost-button" type="button">清空</button>
+            <div class="action-row form-actions">
+              <button id="fetchWebsiteBtn" class="secondary-button" type="button">抓取官網 / Fetch Website</button>
+              <button id="runAnalysisBtn" class="primary-button" type="button">生成客戶分析 & 一鍵填充郵件 / Generate</button>
+              <button id="saveCustomerBtn" class="secondary-button" type="button">存入客戶池 / Save</button>
+              <button id="clearAnalysisBtn" class="ghost-button" type="button">清空 / Clear</button>
             </div>
 
             <div id="staleBanner" class="banner hidden"></div>
@@ -160,15 +181,44 @@
 
           <aside class="analysis-side">
           <section class="card">
-            <div class="card-head">
-              <h3>郵件範本編輯器</h3>
-              <select id="templatePurpose"></select>
+            <div class="mail-editor-sticky">
+              <div class="mail-editor-head">
+                <div>
+                  <h3>郵件範本編輯器 / Email Template</h3>
+                  <p>選模板、選寄件者，再預覽成品郵件。</p>
+                </div>
+                <div class="editor-mode-toggle" aria-label="Email editor mode">
+                  <button id="emailEditModeBtn" class="mini-button active" type="button">編輯 / Edit</button>
+                  <button id="emailPreviewModeBtn" class="mini-button" type="button">預覽 / Preview</button>
+                </div>
+              </div>
+              <div class="template-toolbar">
+                <label>模板預設 / Template
+                  <select id="templatePurpose"></select>
+                </label>
+                <div class="sender-selector">
+                  <span class="sender-avatar" aria-hidden="true">P</span>
+                  <label>寄件者 / Sender
+                    <select id="senderSelect">
+                      <option value="">請選擇寄件者</option>
+                    </select>
+                  </label>
+                  <span id="senderStatus">未載入寄件者</span>
+                </div>
+              </div>
             </div>
-            <label>Subject
-              <input id="templateSubject" type="text">
+            <label>郵件主題 / Subject
+              <textarea id="templateSubject" rows="2" class="subject-textarea"></textarea>
             </label>
-            <label>Body
+            <label>正文 / Body
+              <div class="rich-toolbar" aria-label="Formatting toolbar">
+                <button class="mini-button" type="button" data-insert="**粗體文字**">B</button>
+                <button class="mini-button" type="button" data-insert="- ">• List</button>
+                <button class="mini-button" type="button" data-insert="[文字](https://)">Link</button>
+                <button class="mini-button" type="button" data-insert="\n">↵</button>
+              </div>
               <textarea id="templateBody" rows="10"></textarea>
+              <div id="templatePreviewPane" class="template-preview-pane hidden"></div>
             </label>
             <!-- TODO: 郵件附件上傳功能預留（支援：jpg/png/pdf/doc/docx/xls/xlsx） -->
             <!--
@@ -392,6 +442,38 @@
           </div>
 
           <div id="customerList" class="customer-list"></div>
+        </section>
+      </section>
+
+      <section id="sendersPage" class="page">
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h3>寄件者管理 / Sender Management</h3>
+              <p>僅主機端可新增、編輯、停用或刪除 Gmail App Password 寄件者。</p>
+            </div>
+            <button id="refreshSendersBtn" class="secondary-button" type="button">刷新</button>
+          </div>
+
+          <form id="senderForm" class="sender-form">
+            <input id="senderId" type="hidden">
+            <label>名稱 / Name
+              <input id="senderName" type="text" placeholder="Laurence">
+            </label>
+            <label>Gmail / Email
+              <input id="senderEmail" type="email" placeholder="name@phottix.com">
+            </label>
+            <label>App Password
+              <input id="senderAppPassword" type="password" placeholder="16 位 Gmail App Password">
+            </label>
+            <div class="action-row">
+              <button id="saveSenderBtn" class="primary-button" type="button">保存寄件者</button>
+              <button id="resetSenderFormBtn" class="ghost-button" type="button">清空</button>
+            </div>
+            <small>App Password 會加密保存；編輯時若不填密碼，會保留原密碼。</small>
+          </form>
+
+          <div id="senderList" class="table-wrap"></div>
         </section>
       </section>
     </main>

@@ -266,11 +266,13 @@ button.today-item {
   position: relative;
   min-width: 0;
   z-index: 1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 20px;
   padding: 14px 18px 14px 16px;
   width: 100%;
   height: 100vh;
   overflow: hidden;
-  overflow-y: auto;
   box-sizing: border-box;
 }
 
@@ -280,7 +282,7 @@ button.today-item {
   gap: 16px;
   align-items: flex-start;
   flex-wrap: wrap;
-  margin-bottom: 20px;
+  margin-bottom: 0;
 }
 
 .topbar > div {
@@ -318,6 +320,12 @@ button.today-item {
 .page.active {
   display: grid;
   gap: 18px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+#analysisPage.page.active {
+  overflow: hidden;
 }
 
 .grid {
@@ -335,25 +343,29 @@ button.today-item {
   gap: 14px;
   align-items: start;
   height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .analysis-main,
 .analysis-side {
+  height: 100%;
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .analysis-side {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto;
   gap: 14px;
   height: 100%;
   min-width: 0;
-  overflow: hidden;
   align-content: start;
 }
 
 .analysis-side .card {
-  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -363,7 +375,7 @@ button.today-item {
   min-height: 0;
   min-height: 300px;
   max-height: none;
-  overflow-y: auto;
+  overflow: visible;
   padding: 12px;
   gap: 16px;
 }
@@ -771,8 +783,8 @@ td {
   overflow-wrap: anywhere;
   word-break: break-word;
   line-height: 1.7;
-  max-height: 520px;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 .timeline {
@@ -892,7 +904,7 @@ dialog::backdrop {
   }
 
   .analysis-side .result-card {
-    max-height: 600px;
+    max-height: none;
   }
 }
 
@@ -969,9 +981,9 @@ dialog::backdrop {
 
 .attachment-placeholder {
   border: 1px solid rgba(18, 28, 45, 0.1);
-  border-radius: 14px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.76);
+  border-radius: 12px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .attachment-head {
@@ -979,32 +991,52 @@ dialog::backdrop {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 
 .attachment-head label {
   font-weight: 700;
+  font-size: 0.82rem;
+  color: #ffffff;
 }
 
 .attachment-head span {
-  color: var(--muted);
-  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.7rem;
+  line-height: 1.25;
 }
 
 .attachment-grid {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 78px minmax(0, 1fr) auto;
+  gap: 6px;
 }
 
 .attachment-grid input,
 .attachment-grid select {
   min-width: 0;
+  padding: 7px 9px;
+  min-height: 34px;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  color: #ffffff;
+  background: rgba(10, 16, 24, 0.92);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
-.attachment-grid #attachmentUrl,
-.attachment-grid #addAttachmentBtn {
+.attachment-grid input::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.attachment-grid #attachmentUrl {
   grid-column: 1 / -1;
+}
+
+.attachment-grid #addAttachmentBtn {
+  padding: 7px 12px;
+  min-height: 34px;
+  border-radius: 10px;
+  font-size: 0.82rem;
 }
 
 .attachment-placeholder input[type="file"] {
@@ -1013,19 +1045,22 @@ dialog::backdrop {
 
 .attachment-list-placeholder {
   display: grid;
-  gap: 6px;
-  margin-top: 10px;
+  gap: 4px;
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.78rem;
 }
 
 .attachment-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 8px;
-  padding: 7px 9px;
+  gap: 6px;
+  padding: 5px 7px;
   border-radius: 10px;
   background: #ffffff;
   border: 1px solid rgba(18, 28, 45, 0.08);
+  font-size: 0.78rem;
 }
 
 .attachment-item span {
@@ -1039,6 +1074,50 @@ dialog::backdrop {
   color: var(--accent);
   font-weight: 700;
   text-decoration: none;
+}
+
+.sender-selector {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(18, 28, 45, 0.1);
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.sender-selector label {
+  margin: 0;
+}
+
+.sender-selector span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.sender-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.sender-form .action-row,
+.sender-form small {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 899px) {
+  .sender-selector,
+  .sender-form {
+    grid-template-columns: 1fr;
+  }
+
+  .sender-selector span {
+    white-space: normal;
+  }
 }
 
 /* TODO: 郵件附件功能啟用時取消註解 */
@@ -1069,3 +1148,1224 @@ dialog::backdrop {
   margin: 2px 0;
 }
 */
+
+/* V1.1 UI refresh: dark B2B workspace, three-column ratio, compact controls */
+:root {
+  --bg: #0f1117;
+  --panel: #1a1d24;
+  --panel-soft: #232730;
+  --panel-lift: #20242d;
+  --line: rgba(255, 255, 255, 0.1);
+  --text: #f2f5f9;
+  --muted: #a9b4c3;
+  --faint: #788596;
+  --accent: #4285f4;
+  --accent-2: #94c5ff;
+  --danger: #ff6b6b;
+  --good: #55d18b;
+  --warn: #ffc46b;
+  --radius-lg: 6px;
+  --radius-md: 6px;
+  --shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+}
+
+body {
+  background: #0f1117;
+}
+
+.app-shell {
+  grid-template-columns: clamp(190px, 15vw, 250px) minmax(0, 1fr);
+  background: #0f1117;
+}
+
+.sidebar {
+  overflow-y: auto;
+  overflow-x: hidden;
+  gap: 14px;
+  padding: 14px;
+  background: #11141b;
+  border-right-color: rgba(255, 255, 255, 0.08);
+}
+
+.main {
+  gap: 12px;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 12px;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.analysis-workspace {
+  grid-template-columns: minmax(360px, 40fr) minmax(430px, 45fr);
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar,
+.analysis-main,
+.analysis-side {
+  height: 100vh;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.analysis-main,
+.analysis-side {
+  height: 100%;
+}
+
+.analysis-side {
+  grid-template-rows: auto;
+  align-content: start;
+}
+
+.analysis-side .card,
+.analysis-side .result-card,
+.template-preview-pane,
+.email-preview {
+  max-height: none;
+  overflow: visible;
+}
+
+.today-widget,
+.stats-widget,
+.error-widget,
+.backup-box,
+.card,
+.result-block {
+  background: #1a1d24;
+  border-color: rgba(255, 255, 255, 0.09);
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.today-widget,
+.stats-widget,
+.error-widget,
+.backup-box {
+  padding: 12px;
+}
+
+.widget-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  border-radius: 6px;
+  background: #253b58;
+  color: #94c5ff;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.brand-mark {
+  border-radius: 6px;
+  background: #253b58;
+  color: #94c5ff;
+}
+
+.brand h1,
+.card-head h3,
+.mail-editor-head h3,
+.stats-widget h3,
+h4 {
+  font-weight: 600;
+}
+
+.brand p,
+.card-head p,
+.mail-editor-head p,
+.field-help,
+.import-hint {
+  font-weight: 400;
+}
+
+.topbar {
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: #1a1d24;
+}
+
+.topbar h2 {
+  font-size: clamp(1.25rem, 1.6vw, 1.8rem);
+  font-weight: 600;
+}
+
+.import-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 196, 107, 0.26);
+  border-radius: 6px;
+  background: #382e1f;
+  color: #ffc46b;
+  font-size: 0.78rem;
+}
+
+.import-hint strong {
+  font-weight: 600;
+}
+
+.toast {
+  border-radius: 6px;
+  background: #232730;
+}
+
+.nav-button,
+.primary-button,
+.secondary-button,
+.ghost-button,
+.danger-button,
+.mini-button,
+input,
+select,
+textarea,
+.status-pill,
+.tag-list span,
+.variable-list span,
+.recommend-card,
+.customer-card,
+.timeline-item,
+.excel-file-list,
+.excel-file-item,
+.bulk-box,
+.sender-selector,
+.attachment-placeholder,
+.attachment-item,
+.template-preview-pane {
+  border-radius: 6px;
+}
+
+input,
+select,
+textarea {
+  background: #232730;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #f2f5f9;
+  font-weight: 500;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(242, 245, 249, 0.45);
+}
+
+button:hover,
+.excel-file-item:hover,
+.nav-button:hover {
+  background-color: #2c313b;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible {
+  border-color: #4285f4;
+  box-shadow: 0 0 0 3px rgba(66, 133, 244, 0.22);
+  outline: none;
+}
+
+label {
+  color: #c3ccd8;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.required {
+  color: #ff6b6b;
+  font-weight: 700;
+}
+
+.field-help {
+  color: #8f9bab;
+  font-size: 0.72rem;
+}
+
+input:user-invalid,
+textarea:user-invalid {
+  border-color: rgba(255, 107, 107, 0.82);
+  box-shadow: 0 0 0 2px rgba(255, 107, 107, 0.12);
+}
+
+.sticky-panel-head,
+.mail-editor-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  padding-bottom: 10px;
+  background: #1a1d24;
+}
+
+.load-customer-wrap {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+
+.load-customer-wrap span {
+  color: #94c5ff;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.form-section {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(35, 39, 48, 0.42);
+}
+
+.form-section legend {
+  position: sticky;
+  top: 64px;
+  z-index: 5;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #253b58;
+  color: #94c5ff;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.form-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  padding: 10px 0 0;
+  background: linear-gradient(180deg, rgba(26, 29, 36, 0), #1a1d24 30%);
+}
+
+.mail-editor-head,
+.template-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.template-toolbar {
+  grid-template-columns: minmax(180px, 0.9fr) minmax(240px, 1.1fr);
+  margin-top: 10px;
+}
+
+.editor-mode-toggle {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: #232730;
+}
+
+.editor-mode-toggle .active,
+.mini-button.active {
+  background: #253b58;
+  color: #94c5ff;
+  border-color: rgba(148, 197, 255, 0.4);
+}
+
+.sender-selector {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 8px;
+  background: #232730;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.sender-selector label {
+  gap: 4px;
+}
+
+.sender-selector span {
+  color: #a9b4c3;
+}
+
+.sender-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #253b58;
+  color: #94c5ff;
+  font-weight: 700;
+}
+
+.subject-textarea {
+  min-height: 58px;
+}
+
+#templateBody {
+  min-height: clamp(260px, 38vh, 520px);
+}
+
+.rich-toolbar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.template-preview-pane {
+  padding: 12px;
+  min-height: 180px;
+  white-space: pre-wrap;
+  line-height: 1.7;
+  background: #232730;
+  border: 1px solid rgba(148, 197, 255, 0.2);
+  color: #f2f5f9;
+}
+
+.variable-list span {
+  background: #253b58;
+  color: #94c5ff;
+  border-color: rgba(148, 197, 255, 0.24);
+  font-weight: 500;
+}
+
+.variable-inline {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: #253b58;
+  color: #94c5ff;
+  font-weight: 600;
+}
+
+.attachment-placeholder {
+  background: rgba(35, 39, 48, 0.68);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.attachment-grid input,
+.attachment-grid select {
+  background: #232730;
+}
+
+.stat-card {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 6px;
+  background: #20242d;
+}
+
+.stat-card strong {
+  color: #f2f5f9;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.stat-card span {
+  color: #a9b4c3;
+  font-weight: 400;
+}
+
+.rating-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.rating-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: #232730;
+  color: #cbd5e1;
+  font-size: 0.72rem;
+}
+
+.rating-chip.nr {
+  color: #ffc46b;
+  border: 1px solid rgba(255, 196, 107, 0.28);
+}
+
+/* V1.1 compact three-scroll correction:
+   keep left / middle / right as independent scroll areas while freeing vertical space. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+.app-shell {
+  grid-template-columns: clamp(180px, 15vw, 220px) minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  height: 100vh;
+  padding: 10px;
+  gap: 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-color: rgba(148, 197, 255, 0.5) rgba(255, 255, 255, 0.05);
+}
+
+.main {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  height: 100vh;
+  padding: 8px 10px;
+  overflow: hidden;
+}
+
+.topbar {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  min-height: 0;
+  padding: 7px 10px;
+}
+
+.topbar > div:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.topbar h2 {
+  font-size: clamp(1.05rem, 1.25vw, 1.35rem);
+  line-height: 1.1;
+}
+
+.topbar p {
+  display: none;
+}
+
+.import-hint {
+  max-width: 100%;
+  margin-top: 4px;
+  padding: 4px 7px;
+  overflow: hidden;
+  color: #ffc46b;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast {
+  flex: 0 1 340px;
+  max-width: 340px;
+  padding: 5px 8px;
+  overflow: hidden;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#analysisPage.page.active {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.analysis-workspace {
+  grid-template-columns: minmax(330px, 40fr) minmax(470px, 45fr);
+  align-items: stretch;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.analysis-main,
+.analysis-side {
+  height: 100%;
+  min-height: 0;
+  padding-right: 3px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-color: rgba(148, 197, 255, 0.48) rgba(255, 255, 255, 0.04);
+  scrollbar-width: thin;
+}
+
+.analysis-main::-webkit-scrollbar,
+.analysis-side::-webkit-scrollbar,
+.sidebar::-webkit-scrollbar {
+  width: 7px;
+}
+
+.analysis-main::-webkit-scrollbar-thumb,
+.analysis-side::-webkit-scrollbar-thumb,
+.sidebar::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(148, 197, 255, 0.42);
+}
+
+.analysis-main::-webkit-scrollbar-track,
+.analysis-side::-webkit-scrollbar-track,
+.sidebar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.analysis-main .card,
+.analysis-side .card,
+.analysis-side .result-card {
+  padding: 10px;
+}
+
+.analysis-side {
+  display: block;
+}
+
+.analysis-side .card {
+  margin-bottom: 10px;
+}
+
+.card-head {
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.sticky-panel-head,
+.mail-editor-sticky {
+  padding-bottom: 6px;
+}
+
+.analysis-main .sticky-panel-head {
+  position: static;
+}
+
+.card-head h3,
+.mail-editor-head h3 {
+  font-size: 0.96rem;
+  line-height: 1.15;
+}
+
+.card-head p,
+.mail-editor-head p {
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.load-customer-wrap {
+  gap: 3px;
+}
+
+.load-customer-wrap span {
+  font-size: 0.68rem;
+}
+
+#analysisForm.form-grid,
+.form-grid {
+  gap: 8px;
+}
+
+.form-section {
+  gap: 7px;
+  padding: 8px;
+}
+
+.form-section legend {
+  position: static;
+  padding: 2px 7px;
+  font-size: 0.7rem;
+  line-height: 1.25;
+}
+
+label {
+  gap: 4px;
+  font-size: 0.78rem;
+}
+
+.field-help,
+small {
+  font-size: 0.66rem;
+  line-height: 1.25;
+}
+
+input,
+select,
+textarea {
+  padding: 6px 8px;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+textarea {
+  min-height: 68px;
+}
+
+.primary-button,
+.secondary-button,
+.ghost-button,
+.danger-button,
+.mini-button {
+  padding: 6px 9px;
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+.form-actions {
+  position: static;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 0;
+  background: transparent;
+}
+
+.mail-editor-head,
+.template-toolbar {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.mail-editor-head p {
+  display: none;
+}
+
+.template-toolbar {
+  grid-template-columns: minmax(160px, 0.95fr) minmax(220px, 1.05fr);
+  margin-top: 6px;
+}
+
+.editor-mode-toggle {
+  gap: 4px;
+  padding: 3px;
+}
+
+.editor-mode-toggle .mini-button {
+  padding: 4px 7px;
+  font-size: 0.74rem;
+}
+
+.sender-selector {
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 6px;
+  padding: 5px 6px;
+}
+
+.sender-avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 0.7rem;
+}
+
+.sender-selector label {
+  gap: 2px;
+}
+
+.sender-selector span {
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.subject-textarea {
+  min-height: 42px;
+}
+
+.rich-toolbar {
+  gap: 5px;
+  margin-bottom: 5px;
+}
+
+#templateBody {
+  min-height: clamp(360px, 52vh, 720px);
+  font-size: 0.76rem;
+  line-height: 1.38;
+}
+
+.template-preview-pane {
+  min-height: clamp(300px, 48vh, 640px);
+  padding: 10px;
+  font-size: 0.76rem;
+  line-height: 1.42;
+}
+
+.attachment-placeholder {
+  margin-top: 8px;
+  padding: 8px;
+}
+
+.attachment-head {
+  gap: 3px;
+}
+
+.attachment-head label {
+  font-size: 0.74rem;
+}
+
+.attachment-head span,
+.attachment-list-placeholder {
+  font-size: 0.68rem;
+  line-height: 1.25;
+}
+
+.attachment-grid {
+  grid-template-columns: 86px minmax(0, 1fr) minmax(0, 1.15fr) auto;
+  gap: 6px;
+}
+
+.attachment-grid input,
+.attachment-grid select {
+  min-height: 0;
+}
+
+.variable-list {
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.variable-list span {
+  padding: 3px 6px;
+  font-size: 0.68rem;
+}
+
+.analysis-side .action-row {
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.result-card {
+  gap: 10px;
+}
+
+.result-block {
+  padding: 10px;
+}
+
+.email-preview {
+  min-height: 220px;
+  padding: 10px;
+  font-size: 0.76rem;
+  line-height: 1.42;
+}
+
+@media (max-width: 899px) {
+  html,
+  body {
+    height: auto;
+    overflow: auto;
+  }
+
+  .app-shell,
+  .main,
+  .sidebar {
+    height: auto;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+  }
+
+  .toast {
+    flex-basis: 100%;
+    max-width: 100%;
+  }
+
+  .analysis-workspace {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .analysis-main,
+  .analysis-side {
+    height: auto;
+    overflow: visible;
+  }
+}
+
+/* Cleaner header: remove the double-warning-card feeling from the top bar. */
+.topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 14px;
+  row-gap: 4px;
+  padding: 8px 12px;
+}
+
+.topbar h2 {
+  letter-spacing: -0.01em;
+}
+
+.topbar .import-hint {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #93a2b7;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.topbar .import-hint span {
+  color: #ffc46b;
+}
+
+.topbar .import-hint strong {
+  color: #ffc46b;
+}
+
+.topbar #toast {
+  width: clamp(160px, 17vw, 280px);
+  max-width: 280px;
+  justify-self: end;
+  align-self: end;
+  margin-bottom: 1px;
+  padding: 5px 8px;
+  border-color: rgba(148, 197, 255, 0.14);
+  background: rgba(35, 39, 48, 0.72);
+  color: #a9b4c3;
+  font-size: 0.68rem;
+  line-height: 1.25;
+  text-align: right;
+}
+
+.topbar #toast.warn {
+  border-color: rgba(255, 196, 107, 0.2);
+  background: rgba(56, 46, 31, 0.38);
+  color: #ffc46b;
+}
+
+.topbar #toast.good {
+  border-color: rgba(85, 209, 139, 0.18);
+  background: rgba(85, 209, 139, 0.08);
+  color: #9be7bb;
+}
+
+.topbar #toast.bad {
+  border-color: rgba(255, 107, 107, 0.22);
+  background: rgba(255, 107, 107, 0.08);
+  color: #ffb4b4;
+}
+
+/* Compact sidebar typography: keep the left bar aligned with the middle form scale. */
+.sidebar {
+  font-size: 0.82rem;
+}
+
+.brand {
+  gap: 8px;
+}
+
+.brand-mark {
+  width: 30px;
+  height: 30px;
+  font-size: 1rem;
+}
+
+.brand h1 {
+  font-size: 0.86rem;
+  line-height: 1.15;
+}
+
+.brand p {
+  font-size: 0.68rem;
+  line-height: 1.25;
+}
+
+.today-widget,
+.stats-widget,
+.error-widget,
+.backup-box {
+  padding: 9px;
+}
+
+.widget-head {
+  gap: 6px;
+  align-items: center;
+}
+
+.widget-head > span,
+.stats-widget h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: #d7e1ee;
+  font-size: 0.88rem;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.widget-head strong {
+  flex: 0 0 auto;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.widget-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-right: 0;
+  font-size: 0.66rem;
+}
+
+.today-stats {
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.today-stats span {
+  display: grid;
+  place-items: center;
+  min-height: 50px;
+  padding: 8px 7px;
+  border-radius: 14px;
+  font-size: 0.76rem;
+  line-height: 1.25;
+}
+
+.today-list {
+  gap: 6px;
+  margin-top: 8px;
+  max-height: 130px;
+}
+
+.today-list .empty,
+.error-widget .empty {
+  color: #9aa8ba;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.stats-widget h3 {
+  margin-bottom: 8px;
+}
+
+.stats-grid {
+  gap: 7px;
+}
+
+.stat-card {
+  min-height: 58px;
+  padding: 7px;
+}
+
+.stat-card strong {
+  font-size: 0.86rem;
+  line-height: 1.1;
+}
+
+.stat-card span {
+  font-size: 0.68rem;
+  line-height: 1.25;
+}
+
+.rating-chip {
+  padding: 2px 5px;
+  font-size: 0.66rem;
+}
+
+.side-nav {
+  gap: 6px;
+}
+
+.nav-button,
+.backup-box .ghost-button {
+  padding: 7px 8px;
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+/* Make the email body helper buttons clear: these insert text into the email body only. */
+.rich-toolbar {
+  align-items: center;
+}
+
+.rich-toolbar::before {
+  content: "Email format";
+  color: #8f9bab;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.rich-toolbar .mini-button {
+  min-width: 0;
+  padding: 4px 7px;
+  font-size: 0;
+}
+
+.rich-toolbar .mini-button::after {
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.rich-toolbar .mini-button:nth-of-type(1)::after {
+  content: "B";
+  font-weight: 800;
+}
+
+.rich-toolbar .mini-button:nth-of-type(2)::after {
+  content: "Bullet";
+}
+
+.rich-toolbar .mini-button:nth-of-type(3)::after {
+  content: "URL";
+}
+
+.rich-toolbar .mini-button:nth-of-type(4)::after {
+  content: "Enter";
+}
+
+/* Prevent the right email panel from being clipped on narrower desktop widths. */
+.analysis-side,
+.analysis-side .card,
+.mail-editor-sticky,
+.mail-editor-head,
+.template-toolbar,
+.sender-selector,
+.attachment-placeholder,
+.attachment-grid {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.analysis-side {
+  padding-left: 2px;
+}
+
+.mail-editor-head {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.mail-editor-head .editor-mode-toggle {
+  justify-self: start;
+}
+
+.template-toolbar {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.sender-selector {
+  grid-template-columns: 22px minmax(0, 1fr);
+}
+
+.sender-selector span:not(.sender-avatar) {
+  grid-column: 1 / -1;
+  white-space: normal;
+}
+
+.sender-selector select,
+.template-toolbar select,
+.attachment-grid input,
+.attachment-grid select {
+  min-width: 0;
+}
+
+.attachment-head {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.attachment-grid {
+  grid-template-columns: minmax(92px, 0.4fr) minmax(0, 1fr);
+}
+
+.attachment-grid #attachmentUrl,
+.attachment-grid #addAttachmentBtn {
+  grid-column: 1 / -1;
+}
+
+/* Improve selected text contrast inside the dark email editor. */
+#templateBody::selection,
+#templateSubject::selection,
+.template-preview-pane::selection,
+.email-preview::selection {
+  background: rgba(66, 133, 244, 0.72);
+  color: #ffffff;
+}
+
+#templateBody::-moz-selection,
+#templateSubject::-moz-selection,
+.template-preview-pane::-moz-selection,
+.email-preview::-moz-selection {
+  background: rgba(66, 133, 244, 0.72);
+  color: #ffffff;
+}
+
+/* Final overflow guard: keep three columns visible without clipping the email editor. */
+.app-shell {
+  grid-template-columns: clamp(165px, 14vw, 205px) minmax(0, 1fr);
+}
+
+.main {
+  min-width: 0;
+}
+
+.analysis-workspace {
+  grid-template-columns: minmax(280px, 0.95fr) minmax(360px, 1.25fr);
+  width: 100%;
+  max-width: 100%;
+}
+
+.analysis-main,
+.analysis-side,
+.analysis-main .card,
+.analysis-side .card,
+.mail-editor-sticky,
+.mail-editor-sticky > *,
+#templateBody,
+#templateSubject,
+.template-preview-pane,
+.email-preview {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+#templateBody,
+#templateSubject {
+  width: 100%;
+  overflow-x: hidden;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+#templateBody {
+  font-size: 0.74rem;
+  line-height: 1.36;
+}
+
+.template-preview-pane,
+.email-preview {
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-size: 0.74rem;
+  line-height: 1.38;
+}
+
+.sender-selector select,
+.template-toolbar select {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1040px) and (min-width: 900px) {
+  .analysis-workspace {
+    grid-template-columns: minmax(255px, 0.9fr) minmax(320px, 1.15fr);
+    gap: 8px;
+  }
+
+  .analysis-main .card,
+  .analysis-side .card,
+  .analysis-side .result-card {
+    padding: 8px;
+  }
+}

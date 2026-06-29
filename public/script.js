@@ -146,7 +146,9 @@
     selectedCustomerIds: new Set(),
     productView: "pool",
     emailAttachments: [],
-    buyingRoleManualDirty: false
+    buyingRoleManualDirty: false,
+    senders: [],
+    isHostAdmin: false
   };
 
   function $(id) {
@@ -159,6 +161,59 @@
 
   function normalizeText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
+  }
+
+  function decodeWebsiteEntities(value) {
+    return String(value || "")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&quot;/gi, "\"")
+      .replace(/&#39;/gi, "'")
+      .replace(/&#x27;/gi, "'");
+  }
+
+  function cleanWebsiteExtract(value) {
+    let text = decodeWebsiteEntities(value);
+    if (!text) return "";
+    text = text
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+      .replace(/<%[\s\S]*?%>/g, " ")
+      .replace(/\{\s*%[\s\S]*?%\s*\}/g, " ")
+      .replace(/\{\{[\s\S]{0,120}?\}\}/g, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/([a-z0-9._%+-]+@[a-z0-9.-]+)\s+(com|net|org|co|us|ca|de|fr|hk|cn|jp|au|uk)\b/gi, "$1.$2")
+      .replace(/\b(account_circle|sentiment_very_satisfied|settings|person|person_add|shopping_cart|search|close)\b/gi, " ")
+      .replace(/\b(isLogged|firstname|totalItem)\b/gi, " ")
+      .replace(/\b(welcome back|view account details|sign in|register|can we help find anything)\b/gi, " ")
+      .replace(/\bHome\b/gi, " ")
+      .replace(/\s*(---|===)\s*(View)?\s*/gi, "\n")
+      .replace(/\s*[|•·]\s*/g, "\n")
+      .replace(/\s+/g, " ")
+      .replace(/\s*\b(Get in touch|Business Hours|Newsletter|Contact|Services|Galleries|Order Prints|Photo Products|Event Photos|Studio Rental|Classes|About|Shop)\b\s*/gi, "\n$1 ");
+
+    const menuOnly = /^(home|view|sign in|register|view account details|welcome back|can we help find anything|newsletter email|thank you for subscribing|oops, there was an error|please try again later)$/i;
+    const noisy = /cookie|privacy policy|terms of use|javascript|subscribe for promotions|special offers/i;
+    const seen = new Set();
+    const cleaned = [];
+
+    text.split(/\n|(?<=\.)\s+(?=[A-Z0-9(])|(?<=!)\s+|(?<=\?)\s+/)
+      .map((line) => normalizeText(line).replace(/\bView\b$/i, "").trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        line = line.replace(/\bHi\b$/i, "").replace(/\s+[,;:]+$/g, "").trim();
+        if (menuOnly.test(line) || noisy.test(line)) return;
+        if (line.length < 8 && !/@|\d{3}|\b[A-Z]{2}\b/.test(line)) return;
+        const key = line.toLowerCase().replace(/[^\w@]+/g, " ").trim();
+        if (seen.has(key)) return;
+        seen.add(key);
+        cleaned.push(line);
+      });
+
+    return cleaned.join("\n").slice(0, 8000).trim();
   }
 
   function normalizeUrl(value) {
@@ -1092,6 +1147,51 @@
     }
   };
 
+  const SenderApi = {
+    async list() {
+      const response = await fetch(`${API_BASE}/api/senders`, { cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to load senders.");
+      state.senders = Array.isArray(payload.senders) ? payload.senders : [];
+      state.isHostAdmin = Boolean(payload.hostOnly);
+      return state.senders;
+    },
+    async save() {
+      const id = normalizeText(dom.senderId.value);
+      const body = {
+        name: normalizeText(dom.senderName.value),
+        email: normalizeText(dom.senderEmail.value),
+        appPassword: normalizeText(dom.senderAppPassword.value).replace(/\s+/g, "")
+      };
+      if (!body.name || !body.email) throw new Error("Please enter sender name and email.");
+      if (!id && !body.appPassword) throw new Error("Please enter Gmail App Password.");
+      const response = await fetch(`${API_BASE}/api/senders${id ? `/${encodeURIComponent(id)}` : ""}`, {
+        method: id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to save sender.");
+      clearSenderForm();
+      await refreshSenders();
+      UI.toast("Sender saved.", "good");
+    },
+    async toggle(id) {
+      const response = await fetch(`${API_BASE}/api/senders/${encodeURIComponent(id)}/toggle`, { method: "PATCH" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to toggle sender.");
+      await refreshSenders();
+      UI.toast("Sender status updated.", "good");
+    },
+    async remove(id) {
+      const response = await fetch(`${API_BASE}/api/senders/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to delete sender.");
+      await refreshSenders();
+      UI.toast("Sender deleted.", "good");
+    }
+  };
+
   const UI = {
     toast(message, tone = "") {
       dom.toast.textContent = message;
@@ -1103,7 +1203,8 @@
       const titles = {
         analysisPage: ["客戶分析 / Customer Analysis", "抓取官網、提取業務信號、評分、推薦產品並生成英文開發信。"],
         productsPage: ["產品資料庫 / Product Database", "管理完整目錄、推薦池、Recommended For 與 Priority。"],
-        customersPage: ["客戶池 / Customer Pool", "管理 Prospect / Existing、批量分析、跟進狀態和 Excel 決策表。"]
+        customersPage: ["客戶池 / Customer Pool", "管理 Prospect / Existing、批量分析、跟進狀態和 Excel 決策表。"],
+        sendersPage: ["寄件者管理 / Sender Management", "主機端管理 Gmail App Password 寄件者。"]
       };
       dom.pageTitle.textContent = titles[pageId]?.[0] || "Phottix Customer Agent";
       dom.pageSubtitle.textContent = titles[pageId]?.[1] || "";
@@ -1113,9 +1214,57 @@
       this.renderStats();
       this.renderErrorLogs();
       this.renderLoadCustomerSelect();
+      this.renderSenderSelector();
+      this.renderSenderList();
       this.renderProductList();
       this.renderCustomerList();
       this.renderTemplateEditor();
+    },
+    renderSenderSelector() {
+      if (!dom.senderSelect) return;
+      const previous = dom.senderSelect.value;
+      const activeSenders = state.senders.filter((sender) => sender.isActive);
+      dom.senderSelect.innerHTML = `<option value="">請選擇寄件者</option>${activeSenders.map((sender) => (
+        `<option value="${escapeHtml(sender.id)}">${escapeHtml(sender.name)} &lt;${escapeHtml(sender.email)}&gt;</option>`
+      )).join("")}`;
+      if (activeSenders.some((sender) => sender.id === previous)) {
+        dom.senderSelect.value = previous;
+      } else if (activeSenders.length === 1) {
+        dom.senderSelect.value = activeSenders[0].id;
+      }
+      if (dom.senderStatus) {
+        dom.senderStatus.textContent = activeSenders.length
+          ? `可用寄件者：${activeSenders.length}`
+          : "沒有啟用的寄件者";
+      }
+    },
+    renderSenderList() {
+      if (!dom.senderList) return;
+      if (!state.isHostAdmin) {
+        dom.senderList.innerHTML = `<div class="empty">寄件者管理僅限主機端使用。請在 http://127.0.0.1:8787/ 開啟。</div>`;
+        if (dom.sendersNavBtn) dom.sendersNavBtn.classList.add("hidden");
+        return;
+      }
+      if (dom.sendersNavBtn) dom.sendersNavBtn.classList.remove("hidden");
+      dom.senderList.innerHTML = state.senders.length ? `
+        <table>
+          <thead><tr><th>名稱</th><th>Email</th><th>狀態</th><th>操作</th></tr></thead>
+          <tbody>
+            ${state.senders.map((sender) => `
+              <tr>
+                <td>${escapeHtml(sender.name)}</td>
+                <td>${escapeHtml(sender.email)}</td>
+                <td><span class="status-pill ${sender.isActive ? "positive" : "negative"}">${sender.isActive ? "啟用" : "停用"}</span></td>
+                <td>
+                  <button class="mini-button" data-action="edit-sender" data-id="${escapeHtml(sender.id)}" type="button">編輯</button>
+                  <button class="mini-button" data-action="toggle-sender" data-id="${escapeHtml(sender.id)}" type="button">${sender.isActive ? "停用" : "啟用"}</button>
+                  <button class="danger-button" data-action="delete-sender" data-id="${escapeHtml(sender.id)}" type="button">刪除</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : `<div class="empty">尚未設定寄件者。</div>`;
     },
     renderTodayFollowUps() {
       const active = DB.getCustomers().filter((item) => ["open", "pending"].includes(item.followUpStatus));
@@ -1123,34 +1272,42 @@
       const overdue = active.filter((item) => item.nextFollowUpDate && item.nextFollowUpDate < TODAY);
       const customers = [...overdue, ...dueToday];
       dom.todayFollowCount.textContent = customers.length;
-      if (dom.overdueFollowCount) dom.overdueFollowCount.textContent = `逾期 ${overdue.length}`;
-      if (dom.dueTodayFollowCount) dom.dueTodayFollowCount.textContent = `今日 ${dueToday.length}`;
+      if (dom.overdueFollowCount) dom.overdueFollowCount.textContent = `逾期 / Overdue ${overdue.length}`;
+      if (dom.dueTodayFollowCount) dom.dueTodayFollowCount.textContent = `今日 / Today ${dueToday.length}`;
       dom.todayFollowList.innerHTML = customers.length
         ? customers.slice(0, 8).map((item) => {
           const label = item.nextFollowUpDate < TODAY ? `逾期 ${Math.max(1, Math.floor((new Date(TODAY) - new Date(item.nextFollowUpDate)) / 86400000))} 天` : "今日到期";
           const dueClass = item.nextFollowUpDate < TODAY ? "overdue" : "due-today";
           return `<button class="today-item ${dueClass}" data-action="load-customer" data-id="${escapeHtml(item.id)}" type="button"><strong>${escapeHtml(item.companyName)}</strong><br>${escapeHtml(label)}</button>`;
         }).join("")
-        : `<div class="empty">今天沒有待跟進客戶。</div>`;
+        : `<div class="empty">暫無待跟進 / Import Excel or save customers to build follow-up data.</div>`;
     },
     renderStats() {
       if (!dom.statsSummary) return;
       const customers = DB.getCustomers();
       const logs = Object.values(DB.getLogs());
       const monthKey = new Date().toISOString().slice(0, 7);
-      const ratingCounts = ["A", "B", "C", "D", "NR"].map((rating) => `${rating}:${customers.filter((item) => (item.rating || "NR") === rating).length}`).join(" ");
+      const ratingCounts = ["A", "B", "C", "D", "NR"].map((rating) => ({
+        rating,
+        count: customers.filter((item) => (item.rating || "NR") === rating).length
+      }));
       const activeLogs = logs.filter((log) => ["positive", "neutral", "negative", "no_response"].includes(log.response));
       const positive = activeLogs.filter((log) => log.response === "positive").length;
       const responseRate = activeLogs.length ? Math.round((positive / activeLogs.length) * 100) : 0;
       const cards = [
-        [`${customers.filter((item) => item.customerType === "prospect").length}/${customers.filter((item) => item.customerType === "existing").length}`, "Prospect / Existing"],
-        [ratingCounts, "評級分布"],
-        [customers.filter((item) => item.nextFollowUpDate === TODAY && ["open", "pending"].includes(item.followUpStatus)).length, "今日待跟進"],
-        [customers.filter((item) => item.nextFollowUpDate && item.nextFollowUpDate < TODAY && ["open", "pending"].includes(item.followUpStatus)).length, "逾期跟進"],
-        [customers.filter((item) => String(item.createdAt || "").slice(0, 7) === monthKey).length, "本月新增"],
-        [`${responseRate}%`, "正面回應率"]
+        ["◌", `${customers.filter((item) => item.customerType === "prospect").length}/${customers.filter((item) => item.customerType === "existing").length}`, "客戶類型 / Type"],
+        ["★", ratingCounts, "評級分布 / Rating"],
+        ["◷", customers.filter((item) => item.nextFollowUpDate === TODAY && ["open", "pending"].includes(item.followUpStatus)).length, "今日待跟進 / Due Today"],
+        ["!", customers.filter((item) => item.nextFollowUpDate && item.nextFollowUpDate < TODAY && ["open", "pending"].includes(item.followUpStatus)).length, "逾期跟進 / Overdue"],
+        ["+", customers.filter((item) => String(item.createdAt || "").slice(0, 7) === monthKey).length, "本月新增 / New This Month"],
+        ["%", `${responseRate}%`, "正面回應率 / Response"]
       ];
-      dom.statsSummary.innerHTML = cards.map(([value, label]) => `<div class="stat-card"><strong>${escapeHtml(String(value))}</strong><span>${escapeHtml(label)}</span></div>`).join("");
+      dom.statsSummary.innerHTML = cards.map(([icon, value, label]) => {
+        const content = Array.isArray(value)
+          ? `<div class="rating-chip-row">${value.map((item) => `<span class="rating-chip ${item.rating.toLowerCase()}">${escapeHtml(item.rating)} ${escapeHtml(String(item.count))}</span>`).join("")}</div>`
+          : `<strong>${escapeHtml(String(value))}</strong>`;
+        return `<div class="stat-card"><span class="widget-icon" aria-hidden="true">${escapeHtml(icon)}</span>${content}<span>${escapeHtml(label)}</span></div>`;
+      }).join("");
     },
     renderErrorLogs() {
       if (!dom.errorLogList) return;
@@ -1308,6 +1465,7 @@
       dom.templateBody.value = template.body || "";
       state.emailAttachments = normalizeAttachments(template.emailAttachments || []);
       this.renderAttachmentList();
+      setEmailEditorMode("edit");
     },
     renderAttachmentList() {
       if (!dom.attachmentList) return;
@@ -1578,7 +1736,7 @@
       notes: normalizeText(dom.businessNotes.value),
       socialMedia: { instagram: normalizeUrl(dom.instagram.value), facebook: normalizeUrl(dom.facebook.value) },
       manualWebsiteSummary: normalizeText(dom.manualWebsiteSummary.value),
-      websiteExtract: normalizeText(dom.websiteExtract.value),
+      websiteExtract: cleanWebsiteExtract(dom.websiteExtract.value),
       emailPurpose: dom.emailPurpose.value,
       createdAt: existing?.createdAt || new Date().toISOString()
     };
@@ -1604,7 +1762,7 @@
     dom.facebook.value = customer.socialMedia?.facebook || "";
     dom.businessNotes.value = customer.notes || "";
     dom.manualWebsiteSummary.value = customer.manualWebsiteSummary || "";
-    dom.websiteExtract.value = customer.websiteExtract || "";
+    dom.websiteExtract.value = cleanWebsiteExtract(customer.websiteExtract || "");
     dom.emailPurpose.value = customer.emailPurpose || (customer.customerType === "existing" ? "Existing Customer Update" : "First Touch");
     state.emailAttachments = normalizeAttachments(customer.emailDraft?.emailAttachments || []);
     UI.renderAttachmentList();
@@ -1636,11 +1794,12 @@
       UI.toast(payload.error || "Website fetch failed.", "bad");
       return "";
     }
+    const content = cleanWebsiteExtract(payload.content || "") || normalizeText(payload.content || "");
     if (!urlOverride || normalizeUrl(dom.website.value) === url) {
-      dom.websiteExtract.value = payload.content || "";
+      dom.websiteExtract.value = content;
     }
-    UI.toast("Website fetched and extract filled.", "good");
-    return payload.content || "";
+    UI.toast("Website fetched and extract cleaned.", "good");
+    return content;
   }
 
   async function runAnalysis({ autoFetch = true, save = false, customerOverride = null } = {}) {
@@ -1658,6 +1817,8 @@
       });
       customer.websiteExtract = content || customer.websiteExtract;
     }
+    customer.websiteExtract = cleanWebsiteExtract(customer.websiteExtract);
+    if (!customerOverride && dom.websiteExtract) dom.websiteExtract.value = customer.websiteExtract;
     const roleEvidence = [
       customer.websiteExtract,
       customer.manualWebsiteSummary,
@@ -1697,7 +1858,7 @@
       emailDraft: { ...emailDraft, emailAttachments: normalizeAttachments(customer.emailDraft?.emailAttachments || state.emailAttachments) },
       lastAnalyzedAt: new Date().toISOString(),
       suggestedAction: suggestAction({ ...customer, ...analysis }),
-      websiteExtract: customer.websiteExtract || dom.websiteExtract.value
+      websiteExtract: customer.websiteExtract || cleanWebsiteExtract(dom.websiteExtract.value)
     };
     if (customer.manualOverride) {
       customer.rating = customer.manualOverride.rating;
@@ -1923,10 +2084,12 @@
     const customer = DB.getCustomers().find((item) => item.id === state.currentCustomerId) || formCustomer();
     const to = normalizeText(customer.contactEmail || dom.contactEmail.value);
     const subject = normalizeText(dom.templateSubject.value || state.currentAnalysis?.emailDraft?.subject || "");
+    const senderId = normalizeText(dom.senderSelect?.value);
     const attachments = normalizeAttachments(state.emailAttachments);
     const rawBody = normalizeText(dom.templateBody.value || state.currentAnalysis?.emailDraft?.body || "");
     const body = rawBody.split("{{emailAttachments}}").join(formatAttachmentText(attachments) || "No attachments or links.");
 
+    if (!senderId) throw new Error("Please select sender.");
     if (!to) throw new Error("Missing customer email.");
     if (!subject || !body) throw new Error("Missing email subject or body.");
 
@@ -1941,6 +2104,7 @@
         body: JSON.stringify({
           to,
           subject,
+          senderId,
           html: textToHtml(renderEmailBody(body, attachments)),
           attachments: []
         })
@@ -2085,6 +2249,44 @@
     UI.toast("Template preview rendered.", "good");
   }
 
+  function renderTemplatePreviewPane() {
+    if (!dom.templatePreviewPane) return;
+    const customer = formCustomer();
+    const analysis = state.currentAnalysis || { recommendedProducts: [], businessSignals: [], rating: "NR", totalScore: 0 };
+    const emailAnalysis = {
+      ...analysis,
+      emailStrategy: EmailEngine.strategy(customer, analysis),
+      emailRecommendedProducts: EmailEngine.recommendedProductsForEmail(customer, analysis)
+    };
+    const rendered = EmailEngine.renderTemplate(
+      { subject: dom.templateSubject.value, body: dom.templateBody.value },
+      EmailEngine.variables(customer, emailAnalysis)
+    );
+    const attachments = normalizeAttachments(state.emailAttachments);
+    dom.templatePreviewPane.innerHTML = escapeHtml(renderEmailText(rendered.subject, rendered.body, attachments))
+      .replace(/(\{\{[^}]+\}\})/g, `<span class="variable-inline">$1</span>`);
+  }
+
+  function setEmailEditorMode(mode) {
+    const previewMode = mode === "preview";
+    if (previewMode) renderTemplatePreviewPane();
+    dom.templatePreviewPane?.classList.toggle("hidden", !previewMode);
+    dom.templateBody?.classList.toggle("hidden", previewMode);
+    document.querySelector(".rich-toolbar")?.classList.toggle("hidden", previewMode);
+    dom.emailPreviewModeBtn?.classList.toggle("active", previewMode);
+    dom.emailEditModeBtn?.classList.toggle("active", !previewMode);
+  }
+
+  function insertIntoTemplateBody(text) {
+    const textarea = dom.templateBody;
+    if (!textarea) return;
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? textarea.value.length;
+    textarea.value = `${textarea.value.slice(0, start)}${text}${textarea.value.slice(end)}`;
+    textarea.focus();
+    textarea.selectionStart = textarea.selectionEnd = start + text.length;
+  }
+
   function exportBackup() {
     const snapshot = DB.backup("manual_export");
     const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
@@ -2127,6 +2329,34 @@
       UI.toast(`Excel files: ${files.length}`, files.length ? "good" : "warn");
   }
 
+  async function refreshSenders() {
+    await SenderApi.list();
+    UI.renderSenderSelector();
+    UI.renderSenderList();
+  }
+
+  function clearSenderForm() {
+    if (!dom.senderId) return;
+    dom.senderId.value = "";
+    dom.senderName.value = "";
+    dom.senderEmail.value = "";
+    dom.senderAppPassword.value = "";
+    dom.senderAppPassword.placeholder = "16 位 Gmail App Password";
+    if (dom.saveSenderBtn) dom.saveSenderBtn.textContent = "保存寄件者";
+  }
+
+  function editSender(id) {
+    const sender = state.senders.find((item) => item.id === id);
+    if (!sender) return;
+    dom.senderId.value = sender.id;
+    dom.senderName.value = sender.name || "";
+    dom.senderEmail.value = sender.email || "";
+    dom.senderAppPassword.value = "";
+    dom.senderAppPassword.placeholder = "留空則不更新密碼";
+    if (dom.saveSenderBtn) dom.saveSenderBtn.textContent = "更新寄件者";
+    UI.showPage("sendersPage");
+  }
+
   function bindDom() {
     [
       "todayFollowCount", "todayFollowList", "toast", "pageTitle", "pageSubtitle",
@@ -2134,7 +2364,8 @@
       "loadCustomerSelect", "companyName", "website", "contactName", "contactEmail", "country", "city", "industry",
       "buyingRole", "buyingRoleManualStatus", "instagram", "facebook", "emailPurpose", "businessNotes", "manualWebsiteSummary", "websiteExtract",
       "fetchWebsiteBtn", "runAnalysisBtn", "saveCustomerBtn", "clearAnalysisBtn", "staleBanner",
-      "templatePurpose", "templateSubject", "templateBody", "attachmentType", "attachmentName", "attachmentUrl",
+      "templatePurpose", "templateSubject", "templateBody", "templatePreviewPane", "emailEditModeBtn", "emailPreviewModeBtn",
+      "senderSelect", "senderStatus", "attachmentType", "attachmentName", "attachmentUrl",
       "addAttachmentBtn", "attachmentFileInput", "attachmentList", "previewTemplateBtn", "saveTemplateBtn",
       "analysisResult", "manualOverrideBtn", "companyInfoTable", "ratingHero", "fourScores", "signalTags",
       "scoringBreakdown", "recommendedProducts", "actionSuggestions", "copyEmailBtn", "sendEmailBtn", "emailPreview",
@@ -2151,7 +2382,9 @@
       "dialogBuyingRole", "dialogCustomerType", "dialogFollowStatus", "dialogNextFollowDate", "saveCustomerDialogBtn",
       "overrideDialog", "overrideForm", "overrideRating", "overrideReason", "saveOverrideBtn",
       "logDialog", "logForm", "logCustomerId", "logDate", "logChannel", "logContactPerson", "logSubject",
-      "logSummary", "logResponse", "logNextAction", "logNextFollowDate", "saveLogBtn"
+      "logSummary", "logResponse", "logNextAction", "logNextFollowDate", "saveLogBtn",
+      "sendersNavBtn", "refreshSendersBtn", "senderForm", "senderId", "senderName", "senderEmail",
+      "senderAppPassword", "saveSenderBtn", "resetSenderFormBtn", "senderList"
     ].forEach((id) => { dom[id] = $(id); });
   }
 
@@ -2232,7 +2465,15 @@
     dom.templatePurpose.addEventListener("change", () => UI.renderTemplateEditor());
     dom.saveTemplateBtn.addEventListener("click", saveTemplate);
     dom.previewTemplateBtn.addEventListener("click", previewTemplate);
+    dom.emailEditModeBtn?.addEventListener("click", () => setEmailEditorMode("edit"));
+    dom.emailPreviewModeBtn?.addEventListener("click", () => setEmailEditorMode("preview"));
+    document.querySelectorAll(".rich-toolbar [data-insert]").forEach((button) => {
+      button.addEventListener("click", () => insertIntoTemplateBody(button.dataset.insert || ""));
+    });
     dom.addAttachmentBtn?.addEventListener("click", addAttachmentFromEditor);
+    dom.refreshSendersBtn?.addEventListener("click", () => refreshSenders().catch((error) => UI.toast(error.message, "bad")));
+    dom.saveSenderBtn?.addEventListener("click", () => SenderApi.save().catch((error) => UI.toast(error.message, "bad")));
+    dom.resetSenderFormBtn?.addEventListener("click", clearSenderForm);
     [dom.attachmentName, dom.attachmentUrl].forEach((input) => input?.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
       event.preventDefault();
@@ -2345,6 +2586,13 @@
         UI.renderAttachmentList();
         previewTemplate();
       }
+      if (action === "edit-sender") editSender(id);
+      if (action === "toggle-sender") {
+        SenderApi.toggle(id).catch((error) => UI.toast(error.message, "bad"));
+      }
+      if (action === "delete-sender" && confirm("Delete this sender?")) {
+        SenderApi.remove(id).catch((error) => UI.toast(error.message, "bad"));
+      }
     });
 
     document.addEventListener("change", (event) => {
@@ -2435,6 +2683,11 @@
     purgeDeprecatedProductStatus();
     DB.getProducts();
     DB.getTemplates();
+    await refreshSenders().catch((error) => {
+      DB.addErrorLog("載入寄件者", error);
+      UI.renderSenderSelector();
+      UI.renderSenderList();
+    });
     dom.templatePurpose.innerHTML = EMAIL_PURPOSES.map((purpose) => `<option>${purpose}</option>`).join("");
     bindEvents();
     UI.refreshAll();

@@ -5,6 +5,7 @@ const nodemailer = require("nodemailer");
 const XLSX = require("xlsx");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 const { DatabaseSync } = require("node:sqlite");
 
 const app = express();
@@ -14,6 +15,7 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = path.join(__dirname, "data");
 const SQLITE_PATH = path.join(DATA_DIR, "phottix.sqlite");
 const DEFAULT_CONFIG = { import_folder: "./imports/" };
+const IV_LENGTH = 16;
 const SHARED_STORAGE_KEYS = [
   "phottix_customers",
   "phottix_products",
@@ -50,7 +52,80 @@ function getSqliteDb() {
       updated_at TEXT NOT NULL
     )
   `);
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS senders (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      appPassword TEXT NOT NULL,
+      isActive INTEGER DEFAULT 1,
+      createdAt TEXT,
+      updatedAt TEXT
+    )
+  `);
+  seedDefaultSender(sqliteDb);
   return sqliteDb;
+}
+
+function uid(prefix = "id") {
+  return `${prefix}_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`;
+}
+
+function getEncryptionKey() {
+  const rawKey = String(process.env.ENCRYPTION_KEY || "").trim();
+  if (!/^[a-f0-9]{64}$/i.test(rawKey)) {
+    throw new Error("ENCRYPTION_KEY must be a 64-character hex string.");
+  }
+  return Buffer.from(rawKey, "hex");
+}
+
+function encrypt(text) {
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv("aes-256-cbc", getEncryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(String(text || ""), "utf8"), cipher.final()]);
+  return `${iv.toString("hex")}:${encrypted.toString("hex")}`;
+}
+
+function decrypt(text) {
+  const parts = String(text || "").split(":");
+  if (parts.length < 2) throw new Error("Invalid encrypted sender password.");
+  const iv = Buffer.from(parts.shift(), "hex");
+  const encryptedText = Buffer.from(parts.join(":"), "hex");
+  const decipher = crypto.createDecipheriv("aes-256-cbc", getEncryptionKey(), iv);
+  const decrypted = Buffer.concat([decipher.update(encryptedText), decipher.final()]);
+  return decrypted.toString("utf8");
+}
+
+function publicSender(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    isActive: Boolean(row.isActive),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function seedDefaultSender(db) {
+  try {
+    const email = normalizeEmail(process.env.SMTP_USER);
+    const appPassword = String(process.env.SMTP_PASS || "").trim();
+    if (!email || !appPassword || email === "your-email@gmail.com" || appPassword === "your-app-password") return;
+    const existing = db.prepare("SELECT id FROM senders WHERE email = ?").get(email);
+    if (existing) return;
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO senders (id, name, email, appPassword, isActive, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, 1, ?, ?)
+    `).run(uid("sender"), email.split("@")[0] || email, email, encrypt(appPassword), now, now);
+  } catch (error) {
+    console.warn(`Default sender was not created: ${error.message}`);
+  }
 }
 
 function isSharedStorageKey(key) {
@@ -126,6 +201,16 @@ function rejectRemoteImport(req, res) {
   return true;
 }
 
+function rejectRemoteAdmin(req, res) {
+  if (isHostImportRequest(req)) return false;
+  res.status(403).json({
+    success: false,
+    hostOnly: true,
+    error: "Sender management is available only on the host computer."
+  });
+  return true;
+}
+
 function stripHtml(html) {
   return String(html || "")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -144,11 +229,59 @@ function stripHtml(html) {
     .trim();
 }
 
+function cleanWebsiteExtractText(value) {
+  let text = String(value || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/&#x27;/gi, "'");
+  if (!text) return "";
+  text = text
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<%[\s\S]*?%>/g, " ")
+    .replace(/\{\s*%[\s\S]*?%\s*\}/g, " ")
+    .replace(/\{\{[\s\S]{0,120}?\}\}/g, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/([a-z0-9._%+-]+@[a-z0-9.-]+)\s+(com|net|org|co|us|ca|de|fr|hk|cn|jp|au|uk)\b/gi, "$1.$2")
+    .replace(/\b(account_circle|sentiment_very_satisfied|settings|person|person_add|shopping_cart|search|close)\b/gi, " ")
+    .replace(/\b(isLogged|firstname|totalItem)\b/gi, " ")
+    .replace(/\b(welcome back|view account details|sign in|register|can we help find anything)\b/gi, " ")
+    .replace(/\bHome\b/gi, " ")
+    .replace(/\s*(---|===)\s*(View)?\s*/gi, "\n")
+    .replace(/\s*[|•·]\s*/g, "\n")
+    .replace(/\s+/g, " ")
+    .replace(/\s*\b(Get in touch|Business Hours|Newsletter|Contact|Services|Galleries|Order Prints|Photo Products|Event Photos|Studio Rental|Classes|About|Shop)\b\s*/gi, "\n$1 ");
+
+  const menuOnly = /^(home|view|sign in|register|view account details|welcome back|can we help find anything|newsletter email|thank you for subscribing|oops, there was an error|please try again later)$/i;
+  const noisy = /cookie|privacy policy|terms of use|javascript|subscribe for promotions|special offers/i;
+  const seen = new Set();
+  const clean = [];
+  text.split(/\n|(?<=\.)\s+(?=[A-Z0-9(])|(?<=!)\s+|(?<=\?)\s+/)
+    .map((line) => String(line || "").replace(/\s+/g, " ").replace(/\bView\b$/i, "").trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      line = line.replace(/\bHi\b$/i, "").replace(/\s+[,;:]+$/g, "").trim();
+      if (menuOnly.test(line) || noisy.test(line)) return;
+      if (line.length < 8 && !/@|\d{3}|\b[A-Z]{2}\b/.test(line)) return;
+      const key = line.toLowerCase().replace(/[^\w@]+/g, " ").trim();
+      if (seen.has(key)) return;
+      seen.add(key);
+      clean.push(line);
+    });
+  return clean.join("\n").slice(0, 8000).trim();
+}
+
 function summarizeContent(text) {
-  const lines = String(text || "")
+  const meaningfulShortLine = /@|\d{3}|studio rental|photo products|order prints|event photos|services|galleries|classes|showroom|retail store|business hours/i;
+  const lines = cleanWebsiteExtractText(text)
     .split(/[。！？.!?\n]/)
     .map((line) => line.trim())
-    .filter((line) => line.length >= 20 && !/cookie|privacy policy|terms of use|javascript/i.test(line));
+    .filter((line) => (line.length >= 20 || meaningfulShortLine.test(line)) && !/cookie|privacy policy|terms of use|javascript/i.test(line));
   const seen = new Set();
   const clean = [];
   for (const line of lines) {
@@ -270,10 +403,13 @@ function missingSmtpSettings() {
 }
 
 function createMailTransport() {
+  const smtpPort = Number(process.env.SMTP_PORT || 587);
+  const secureValue = String(process.env.SMTP_SECURE || "").trim().toLowerCase();
+  const secure = secureValue ? ["true", "1", "yes"].includes(secureValue) : smtpPort === 465;
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: Number(process.env.SMTP_PORT || 587) === 465,
+    port: smtpPort,
+    secure,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS
@@ -395,6 +531,108 @@ app.put("/api/db/key/:key", (req, res) => {
   }
 });
 
+app.get("/api/senders", (req, res) => {
+  try {
+    const rows = getSqliteDb()
+      .prepare("SELECT id, name, email, isActive, createdAt, updatedAt FROM senders ORDER BY name COLLATE NOCASE, email COLLATE NOCASE")
+      .all();
+    res.json({ success: true, hostOnly: isHostImportRequest(req), senders: rows.map(publicSender) });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to load senders." });
+  }
+});
+
+app.post("/api/senders", (req, res) => {
+  if (rejectRemoteAdmin(req, res)) return;
+  try {
+    const name = String(req.body?.name || "").trim();
+    const email = normalizeEmail(req.body?.email);
+    const appPassword = String(req.body?.appPassword || "").replace(/\s+/g, "");
+    if (!name || !email || !appPassword) {
+      res.status(400).json({ success: false, error: "Missing sender name, email, or app password." });
+      return;
+    }
+    const now = new Date().toISOString();
+    const id = uid("sender");
+    getSqliteDb().prepare(`
+      INSERT INTO senders (id, name, email, appPassword, isActive, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, 1, ?, ?)
+    `).run(id, name, email, encrypt(appPassword), now, now);
+    const sender = getSqliteDb().prepare("SELECT id, name, email, isActive, createdAt, updatedAt FROM senders WHERE id = ?").get(id);
+    res.json({ success: true, sender: publicSender(sender) });
+  } catch (error) {
+    const message = String(error.message || "");
+    const duplicate = /UNIQUE constraint failed/i.test(message);
+    res.status(duplicate ? 409 : 503).json({ success: false, error: duplicate ? "Sender email already exists." : message || "Failed to add sender." });
+  }
+});
+
+app.put("/api/senders/:id", (req, res) => {
+  if (rejectRemoteAdmin(req, res)) return;
+  try {
+    const id = String(req.params.id || "").trim();
+    const existing = getSqliteDb().prepare("SELECT * FROM senders WHERE id = ?").get(id);
+    if (!existing) {
+      res.status(404).json({ success: false, error: "Sender not found." });
+      return;
+    }
+    const name = String(req.body?.name || "").trim();
+    const email = normalizeEmail(req.body?.email);
+    const appPassword = String(req.body?.appPassword || "").replace(/\s+/g, "");
+    if (!name || !email) {
+      res.status(400).json({ success: false, error: "Missing sender name or email." });
+      return;
+    }
+    const now = new Date().toISOString();
+    if (appPassword) {
+      getSqliteDb().prepare("UPDATE senders SET name = ?, email = ?, appPassword = ?, updatedAt = ? WHERE id = ?")
+        .run(name, email, encrypt(appPassword), now, id);
+    } else {
+      getSqliteDb().prepare("UPDATE senders SET name = ?, email = ?, updatedAt = ? WHERE id = ?")
+        .run(name, email, now, id);
+    }
+    const sender = getSqliteDb().prepare("SELECT id, name, email, isActive, createdAt, updatedAt FROM senders WHERE id = ?").get(id);
+    res.json({ success: true, sender: publicSender(sender) });
+  } catch (error) {
+    const message = String(error.message || "");
+    const duplicate = /UNIQUE constraint failed/i.test(message);
+    res.status(duplicate ? 409 : 503).json({ success: false, error: duplicate ? "Sender email already exists." : message || "Failed to update sender." });
+  }
+});
+
+app.delete("/api/senders/:id", (req, res) => {
+  if (rejectRemoteAdmin(req, res)) return;
+  try {
+    const result = getSqliteDb().prepare("DELETE FROM senders WHERE id = ?").run(String(req.params.id || ""));
+    if (!result.changes) {
+      res.status(404).json({ success: false, error: "Sender not found." });
+      return;
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to delete sender." });
+  }
+});
+
+app.patch("/api/senders/:id/toggle", (req, res) => {
+  if (rejectRemoteAdmin(req, res)) return;
+  try {
+    const id = String(req.params.id || "");
+    const existing = getSqliteDb().prepare("SELECT * FROM senders WHERE id = ?").get(id);
+    if (!existing) {
+      res.status(404).json({ success: false, error: "Sender not found." });
+      return;
+    }
+    const nextActive = existing.isActive ? 0 : 1;
+    getSqliteDb().prepare("UPDATE senders SET isActive = ?, updatedAt = ? WHERE id = ?")
+      .run(nextActive, new Date().toISOString(), id);
+    const sender = getSqliteDb().prepare("SELECT id, name, email, isActive, createdAt, updatedAt FROM senders WHERE id = ?").get(id);
+    res.json({ success: true, sender: publicSender(sender) });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to toggle sender." });
+  }
+});
+
 app.post("/api/parse-excel-config", (req, res) => {
   if (rejectRemoteImport(req, res)) return;
   try {
@@ -444,18 +682,10 @@ app.post("/api/generate-excel", (req, res) => {
 });
 
 app.post("/api/send-email", async (req, res) => {
-  const missing = missingSmtpSettings();
-  if (missing.length) {
-    res.status(503).json({
-      success: false,
-      error: `SMTP is not configured. Missing: ${missing.join(", ")}`
-    });
-    return;
-  }
-
   const to = String(req.body?.to || "").trim();
   const subject = String(req.body?.subject || "").trim();
   const html = String(req.body?.html || "").trim();
+  const senderId = String(req.body?.senderId || "").trim();
   const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
 
   if (!to || !subject || !html) {
@@ -464,8 +694,38 @@ app.post("/api/send-email", async (req, res) => {
   }
 
   try {
-    const info = await createMailTransport().sendMail({
-      from: process.env.SMTP_USER,
+    let transporter = null;
+    let from = process.env.SMTP_USER;
+    if (senderId) {
+      const sender = getSqliteDb().prepare("SELECT * FROM senders WHERE id = ? AND isActive = 1").get(senderId);
+      if (!sender) {
+        res.status(400).json({ success: false, error: "寄件者不存在或已停用" });
+        return;
+      }
+      transporter = nodemailer.createTransport({
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false,
+        auth: {
+          user: sender.email,
+          pass: decrypt(sender.appPassword)
+        }
+      });
+      from = `"${sender.name}" <${sender.email}>`;
+    } else {
+      const missing = missingSmtpSettings();
+      if (missing.length) {
+        res.status(503).json({
+          success: false,
+          error: `SMTP is not configured. Missing: ${missing.join(", ")}`
+        });
+        return;
+      }
+      transporter = createMailTransport();
+    }
+
+    const info = await transporter.sendMail({
+      from,
       to,
       subject,
       html,
@@ -473,7 +733,8 @@ app.post("/api/send-email", async (req, res) => {
     });
     res.json({ success: true, messageId: info.messageId });
   } catch (error) {
-    res.status(502).json({ success: false, error: error.message || "Failed to send email." });
+    console.error(`Send email failed: ${error.message}`);
+    res.status(500).json({ success: false, error: error.message || "Failed to send email." });
   }
 });
 
