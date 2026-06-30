@@ -3300,3 +3300,153 @@ textarea::placeholder {
   background: #1d3a30;
   color: #bdf4d8;
 }
+
+/* Accepted color palette refinement.
+   Color values only; no layout, spacing, size or copy changes. */
+body {
+  background: #12161e;
+}
+
+.sidebar,
+.card,
+.topbar,
+.today-widget,
+.stats-widget,
+.error-widget,
+.backup-box,
+.side-nav,
+.analysis-main .card,
+.analysis-side .card,
+.analysis-side .result-card,
+.template-preview-pane,
+.analysis-placeholder-card,
+dialog {
+  background: #1a202c;
+  border-color: #2a303f;
+}
+
+input,
+select,
+textarea,
+#templateBody,
+#templateSubject,
+.email-preview,
+.attachment-list-placeholder,
+.attachment-placeholder,
+.attachment-item,
+.sender-selector,
+.toolbar,
+.bulk-box,
+.excel-file-list,
+.timeline-item,
+.recommend-card,
+.customer-card,
+.product-match-help {
+  background: #141924;
+  border-color: #2a303f;
+}
+
+.primary-button,
+#runAnalysisSideBtn,
+#sendEmailBtn,
+#sendEmailTopBtn {
+  background: #24a167;
+  border-color: rgba(36, 161, 103, 0.48);
+  color: #ffffff;
+}
+
+.primary-button:hover,
+#runAnalysisSideBtn:hover,
+#runAnalysisSideBtn:focus-visible,
+#sendEmailBtn:hover,
+#sendEmailBtn:focus-visible,
+#sendEmailTopBtn:hover,
+#sendEmailTopBtn:focus-visible {
+  background: #2bb877;
+}
+
+.primary-button:active,
+#runAnalysisSideBtn:active,
+#sendEmailBtn:active,
+#sendEmailTopBtn:active {
+  background: #1f8e5a;
+}
+
+#emailEditModeBtn,
+#emailPreviewModeBtn,
+.editor-mode-toggle .mini-button.active,
+.mini-button.active {
+  background: #253b63;
+  border-color: rgba(80, 113, 164, 0.48);
+  color: #ffffff;
+}
+
+#emailEditModeBtn:hover,
+#emailPreviewModeBtn:hover,
+.editor-mode-toggle .mini-button.active:hover,
+.mini-button.active:hover {
+  background: #304b7d;
+}
+
+#emailEditModeBtn:active,
+#emailPreviewModeBtn:active,
+.editor-mode-toggle .mini-button.active:active,
+.mini-button.active:active {
+  background: #1e3152;
+}
+
+#saveTemplateTopBtn,
+#saveTemplateBtn,
+#newBlankTemplateBtn,
+#previewTemplateBtn {
+  background: #3a4354;
+  border-color: #2a303f;
+  color: #e2e8f0;
+}
+
+#saveTemplateTopBtn:hover,
+#saveTemplateBtn:hover,
+#newBlankTemplateBtn:hover,
+#previewTemplateBtn:hover {
+  background: #485265;
+}
+
+.form-section legend,
+.tag-list span,
+.status-pill {
+  background: #2954a8;
+  color: #ffffff;
+  border-color: rgba(122, 158, 231, 0.34);
+}
+
+.topbar h2,
+.card-head h3,
+.mail-editor-head h3,
+.template-editor h4,
+.result-card h3,
+.result-card h4 {
+  color: #e2e8f0;
+}
+
+.field-help,
+input::placeholder,
+textarea::placeholder {
+  color: #6b7280;
+}
+
+.topbar .import-hint,
+.topbar .import-hint span,
+.topbar .import-hint strong {
+  color: #f6c065;
+}
+
+.topbar #toast.good,
+.topbar #toast {
+  background: #1a3630;
+  border-color: rgba(130, 208, 158, 0.28);
+  color: #82d09e;
+}
+
+.required {
+  color: #f27171;
+}
