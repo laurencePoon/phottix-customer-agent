@@ -255,11 +255,11 @@
               </div>
             </div>
             -->
-            <!-- TODO: 郵件附件功能第一階段：僅儲存附件 / 影片 / 超連結 metadata，不實作實體檔案上傳 -->
+            <!-- 郵件附件功能：實體檔案僅暫存於本次寄送，成功發送後由 Server 清理；影片 / 超連結仍以 URL metadata 保存 -->
             <div class="attachment-placeholder">
               <div class="attachment-head">
                 <label>郵件附件 / 影片 / 超連結</label>
-                <span>保存連結與檔案說明，暫不做實體上傳</span>
+                <span>檔案可真實夾帶；影片與超連結請填 URL</span>
               </div>
               <div class="attachment-grid">
                 <select id="attachmentType">
@@ -274,8 +274,9 @@
                 <input id="attachmentName" type="text" placeholder="Display name, e.g. M200R catalog">
                 <input id="attachmentUrl" type="url" placeholder="https://... file / video / web link">
                 <button id="addAttachmentBtn" class="secondary-button" type="button">新增</button>
+                <button id="uploadAttachmentBtn" class="ghost-button" type="button">📎 上傳附件</button>
               </div>
-              <input id="attachmentFileInput" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.mp4,.mov,.webm" disabled>
+              <input id="attachmentFileInput" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif">
               <div id="attachmentList" class="attachment-list-placeholder"></div>
             </div>
             <div class="variable-list">

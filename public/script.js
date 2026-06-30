@@ -396,15 +396,40 @@
     return `rating-${String(rating || "NR").toLowerCase()}`;
   }
 
+  function inferAttachmentType(item = {}) {
+    const mimetype = normalizeText(item.mimetype).toLowerCase();
+    const filename = normalizeText(item.originalName || item.filename || item.name).toLowerCase();
+    if (/pdf/.test(mimetype) || /\.pdf$/i.test(filename)) return "pdf";
+    if (/word|document/.test(mimetype) || /\.(doc|docx)$/i.test(filename)) return "word";
+    if (/excel|spreadsheet/.test(mimetype) || /\.(xls|xlsx)$/i.test(filename)) return "excel";
+    if (/image/.test(mimetype) || /\.(jpe?g|png|gif)$/i.test(filename)) return "image";
+    return "file";
+  }
+
+  function formatFileSize(bytes) {
+    const size = Number(bytes || 0);
+    if (!Number.isFinite(size) || size <= 0) return "";
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
   function normalizeAttachment(item = {}) {
-    const type = normalizeText(item.type || "hyperlink").toLowerCase();
+    const isUploadedFile = Boolean(item.isUploadedFile || item.path || item.filename);
+    const type = normalizeText(item.type || (isUploadedFile ? inferAttachmentType(item) : "hyperlink")).toLowerCase();
     const url = normalizeText(item.url || item.href || "");
-    const name = normalizeText(item.name || item.label || url || "Attachment");
+    const originalName = normalizeText(item.originalName || item.originalname || item.name || item.label || item.filename || "Attachment");
+    const name = normalizeText(item.name || item.label || originalName || url || "Attachment");
     return {
       id: item.id || uid("att"),
       type,
       name,
       url,
+      filename: item.filename || "",
+      originalName,
+      path: item.path || "",
+      mimetype: item.mimetype || "",
+      isUploadedFile,
       size: item.size || "",
       createdAt: item.createdAt || new Date().toISOString()
     };
@@ -412,8 +437,16 @@
 
   function normalizeAttachments(items) {
     return Array.isArray(items)
-      ? items.map(normalizeAttachment).filter((item) => item.name || item.url)
+      ? items.map(normalizeAttachment).filter((item) => item.name || item.url || item.path)
       : [];
+  }
+
+  function uploadedMailAttachments(items = []) {
+    return normalizeAttachments(items).filter((item) => item.isUploadedFile && item.path);
+  }
+
+  function persistableAttachments(items = []) {
+    return normalizeAttachments(items).filter((item) => !item.isUploadedFile);
   }
 
   function attachmentTypeLabel(type) {
@@ -424,6 +457,7 @@
       image: "Image",
       video: "Video",
       hyperlink: "Hyper Link",
+      file: "File",
       other: "Other"
     }[String(type || "").toLowerCase()] || "Attachment";
   }
@@ -431,7 +465,11 @@
   function formatAttachmentText(items = []) {
     const attachments = normalizeAttachments(items);
     if (!attachments.length) return "";
-    return attachments.map((item) => `- [${attachmentTypeLabel(item.type)}] ${item.name}${item.url ? `: ${item.url}` : ""}`).join("\n");
+    return attachments.map((item) => {
+      const sizeText = item.size ? ` (${formatFileSize(item.size)})` : "";
+      const label = item.isUploadedFile ? "File" : attachmentTypeLabel(item.type);
+      return `- [${label}] ${item.originalName || item.name}${sizeText}${item.url ? `: ${item.url}` : ""}`;
+    }).join("\n");
   }
 
   function renderEmailText(subject, body, attachments = []) {
@@ -592,10 +630,10 @@
         attachments: customer.attachments || [],
         emailDraft: {
           ...(customer.emailDraft || { subject: "", body: "" }),
-          emailAttachments: normalizeAttachments(customer.emailDraft?.emailAttachments)
+          emailAttachments: persistableAttachments(customer.emailDraft?.emailAttachments)
         },
         emailHistory: Array.isArray(customer.emailHistory)
-          ? customer.emailHistory.map((item) => ({ ...item, emailAttachments: normalizeAttachments(item.emailAttachments) }))
+          ? customer.emailHistory.map((item) => ({ ...item, emailAttachments: persistableAttachments(item.emailAttachments) }))
           : customer.emailHistory
       }));
     },
@@ -1584,8 +1622,13 @@
       dom.attachmentList.innerHTML = attachments.length
         ? attachments.map((item) => `
           <div class="attachment-item">
-            <span><strong>${escapeHtml(attachmentTypeLabel(item.type))}</strong> ${escapeHtml(item.name)}</span>
+            <span>
+              <strong>${escapeHtml(item.isUploadedFile ? "File" : attachmentTypeLabel(item.type))}</strong>
+              ${escapeHtml(item.originalName || item.name)}
+              ${item.size ? `<small>${escapeHtml(formatFileSize(item.size))}</small>` : ""}
+            </span>
             ${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener">Open</a>` : ""}
+            ${item.isUploadedFile ? `<span class="attachment-badge">Ready</span>` : ""}
             <button class="mini-button" data-action="remove-attachment" data-id="${escapeHtml(item.id)}" type="button">移除</button>
           </div>
         `).join("")
@@ -1837,7 +1880,7 @@
       emailContacts: normalizeEmailContacts(existing?.emailContacts),
       emailDraft: {
         ...(existing?.emailDraft || { subject: "", body: "" }),
-        emailAttachments: normalizeAttachments(state.emailAttachments.length ? state.emailAttachments : existing?.emailDraft?.emailAttachments)
+        emailAttachments: persistableAttachments(state.emailAttachments.length ? state.emailAttachments : existing?.emailDraft?.emailAttachments)
       },
       followUpStatus: existing?.followUpStatus || "open",
       nextFollowUpDate: existing?.nextFollowUpDate || "",
@@ -1976,7 +2019,7 @@
       scores: analysis.scores,
       businessSignals: analysis.businessSignals,
       recommendedProducts,
-      emailDraft: { ...emailDraft, emailAttachments: normalizeAttachments(customer.emailDraft?.emailAttachments || state.emailAttachments) },
+      emailDraft: { ...emailDraft, emailAttachments: persistableAttachments(customer.emailDraft?.emailAttachments || state.emailAttachments) },
       lastAnalyzedAt: new Date().toISOString(),
       suggestedAction: suggestAction({ ...customer, ...analysis }),
       websiteExtract: customer.websiteExtract || cleanWebsiteExtract(dom.websiteExtract.value)
@@ -2230,7 +2273,7 @@
     if (index >= 0) {
       customers[index].lastContactDate = log.logDate;
       customers[index].emailHistory = customers[index].emailHistory || [];
-      customers[index].emailHistory.unshift({ subject: log.subject, summary: log.summary, emailAttachments: normalizeAttachments(attachments), createdAt: log.createdAt });
+      customers[index].emailHistory.unshift({ subject: log.subject, summary: log.summary, emailAttachments: persistableAttachments(attachments), createdAt: log.createdAt });
       customers[index].emailHistory = customers[index].emailHistory.slice(0, 10);
       DB.setCustomers(customers);
     }
@@ -2262,6 +2305,41 @@
     UI.toast("Attachment/link added.", "good");
   }
 
+  async function uploadAttachments(files) {
+    const selectedFiles = Array.from(files || []);
+    if (!selectedFiles.length) return;
+    const formData = new FormData();
+    selectedFiles.forEach((file) => formData.append("attachments", file));
+
+    const originalText = dom.uploadAttachmentBtn?.textContent || "";
+    if (dom.uploadAttachmentBtn) {
+      dom.uploadAttachmentBtn.disabled = true;
+      dom.uploadAttachmentBtn.textContent = "Uploading...";
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/api/upload-attachments`, {
+        method: "POST",
+        body: formData
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Attachment upload failed.");
+      state.emailAttachments = normalizeAttachments([
+        ...state.emailAttachments,
+        ...(payload.files || []).map((file) => ({ ...file, isUploadedFile: true }))
+      ]);
+      UI.renderAttachmentList();
+      previewTemplate();
+      UI.toast(`Uploaded ${payload.files?.length || 0} attachment(s).`, "good");
+    } finally {
+      if (dom.uploadAttachmentBtn) {
+        dom.uploadAttachmentBtn.disabled = false;
+        dom.uploadAttachmentBtn.textContent = originalText;
+      }
+      if (dom.attachmentFileInput) dom.attachmentFileInput.value = "";
+    }
+  }
+
   async function sendCurrentEmail() {
     if (!state.currentAnalysis && !state.currentCustomerId) {
       UI.toast("Run analysis first.", "warn");
@@ -2275,8 +2353,7 @@
     const subject = normalizeText(dom.templateSubject.value || state.currentAnalysis?.emailDraft?.subject || "");
     const senderId = normalizeText(dom.senderSelect?.value);
     const attachments = normalizeAttachments(state.emailAttachments);
-    const rawBody = normalizeText(dom.templateBody.value || state.currentAnalysis?.emailDraft?.body || "");
-    const body = rawBody.split("{{emailAttachments}}").join(formatAttachmentText(attachments) || "No attachments or links.");
+    const body = normalizeText(dom.templateBody.value || state.currentAnalysis?.emailDraft?.body || "");
 
     if (!senderId) throw new Error("Please select sender.");
     if (!to) throw new Error("Missing customer email.");
@@ -2297,13 +2374,16 @@
           subject,
           senderId,
           html: textToHtml(renderEmailBody(body, attachments)),
-          attachments: []
+          attachments: uploadedMailAttachments(attachments)
         })
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || "Send email failed.");
 
       addEmailSentLog(customer, subject, payload.messageId || "", attachments);
+      state.emailAttachments = persistableAttachments(state.emailAttachments);
+      UI.renderAttachmentList();
+      previewTemplate();
       UI.renderTimeline(customer.id);
       UI.refreshAll();
       UI.toast("✅ 郵件已成功發送！", "good");
@@ -2621,7 +2701,7 @@
       "fetchWebsiteBtn", "runAnalysisBtn", "saveCustomerBtn", "clearAnalysisBtn", "staleBanner",
       "templatePurpose", "newBlankTemplateBtn", "templateSubject", "emailTo", "emailCc", "emailBcc", "manageEmailContactsBtn", "templateBody", "templatePreviewPane", "emailEditModeBtn", "emailPreviewModeBtn",
       "senderSelect", "senderStatus", "attachmentType", "attachmentName", "attachmentUrl",
-      "addAttachmentBtn", "attachmentFileInput", "attachmentList", "previewTemplateBtn", "saveTemplateBtn", "saveTemplateTopBtn", "deleteTemplateBtn", "deleteTemplateTopBtn",
+      "addAttachmentBtn", "uploadAttachmentBtn", "attachmentFileInput", "attachmentList", "previewTemplateBtn", "saveTemplateBtn", "saveTemplateTopBtn", "deleteTemplateBtn", "deleteTemplateTopBtn",
       "analysisResult", "manualOverrideBtn", "companyInfoTable", "ratingHero", "fourScores", "signalTags",
       "scoringBreakdown", "recommendedProducts", "actionSuggestions", "copyEmailBtn", "sendEmailBtn", "emailPreview",
       "addLogBtn", "timeline", "analysisHistory", "addProductBtn", "importProductsBtn", "productImportFileSelect", "productImportIndex", "productSearch",
@@ -2750,6 +2830,12 @@
       button.addEventListener("click", () => insertIntoTemplateBody(button.dataset.insert || ""));
     });
     dom.addAttachmentBtn?.addEventListener("click", addAttachmentFromEditor);
+    dom.uploadAttachmentBtn?.addEventListener("click", () => dom.attachmentFileInput?.click());
+    dom.attachmentFileInput?.addEventListener("change", (event) => uploadAttachments(event.target.files).catch((error) => {
+      DB.addErrorLog("上傳附件", error, formCustomer());
+      UI.refreshAll();
+      UI.toast(`Upload failed: ${error.message}`, "bad");
+    }));
     dom.manageEmailContactsBtn?.addEventListener("click", () => openEmailContactsDialog());
     dom.addEmailContactBtn?.addEventListener("click", addEmailContactFromDialog);
     dom.saveEmailContactsBtn?.addEventListener("click", saveEmailContactsFromDialog);

@@ -2335,8 +2335,25 @@ textarea {
 }
 
 .attachment-grid #attachmentUrl,
-.attachment-grid #addAttachmentBtn {
+.attachment-grid #addAttachmentBtn,
+.attachment-grid #uploadAttachmentBtn {
   grid-column: 1 / -1;
+}
+
+.attachment-badge {
+  color: #dffcf7;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border: 1px solid rgba(82, 199, 184, 0.28);
+  border-radius: 999px;
+  padding: 2px 6px;
+  background: rgba(82, 199, 184, 0.12);
+}
+
+.attachment-item small {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.68rem;
+  margin-left: 4px;
 }
 
 /* Improve selected text contrast inside the dark email editor. */

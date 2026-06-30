@@ -2,6 +2,7 @@ require("dotenv").config({ quiet: true });
 const express = require("express");
 const axios = require("axios");
 const nodemailer = require("nodemailer");
+const multer = require("multer");
 const Imap = require("imap");
 const { simpleParser } = require("mailparser");
 const XLSX = require("xlsx");
@@ -16,8 +17,21 @@ const CONFIG_PATH = path.join(__dirname, "config.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = path.join(__dirname, "data");
 const SQLITE_PATH = path.join(DATA_DIR, "phottix.sqlite");
+const UPLOAD_TEMP_DIR = path.join(__dirname, "uploads", "temp");
 const DEFAULT_CONFIG = { import_folder: "./imports/" };
 const IV_LENGTH = 16;
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+const MAX_ATTACHMENT_COUNT = 5;
+const ALLOWED_ATTACHMENT_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+]);
 const SHARED_STORAGE_KEYS = [
   "phottix_customers",
   "phottix_products",
@@ -30,6 +44,27 @@ const SHARED_STORAGE_KEYS = [
 ];
 
 ensureImportFolder();
+ensureUploadTempDir();
+
+const attachmentStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_TEMP_DIR),
+  filename: (req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `${unique}-${path.basename(file.originalname)}`);
+  }
+});
+
+const uploadAttachments = multer({
+  storage: attachmentStorage,
+  limits: { fileSize: MAX_ATTACHMENT_SIZE, files: MAX_ATTACHMENT_COUNT },
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_ATTACHMENT_TYPES.has(file.mimetype)) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error("Unsupported file type. Please upload PDF, Word, Excel, JPEG, PNG, or GIF files."));
+  }
+});
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(PUBLIC_DIR, {
@@ -561,6 +596,45 @@ function ensureImportFolder() {
   ensureConfig();
 }
 
+function ensureUploadTempDir() {
+  if (!fs.existsSync(UPLOAD_TEMP_DIR)) fs.mkdirSync(UPLOAD_TEMP_DIR, { recursive: true });
+}
+
+function isPathInsideUploadTemp(filePath) {
+  const resolved = path.resolve(filePath || "");
+  const uploadRoot = path.resolve(UPLOAD_TEMP_DIR);
+  return resolved === uploadRoot || resolved.startsWith(`${uploadRoot}${path.sep}`);
+}
+
+function safeUploadedMailAttachments(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item && item.path && item.isUploadedFile)
+    .map((item) => {
+      const resolvedPath = path.resolve(String(item.path));
+      if (!isPathInsideUploadTemp(resolvedPath) || !fs.existsSync(resolvedPath)) {
+        throw new Error("Invalid or expired attachment file.");
+      }
+      return {
+        filename: String(item.originalName || item.filename || "attachment"),
+        path: resolvedPath,
+        contentType: item.mimetype || undefined
+      };
+    });
+}
+
+function cleanupUploadedFiles(items = []) {
+  // Uploaded files are temporary for one email send only. Successful sends remove them immediately.
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const filePath = item?.path ? path.resolve(String(item.path)) : "";
+    if (!filePath || !isPathInsideUploadTemp(filePath)) return;
+    try {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch (error) {
+      console.warn(`Temporary attachment cleanup failed: ${error.message}`);
+    }
+  });
+}
+
 function listExcelFiles() {
   const folder = configuredImportFolder();
   if (!fs.existsSync(folder)) throw new Error("Folder does not exist or no Excel files found.");
@@ -1025,6 +1099,34 @@ app.post("/api/generate-excel", (req, res) => {
   }
 });
 
+app.post("/api/upload-attachments", (req, res) => {
+  uploadAttachments.array("attachments", MAX_ATTACHMENT_COUNT)(req, res, (error) => {
+    if (error) {
+      const status = error.code === "LIMIT_FILE_SIZE" || error.code === "LIMIT_FILE_COUNT" ? 400 : 400;
+      res.status(status).json({ success: false, error: error.message || "Attachment upload failed." });
+      return;
+    }
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (!files.length) {
+      res.status(400).json({ success: false, error: "No files selected." });
+      return;
+    }
+
+    // Files are temporary and only used for the next email send. They are not saved to SQLite.
+    res.json({
+      success: true,
+      files: files.map((file) => ({
+        filename: file.filename,
+        originalName: file.originalname,
+        size: file.size,
+        path: file.path,
+        mimetype: file.mimetype,
+        isUploadedFile: true
+      }))
+    });
+  });
+});
+
 app.post("/api/send-email", async (req, res) => {
   const to = String(req.body?.to || "").trim();
   const cc = String(req.body?.cc || "").trim();
@@ -1070,6 +1172,7 @@ app.post("/api/send-email", async (req, res) => {
       transporter = createMailTransport();
     }
 
+    const mailAttachments = safeUploadedMailAttachments(attachments);
     const info = await transporter.sendMail({
       from,
       to,
@@ -1077,8 +1180,9 @@ app.post("/api/send-email", async (req, res) => {
       bcc: bcc || undefined,
       subject,
       html,
-      attachments
+      attachments: mailAttachments
     });
+    cleanupUploadedFiles(attachments);
     res.json({ success: true, messageId: info.messageId });
   } catch (error) {
     console.error(`Send email failed: ${error.message}`);
