@@ -21,16 +21,33 @@ const UPLOAD_TEMP_DIR = path.join(__dirname, "uploads", "temp");
 const DEFAULT_CONFIG = { import_folder: "./imports/" };
 const IV_LENGTH = 16;
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
-const MAX_ATTACHMENT_COUNT = 5;
+const MAX_ATTACHMENT_COUNT = 10;
 const ALLOWED_ATTACHMENT_TYPES = new Set([
   "image/jpeg",
   "image/png",
   "image/gif",
+  "image/heic",
+  "image/heif",
+  "image/heic-sequence",
+  "image/heif-sequence",
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+]);
+const ALLOWED_ATTACHMENT_EXTENSIONS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".heic",
+  ".heif",
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx"
 ]);
 const SHARED_STORAGE_KEYS = [
   "phottix_customers",
@@ -58,11 +75,25 @@ const uploadAttachments = multer({
   storage: attachmentStorage,
   limits: { fileSize: MAX_ATTACHMENT_SIZE, files: MAX_ATTACHMENT_COUNT },
   fileFilter: (req, file, cb) => {
-    if (ALLOWED_ATTACHMENT_TYPES.has(file.mimetype)) {
+    const extension = path.extname(file.originalname || "").toLowerCase();
+    if (ALLOWED_ATTACHMENT_TYPES.has(file.mimetype) || ALLOWED_ATTACHMENT_EXTENSIONS.has(extension)) {
       cb(null, true);
       return;
     }
-    cb(new Error("Unsupported file type. Please upload PDF, Word, Excel, JPEG, PNG, or GIF files."));
+    cb(new Error("Unsupported file type. Please upload PDF, Word, Excel, JPEG, PNG, GIF, HEIC, or HEIF files."));
+  }
+});
+
+const uploadCustomerExcel = multer({
+  storage: attachmentStorage,
+  limits: { fileSize: 20 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => {
+    const extension = path.extname(file.originalname || "").toLowerCase();
+    if ([".xlsx", ".xls", ".csv"].includes(extension)) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error("Only .xlsx, .xls, or .csv customer files are supported."));
   }
 });
 
@@ -640,7 +671,11 @@ function listExcelFiles() {
   if (!fs.existsSync(folder)) throw new Error("Folder does not exist or no Excel files found.");
   const stat = fs.statSync(folder);
   if (!stat.isDirectory()) throw new Error("Folder does not exist or no Excel files found.");
-  const files = fs.readdirSync(folder)
+  const files = fs.readdirSync(folder, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    // Ignore Office lock/temp files such as "~$Price List.xlsx" and hidden desktop metadata.
+    .filter((name) => !name.startsWith("~$") && !name.startsWith("."))
     .filter((name) => /\.(xlsx|xls|csv)$/i.test(name))
     .sort((a, b) => a.localeCompare(b));
   if (!files.length) {
@@ -1080,6 +1115,64 @@ app.post("/api/parse-excel-config", (req, res) => {
   }
 });
 
+app.post("/api/import-excel-upload", (req, res) => {
+  if (rejectRemoteImport(req, res)) return;
+  uploadCustomerExcel.single("excelFile")(req, res, (error) => {
+    if (error) {
+      res.status(400).json({ success: false, error: error.message || "Excel upload failed." });
+      return;
+    }
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({ success: false, error: "No Excel file selected." });
+      return;
+    }
+    try {
+      const { sheetName, rows } = readExcelRows(file.path);
+      res.json({
+        success: true,
+        sheetName,
+        fileName: file.originalname,
+        rows,
+        data: rows
+      });
+    } catch (readError) {
+      res.status(502).json({ success: false, error: readError.message || "Failed to parse uploaded Excel." });
+    } finally {
+      cleanupUploadedFiles([{ path: file.path }]);
+    }
+  });
+});
+
+app.post("/api/import-customer-excel-upload", (req, res) => {
+  if (rejectRemoteImport(req, res)) return;
+  uploadCustomerExcel.single("customerExcel")(req, res, (error) => {
+    if (error) {
+      res.status(400).json({ success: false, error: error.message || "Customer Excel upload failed." });
+      return;
+    }
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({ success: false, error: "No Excel file selected." });
+      return;
+    }
+    try {
+      const { sheetName, rows } = readExcelRows(file.path);
+      res.json({
+        success: true,
+        sheetName,
+        fileName: file.originalname,
+        rows,
+        data: rows
+      });
+    } catch (readError) {
+      res.status(502).json({ success: false, error: readError.message || "Failed to parse uploaded Excel." });
+    } finally {
+      cleanupUploadedFiles([{ path: file.path }]);
+    }
+  });
+});
+
 app.post("/api/generate-excel", (req, res) => {
   try {
     const data = Array.isArray(req.body?.data) ? req.body.data : [];
@@ -1103,7 +1196,10 @@ app.post("/api/upload-attachments", (req, res) => {
   uploadAttachments.array("attachments", MAX_ATTACHMENT_COUNT)(req, res, (error) => {
     if (error) {
       const status = error.code === "LIMIT_FILE_SIZE" || error.code === "LIMIT_FILE_COUNT" ? 400 : 400;
-      res.status(status).json({ success: false, error: error.message || "Attachment upload failed." });
+      const friendlyError = error.code === "LIMIT_FILE_COUNT"
+        ? `Too many files. Please upload up to ${MAX_ATTACHMENT_COUNT} files at once.`
+        : error.message || "Attachment upload failed.";
+      res.status(status).json({ success: false, error: friendlyError });
       return;
     }
     const files = Array.isArray(req.files) ? req.files : [];

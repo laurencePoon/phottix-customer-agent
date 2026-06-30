@@ -516,6 +516,36 @@ textarea:focus {
   min-width: 155px;
 }
 
+.customer-search-box {
+  position: relative;
+  flex: 1 1 320px;
+  min-width: 260px;
+  gap: 5px;
+  color: #ffc46b;
+  font-weight: 700;
+}
+
+.customer-search-box::before {
+  content: "🔎";
+  position: absolute;
+  left: 12px;
+  bottom: 8px;
+  z-index: 1;
+  font-size: 0.9rem;
+}
+
+.customer-search-box input {
+  width: 100%;
+  padding-left: 36px;
+  border-color: rgba(255, 196, 107, 0.42);
+  background: rgba(56, 46, 31, 0.58);
+}
+
+.customer-search-box input:focus {
+  border-color: rgba(255, 196, 107, 0.86);
+  box-shadow: 0 0 0 3px rgba(255, 196, 107, 0.16);
+}
+
 .excel-import-section {
   flex: 1 1 100%;
   display: grid;
@@ -548,9 +578,18 @@ textarea:focus {
   background: rgba(82, 199, 184, 0.11);
 }
 
+.hidden-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .primary-button,
 .secondary-button,
-.ghost-button {
+.ghost-button,
+.attachment-upload-button {
   border-radius: 12px;
   padding: 9px 12px;
   font-weight: 700;
@@ -571,6 +610,17 @@ textarea:focus {
   background: rgba(255, 255, 255, 0.055);
   color: var(--text);
   border: 1px solid var(--line);
+}
+
+.attachment-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--text);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  user-select: none;
 }
 
 .danger-button {
@@ -1044,7 +1094,11 @@ dialog::backdrop {
 }
 
 .attachment-placeholder input[type="file"] {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .attachment-list-placeholder {
@@ -1053,6 +1107,25 @@ dialog::backdrop {
   margin-top: 6px;
   color: rgba(255, 255, 255, 0.78);
   font-size: 0.78rem;
+}
+
+.attachment-upload-status {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.72rem;
+  line-height: 1.3;
+  margin-top: 6px;
+}
+
+.attachment-upload-status.good {
+  color: #dffcf7;
+}
+
+.attachment-upload-status.warn {
+  color: #ffc46b;
+}
+
+.attachment-upload-status.bad {
+  color: #ffd5d5;
 }
 
 .attachment-item {
@@ -1326,6 +1399,7 @@ h4 {
 .primary-button,
 .secondary-button,
 .ghost-button,
+.attachment-upload-button,
 .danger-button,
 .mini-button,
 input,
@@ -1501,6 +1575,16 @@ textarea:user-invalid {
 .template-save-top {
   border-color: rgba(52, 168, 124, 0.48);
   box-shadow: 0 0 0 1px rgba(52, 168, 124, 0.14);
+}
+
+.send-email-top {
+  min-height: 30px;
+  padding: 6px 10px;
+  background: linear-gradient(135deg, #1f7d59 0%, #34a87c 100%);
+  border: 1px solid rgba(91, 232, 174, 0.42);
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .editor-mode-toggle .active,
@@ -1865,6 +1949,7 @@ textarea {
 .primary-button,
 .secondary-button,
 .ghost-button,
+.attachment-upload-button,
 .danger-button,
 .mini-button {
   padding: 6px 9px;
@@ -2078,8 +2163,8 @@ textarea {
 }
 
 .topbar #toast {
-  width: clamp(160px, 17vw, 280px);
-  max-width: 280px;
+  width: clamp(220px, 28vw, 430px);
+  max-width: min(42vw, 430px);
   justify-self: end;
   align-self: end;
   margin-bottom: 1px;
@@ -2089,7 +2174,10 @@ textarea {
   color: #a9b4c3;
   font-size: 0.68rem;
   line-height: 1.25;
-  text-align: right;
+  text-align: left;
+  white-space: normal;
+  overflow: visible;
+  word-break: break-word;
 }
 
 .topbar #toast.warn {
@@ -2451,37 +2539,29 @@ textarea {
    Safe to remove if the test direction is rejected. */
 #analysisPage .form-actions {
   display: grid;
-  grid-template-columns: minmax(64px, 0.8fr) minmax(118px, 1.45fr) minmax(72px, 0.85fr) minmax(64px, 0.72fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch;
-  gap: 6px;
+  gap: 7px;
   width: 100%;
-  flex-wrap: nowrap;
 }
 
 #analysisPage .form-actions button {
   min-width: 0;
   min-height: 36px;
   border-radius: 8px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  white-space: normal;
   transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease, background 0.16s ease;
 }
 
 #analysisPage .form-actions button {
-  font-size: 0;
+  font-size: 0.72rem;
+  line-height: 1.12;
 }
 
-#analysisPage .form-actions button::after {
-  font-size: 0.78rem;
-  line-height: 1.1;
-}
-
-#fetchWebsiteBtn::after {
-  content: "抓取 / Fetch";
-}
-
-#fetchWebsiteBtn {
+#fetchWebsiteBtn,
+#saveCustomerBtn,
+#clearAnalysisBtn {
   background: rgba(54, 105, 208, 0.12);
   border: 1px solid rgba(54, 105, 208, 0.32);
   color: #c9d8ff;
@@ -2490,7 +2570,7 @@ textarea {
 
 #runAnalysisBtn {
   width: 100%;
-  padding: 9px 10px;
+  padding: 8px 10px;
   background: linear-gradient(135deg, #1f7d59 0%, #34a87c 100%);
   border: 1px solid rgba(91, 232, 174, 0.4);
   color: #ffffff;
@@ -2500,8 +2580,7 @@ textarea {
 }
 
 #runAnalysisBtn::after {
-  content: "生成 / Generate";
-  font-size: 0.86rem;
+  content: none;
   font-weight: 800;
 }
 
@@ -2513,39 +2592,23 @@ textarea {
   transform: translateY(-1px);
 }
 
-#saveCustomerBtn {
-  background: #236e50;
-  border: 1px solid rgba(156, 232, 199, 0.22);
-  color: rgba(255, 255, 255, 0.92);
-  font-weight: 700;
-}
-
 #saveCustomerBtn::after {
-  content: "保存 / Save";
+  content: none;
 }
 
+#fetchWebsiteBtn:hover,
+#fetchWebsiteBtn:focus-visible,
 #saveCustomerBtn:hover,
-#saveCustomerBtn:focus-visible {
-  background: #287a59;
-  border-color: rgba(156, 232, 199, 0.44);
-  box-shadow: 0 0 0 2px rgba(35, 110, 80, 0.28);
-}
-
-#clearAnalysisBtn {
-  background: #2a2f38;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  color: #b5bfcc;
-  font-weight: 600;
+#saveCustomerBtn:focus-visible,
+#clearAnalysisBtn:hover,
+#clearAnalysisBtn:focus-visible {
+  background: rgba(54, 105, 208, 0.18);
+  border-color: rgba(54, 105, 208, 0.46);
+  box-shadow: 0 0 0 2px rgba(54, 105, 208, 0.18);
 }
 
 #clearAnalysisBtn::after {
-  content: "清空 / Clear";
-}
-
-#clearAnalysisBtn:hover,
-#clearAnalysisBtn:focus-visible {
-  background: #333944;
-  color: #d4dbe6;
+  content: none;
 }
 
 .editor-mode-toggle .mini-button.active,
@@ -2704,20 +2767,359 @@ textarea {
 }
 
 .topbar .import-hint {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  white-space: normal;
 }
 
 .topbar #toast {
-  width: auto;
-  min-width: 118px;
-  max-width: 180px;
+  width: clamp(220px, 28vw, 430px);
+  min-width: 180px;
+  max-width: min(42vw, 430px);
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-word;
+  text-align: left;
+}
+
+/* Final scroll stability fix:
+   the page shell stays fixed, and only the three work columns scroll. */
+@media (min-width: 900px) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .app-shell,
+  .main {
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  #analysisPage.page.active,
+  .analysis-workspace {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .analysis-workspace {
+    align-items: stretch;
+  }
+
+  .sidebar,
+  .analysis-main,
+  .analysis-side {
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+  }
+
+  .analysis-main,
+  .analysis-side {
+    padding-bottom: 22px;
+  }
+
+  .analysis-main > .card,
+  .analysis-side > .card,
+  .analysis-side > .result-card {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .analysis-main > :last-child,
+  .analysis-side > :last-child {
+    margin-bottom: 22px;
+  }
+}
+
+.attachment-empty {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.72rem;
+}
+
+.analysis-placeholder-card {
+  border-style: dashed;
+  border-color: rgba(148, 197, 255, 0.22);
+  background: rgba(26, 29, 36, 0.72);
+}
+
+.analysis-placeholder-content {
+  display: grid;
+  gap: 10px;
+  place-items: start;
+  padding: 8px;
+}
+
+.analysis-placeholder-content h3 {
+  margin: 0;
+  color: #94c5ff;
+  font-size: 0.92rem;
+}
+
+.analysis-placeholder-content p {
+  margin: 0;
+  color: #a9b4c3;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.analysis-placeholder-content button {
+  width: 100%;
+}
+
+#runAnalysisSideBtn {
+  background: linear-gradient(135deg, #1f7d59 0%, #34a87c 100%);
+  border: 1px solid rgba(91, 232, 174, 0.4);
+  color: #ffffff;
+  font-weight: 800;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.24);
+}
+
+#runAnalysisSideBtn::after {
+  content: none;
+}
+
+#runAnalysisSideBtn:hover,
+#runAnalysisSideBtn:focus-visible {
+  background: linear-gradient(135deg, #238f66 0%, #3bbd8c 100%);
+  border-color: rgba(128, 255, 203, 0.74);
+  box-shadow: 0 0 0 3px rgba(52, 168, 124, 0.22), 0 0 18px rgba(52, 168, 124, 0.35);
+  transform: translateY(-1px);
+}
+
+.website-highlight-field {
+  padding: 8px;
+  border: 1px solid rgba(255, 196, 107, 0.32);
+  border-radius: 8px;
+  background: rgba(255, 196, 107, 0.13);
+  color: #ffe0a3;
+}
+
+.website-highlight-field input {
+  border-color: rgba(255, 196, 107, 0.42);
+  background: rgba(56, 46, 31, 0.72);
+}
+
+.website-highlight-field input:focus {
+  border-color: rgba(255, 196, 107, 0.86);
+  box-shadow: 0 0 0 3px rgba(255, 196, 107, 0.16);
+}
+
+/* Workbench scroll lock:
+   keep the top bar outside the scroll math, then give the workspace a real viewport height. */
+@media (min-width: 900px) {
+  .main {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .topbar {
+    flex: 0 0 auto;
+  }
+
+  #analysisPage.page.active {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  #analysisPage .analysis-workspace {
+    height: 100%;
+    min-height: 0;
+  }
+
+  #analysisPage .analysis-main,
+  #analysisPage .analysis-side {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  #analysisPage .analysis-main > .card {
+    display: block;
+    min-height: max-content;
+  }
+
+  .page.active:not(#analysisPage) {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-bottom: 26px;
+    overscroll-behavior: contain;
+  }
+
+  .page.active:not(#analysisPage) > .card {
+    height: auto;
+    min-height: max-content;
+    overflow: visible;
+  }
+}
+
+/* Stability pass for non-analysis pages:
+   keep navigation visible and keep list pages compact after feature additions. */
+.side-nav {
+  position: sticky;
+  top: 8px;
+  z-index: 20;
+  padding: 6px;
+  border: 1px solid rgba(148, 197, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(17, 20, 27, 0.96);
+}
+
+.nav-button {
+  min-height: 32px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+#productsPage .card,
+#customersPage .card {
+  max-width: 100%;
+  overflow: visible;
+}
+
+#productsPage .card-head {
+  align-items: flex-start;
+}
+
+#productsPage .card-head h3 {
+  font-size: clamp(1.1rem, 1.35vw, 1.45rem);
+  line-height: 1.18;
+}
+
+#productsPage .card-head p {
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+#productsPage .action-row {
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+#productsPage #importProductsBtn {
+  background: rgba(82, 199, 184, 0.18);
+  border: 1px solid rgba(82, 199, 184, 0.38);
+  color: #dffcf7;
+  font-weight: 800;
+}
+
+#productsPage .toolbar {
+  gap: 8px;
+}
+
+#productsPage .toolbar input,
+#productsPage .toolbar select {
+  min-height: 36px;
+  font-size: 0.84rem;
+}
+
+.product-match-help {
+  margin: -2px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 197, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(37, 59, 88, 0.24);
+  color: #a9b4c3;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.product-match-help strong {
+  color: #94c5ff;
+}
+
+#productsPage .excel-file-list {
+  max-height: 105px;
+}
+
+#productsPage .excel-file-item {
+  padding: 6px 8px;
+  font-size: 0.78rem;
+}
+
+#productsPage .table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+#productsPage table.product-table {
+  min-width: 760px;
+  table-layout: fixed;
+  font-size: 0.78rem;
+}
+
+#productsPage .product-table th,
+#productsPage .product-table td {
+  padding: 8px 9px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+#productsPage .product-table th {
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+#productsPage .product-table th:nth-child(1) { width: 22%; }
+#productsPage .product-table th:nth-child(2) { width: 14%; }
+#productsPage .product-table th:nth-child(3) { width: 14%; }
+#productsPage .product-table th:nth-child(4) { width: 15%; }
+#productsPage .product-table th:nth-child(5) { width: 35%; }
+
+.product-description-cell {
+  color: var(--muted);
+  max-height: 3.8em;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.product-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  margin-top: 7px;
+}
+
+.product-row-actions .mini-button,
+.product-row-actions .danger-button,
+.product-pool-toggle {
+  min-height: 26px;
+  padding: 4px 7px;
+  font-size: 0.7rem;
+}
+
+.product-pool-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgba(82, 199, 184, 0.24);
+  border-radius: 6px;
+  color: #dffcf7;
+  background: rgba(82, 199, 184, 0.1);
 }

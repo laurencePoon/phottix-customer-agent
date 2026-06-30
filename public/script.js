@@ -21,6 +21,7 @@
   const CUSTOMER_TYPES = ["prospect", "existing"];
   const INDUSTRY_TYPES = ["", "Wholesale", "Retail", "Studio", "Events", "Creator", "Camera Store", "Online Shop", "Physical Store", "Services", "Other"];
   const FOLLOW_STATUSES = ["open", "completed", "pending", "cancelled", "deferred"];
+  const MAX_ATTACHMENT_COUNT = 10;
   const EMAIL_PURPOSES = [
     "First Touch",
     "Product Follow-up",
@@ -402,7 +403,7 @@
     if (/pdf/.test(mimetype) || /\.pdf$/i.test(filename)) return "pdf";
     if (/word|document/.test(mimetype) || /\.(doc|docx)$/i.test(filename)) return "word";
     if (/excel|spreadsheet/.test(mimetype) || /\.(xls|xlsx)$/i.test(filename)) return "excel";
-    if (/image/.test(mimetype) || /\.(jpe?g|png|gif)$/i.test(filename)) return "image";
+    if (/image/.test(mimetype) || /\.(jpe?g|png|gif|heic|heif)$/i.test(filename)) return "image";
     return "file";
   }
 
@@ -463,7 +464,7 @@
   }
 
   function formatAttachmentText(items = []) {
-    const attachments = normalizeAttachments(items);
+    const attachments = normalizeAttachments(items).filter((item) => !item.isUploadedFile);
     if (!attachments.length) return "";
     return attachments.map((item) => {
       const sizeText = item.size ? ` (${formatFileSize(item.size)})` : "";
@@ -474,16 +475,20 @@
 
   function renderEmailText(subject, body, attachments = []) {
     const attachmentText = formatAttachmentText(attachments);
-    const renderedBody = String(body || "").split("{{emailAttachments}}").join(attachmentText || "No attachments or links.");
+    const renderedBody = String(body || "").split("{{emailAttachments}}").join(attachmentText);
     const shouldAppend = attachmentText && !/Attachments \/ Links:/i.test(renderedBody);
     return `Subject: ${subject || ""}\n\n${renderedBody}${shouldAppend ? `\n\nAttachments / Links:\n${attachmentText}` : ""}`;
   }
 
   function renderEmailBody(body, attachments = []) {
     const attachmentText = formatAttachmentText(attachments);
-    const renderedBody = String(body || "").split("{{emailAttachments}}").join(attachmentText || "No attachments or links.");
-    const shouldAppend = attachmentText && !/Attachments \/ Links:/i.test(renderedBody);
+    const renderedBody = String(body || "").split("{{emailAttachments}}").join(attachmentText);
+    const shouldAppend = attachmentText && !/Attachments \/ Links:/i.test(renderedBody) && !renderedBody.includes(attachmentText);
     return `${renderedBody}${shouldAppend ? `\n\nAttachments / Links:\n${attachmentText}` : ""}`;
+  }
+
+  function hasUnresolvedTemplateVariables(text = "") {
+    return /\{\{[^}]+\}\}/.test(String(text || ""));
   }
 
   function suggestAction(customer) {
@@ -941,7 +946,7 @@
         "{{評分}}": `${analysis?.rating || customer.rating || "NR"} / ${analysis?.totalScore || ""}`,
         "{{郵件目的}}": customer.emailPurpose || dom.emailPurpose?.value || "First Touch",
         "{{郵件推薦策略}}": emailStrategy?.message || "",
-        "{{emailAttachments}}": formatAttachmentText(state.emailAttachments) || "No attachments or links."
+        "{{emailAttachments}}": formatAttachmentText(state.emailAttachments)
       };
     },
     renderTemplate(template, variables) {
@@ -1036,6 +1041,97 @@
   };
 
   const ExcelHandler = {
+    customerFileKeywords: [
+      "customer",
+      "customers",
+      "client",
+      "clients",
+      "contact",
+      "contacts",
+      "buyer",
+      "buyers",
+      "email",
+      "emails",
+      "mailing",
+      "mailing list",
+      "company",
+      "companies",
+      "prospect",
+      "prospects",
+      "lead",
+      "leads",
+      "dealer",
+      "dealers",
+      "distributor",
+      "distributors",
+      "account",
+      "accounts",
+      "客戶",
+      "客户",
+      "聯絡",
+      "联系人",
+      "聯繫人"
+    ],
+    productFileKeywords: [
+      "product",
+      "products",
+      "price",
+      "price list",
+      "pricelist",
+      "catalog",
+      "catalogue",
+      "sku",
+      "產品",
+      "产品",
+      "價格",
+      "价格",
+      "價目",
+      "价目"
+    ],
+    customerFileExclusionKeywords: [
+      "product",
+      "products",
+      "price",
+      "price list",
+      "pricelist",
+      "catalog",
+      "catalogue",
+      "sku",
+      "img",
+      "image",
+      "images",
+      "photo",
+      "photos",
+      "picture",
+      "pictures",
+      "decision",
+      "decision table",
+      "purchase",
+      "purchase request",
+      "procurement",
+      "requirement",
+      "requirements",
+      "需求",
+      "採購",
+      "采购",
+      "phottix_product_import"
+    ],
+    matchesFileKeyword(text = "", keyword = "") {
+      const source = normalizeText(text).toLowerCase();
+      const needle = normalizeText(keyword).toLowerCase();
+      if (!needle) return false;
+      return source.includes(needle) || source.replace(/\s+/g, "").includes(needle.replace(/\s+/g, ""));
+    },
+    isCustomerFile(filename = "") {
+      const text = normalizeText(filename).toLowerCase();
+      const hasCustomerSignal = this.customerFileKeywords.some((keyword) => this.matchesFileKeyword(text, keyword));
+      const hasUnrelatedSignal = this.customerFileExclusionKeywords.some((keyword) => this.matchesFileKeyword(text, keyword));
+      return hasCustomerSignal && !hasUnrelatedSignal;
+    },
+    isProductFile(filename = "") {
+      const text = normalizeText(filename).toLowerCase();
+      return this.productFileKeywords.some((keyword) => this.matchesFileKeyword(text, keyword));
+    },
     async listImportFiles() {
       const response = await fetch(`${API_BASE}/list-excel`);
       const payload = await response.json();
@@ -1054,6 +1150,30 @@
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || "Excel config import failed.");
+      return payload.data || payload.rows || [];
+    },
+    async parseUploadedCustomerFile(file) {
+      if (!file) throw new Error("Please choose a customer Excel file first.");
+      const formData = new FormData();
+      formData.append("customerExcel", file);
+      const response = await fetch(`${API_BASE}/api/import-customer-excel-upload`, {
+        method: "POST",
+        body: formData
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Customer Excel upload failed.");
+      return payload.data || payload.rows || [];
+    },
+    async parseUploadedExcelFile(file) {
+      if (!file) throw new Error("Please choose an Excel file first.");
+      const formData = new FormData();
+      formData.append("excelFile", file);
+      const response = await fetch(`${API_BASE}/api/import-excel-upload`, {
+        method: "POST",
+        body: formData
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Excel upload failed.");
       return payload.data || payload.rows || [];
     },
     selectedImportFilename(selectEl = dom.customerImportFileSelect, indexEl = dom.customerImportIndex) {
@@ -1105,6 +1225,9 @@
       if (!cleanName) throw new Error("Please type or select an Excel filename first.");
       this.importCustomerRows(await this.parseConfigFile(cleanName));
     },
+    async importCustomersFromUpload(file) {
+      this.importCustomerRows(await this.parseUploadedCustomerFile(file));
+    },
     importProductRows(rows) {
       DB.backup("before_product_import");
       const products = DB.getProducts();
@@ -1132,10 +1255,8 @@
       UI.renderProductList();
       UI.toast(`Imported products. Added: ${added}. Overwritten: ${overwritten}. Skipped: ${skipped}.`, "good");
     },
-    async importProductsFromConfig(filename) {
-      const cleanName = normalizeText(filename || this.selectedImportFilename(dom.productImportFileSelect, dom.productImportIndex)).replace(/^["']|["']$/g, "");
-      if (!cleanName) throw new Error("Please type or select an Excel filename first.");
-      this.importProductRows(await this.parseConfigFile(cleanName));
+    async importProductsFromUpload(file) {
+      this.importProductRows(await this.parseUploadedExcelFile(file));
     },
     async exportCustomers() {
       const customers = DB.getCustomers().map((customer) => ({
@@ -1324,7 +1445,7 @@
       const titles = {
         analysisPage: ["客戶分析 / Customer Analysis", "抓取官網、提取業務信號、評分、推薦產品並生成英文開發信。"],
         productsPage: ["產品資料庫 / Product Database", "管理完整目錄、推薦池、Recommended For 與 Priority。"],
-        customersPage: ["客戶池 / Customer Pool", "管理 Prospect / Existing、批量分析、跟進狀態和 Excel 決策表。"],
+        customersPage: ["客戶池 / Customer Pool", "管理 Prospect / Existing、批量分析、跟進狀態和客戶 Excel 匯出。"],
         sendersPage: ["寄件者管理 / Sender Management", "主機端管理 Gmail App Password 寄件者。"]
       };
       dom.pageTitle.textContent = titles[pageId]?.[0] || "Phottix Customer Agent";
@@ -1448,8 +1569,8 @@
       if (view === "pool") products = products.filter((item) => item.inRecommendationPool);
       if (query) products = products.filter((item) => `${item.name} ${item.category} ${item.recommendedFor || ""} ${item.description || ""}`.toLowerCase().includes(query));
       dom.productTable.innerHTML = products.length ? `
-        <table>
-          <thead><tr><th>Product Name</th><th>Category</th><th>Priority</th><th>Recommended For</th><th>Description</th><th>推薦池</th><th>操作</th></tr></thead>
+        <table class="product-table">
+          <thead><tr><th>Product Name</th><th>Category</th><th>Priority</th><th>Recommended For</th><th>Description</th></tr></thead>
           <tbody>
             ${products.map((item) => `
               <tr>
@@ -1461,11 +1582,13 @@
                     ${recommendedForOptionsHtml(item.recommendedFor)}
                   </select>
                 </td>
-                <td>${escapeHtml(item.description || "—")}</td>
-                <td><input type="checkbox" data-action="toggle-product-pool" data-id="${escapeHtml(item.id)}" ${item.inRecommendationPool ? "checked" : ""}></td>
                 <td>
-                  <button class="mini-button" data-action="edit-product" data-id="${escapeHtml(item.id)}">編輯</button>
-                  <button class="danger-button" data-action="delete-product" data-id="${escapeHtml(item.id)}">刪除</button>
+                  <div class="product-description-cell">${escapeHtml(item.description || "-")}</div>
+                  <div class="product-row-actions">
+                    <label class="product-pool-toggle"><input type="checkbox" data-action="toggle-product-pool" data-id="${escapeHtml(item.id)}" ${item.inRecommendationPool ? "checked" : ""}> 推薦池</label>
+                    <button class="mini-button" data-action="edit-product" data-id="${escapeHtml(item.id)}">編輯</button>
+                    <button class="danger-button" data-action="delete-product" data-id="${escapeHtml(item.id)}">刪除</button>
+                  </div>
                 </td>
               </tr>
             `).join("")}
@@ -1519,6 +1642,7 @@
       }).join("") : `<div class="empty">沒有客戶。</div>`;
     },
     renderAnalysisResult(customer, analysis) {
+      dom.analysisPlaceholder?.classList.add("hidden");
       dom.analysisResult.classList.remove("hidden");
       const staleDays = daysSince(customer.lastAnalyzedAt);
       if (staleDays !== null && staleDays > 30) {
@@ -1545,7 +1669,6 @@
       state.emailAttachments = normalizeAttachments(customer.emailDraft?.emailAttachments || analysis.emailDraft.emailAttachments || state.emailAttachments);
       this.renderAttachmentList();
       dom.emailPreview.textContent = renderEmailText(analysis.emailDraft.subject, analysis.emailDraft.body, state.emailAttachments);
-      dom.sendEmailBtn.disabled = false;
       this.renderTimeline(customer.id);
       this.renderAnalysisHistory(customer.id);
       this.toast(`${analysis.rating} / ${analysis.totalScore} analysis ready.`, "good");
@@ -1632,7 +1755,7 @@
             <button class="mini-button" data-action="remove-attachment" data-id="${escapeHtml(item.id)}" type="button">移除</button>
           </div>
         `).join("")
-        : `<div class="empty">No attachments or links added.</div>`;
+        : `<div class="empty attachment-empty">No uploaded files or links yet. Click "Upload attachment" to add files for this email.</div>`;
     }
   };
 
@@ -1843,6 +1966,18 @@
     return /^(yes|1)$/i.test(getAny(n, "Force_Update", "Force Update", "force_update"));
   }
 
+  function customerSearchText(customer = {}) {
+    const emailContacts = normalizeEmailContacts(customer.emailContacts)
+      .map((contact) => contact.email);
+    return [
+      customer.companyName,
+      customer.website,
+      customer.contactName,
+      customer.contactEmail,
+      ...emailContacts
+    ].filter(Boolean).join(" ").toLowerCase();
+  }
+
   function filterCustomers(customers) {
     const type = dom.customerTypeFilter.value;
     const rating = dom.ratingFilter.value;
@@ -1852,7 +1987,7 @@
       if (type && customer.customerType !== type) return false;
       if (rating && customer.rating !== rating) return false;
       if (status && customer.followUpStatus !== status) return false;
-      if (query && !`${customer.companyName} ${customer.website} ${customer.contactEmail} ${customer.buyingRole || ""}`.toLowerCase().includes(query)) return false;
+      if (query && !customerSearchText(customer).includes(query)) return false;
       return true;
     });
   }
@@ -2280,7 +2415,12 @@
   }
 
   function textToHtml(text) {
-    return escapeHtml(text).replace(/\n/g, "<br>");
+    const normalized = String(text || "").replace(/\r\n/g, "\n").trim();
+    if (!normalized) return "";
+    return normalized
+      .split(/\n{2,}/)
+      .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
+      .join("");
   }
 
   function addAttachmentFromEditor() {
@@ -2308,8 +2448,22 @@
   async function uploadAttachments(files) {
     const selectedFiles = Array.from(files || []);
     if (!selectedFiles.length) return;
+    if (selectedFiles.length > MAX_ATTACHMENT_COUNT) {
+      const message = `Too many files. Please select up to ${MAX_ATTACHMENT_COUNT} files at once.`;
+      if (dom.attachmentUploadStatus) {
+        dom.attachmentUploadStatus.textContent = message;
+        dom.attachmentUploadStatus.className = "attachment-upload-status bad";
+      }
+      if (dom.attachmentFileInput) dom.attachmentFileInput.value = "";
+      UI.toast(message, "bad");
+      return;
+    }
     const formData = new FormData();
     selectedFiles.forEach((file) => formData.append("attachments", file));
+    if (dom.attachmentUploadStatus) {
+      dom.attachmentUploadStatus.textContent = `Uploading ${selectedFiles.length} file(s)...`;
+      dom.attachmentUploadStatus.className = "attachment-upload-status warn";
+    }
 
     const originalText = dom.uploadAttachmentBtn?.textContent || "";
     if (dom.uploadAttachmentBtn) {
@@ -2323,14 +2477,27 @@
         body: formData
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(payload.error || "Attachment upload failed.");
+      if (!response.ok || !payload.success) {
+        const names = selectedFiles.map((file) => file.name).filter(Boolean).join(", ");
+        throw new Error(`${payload.error || "Attachment upload failed."}${names ? ` Files: ${names}` : ""}`);
+      }
       state.emailAttachments = normalizeAttachments([
         ...state.emailAttachments,
         ...(payload.files || []).map((file) => ({ ...file, isUploadedFile: true }))
       ]);
       UI.renderAttachmentList();
       previewTemplate();
+      if (dom.attachmentUploadStatus) {
+        dom.attachmentUploadStatus.textContent = `Uploaded ${payload.files?.length || 0} file(s).`;
+        dom.attachmentUploadStatus.className = "attachment-upload-status good";
+      }
       UI.toast(`Uploaded ${payload.files?.length || 0} attachment(s).`, "good");
+    } catch (error) {
+      if (dom.attachmentUploadStatus) {
+        dom.attachmentUploadStatus.textContent = `Upload failed: ${error.message}`;
+        dom.attachmentUploadStatus.className = "attachment-upload-status bad";
+      }
+      throw error;
     } finally {
       if (dom.uploadAttachmentBtn) {
         dom.uploadAttachmentBtn.disabled = false;
@@ -2341,27 +2508,46 @@
   }
 
   async function sendCurrentEmail() {
-    if (!state.currentAnalysis && !state.currentCustomerId) {
-      UI.toast("Run analysis first.", "warn");
-      return;
-    }
-
     const customer = DB.getCustomers().find((item) => item.id === state.currentCustomerId) || formCustomer();
     const to = normalizeText(dom.emailTo?.value || customer.contactEmail || dom.contactEmail.value);
     const cc = normalizeText(dom.emailCc?.value || "");
     const bcc = normalizeText(dom.emailBcc?.value || "");
-    const subject = normalizeText(dom.templateSubject.value || state.currentAnalysis?.emailDraft?.subject || "");
     const senderId = normalizeText(dom.senderSelect?.value);
     const attachments = normalizeAttachments(state.emailAttachments);
-    const body = normalizeText(dom.templateBody.value || state.currentAnalysis?.emailDraft?.body || "");
+    const analysis = state.currentAnalysis || {
+      recommendedProducts: customer.recommendedProducts || [],
+      businessSignals: customer.businessSignals || [],
+      rating: customer.rating || "NR",
+      totalScore: customer.totalScore || 0
+    };
+    const emailAnalysis = {
+      ...analysis,
+      emailStrategy: EmailEngine.strategy(customer, analysis),
+      emailRecommendedProducts: EmailEngine.recommendedProductsForEmail(customer, analysis)
+    };
+    const rendered = EmailEngine.renderTemplate(
+      {
+        subject: dom.templateSubject.value || state.currentAnalysis?.emailDraft?.subject || "",
+        body: dom.templateBody.value || state.currentAnalysis?.emailDraft?.body || ""
+      },
+      EmailEngine.variables(customer, emailAnalysis)
+    );
+    const subject = normalizeText(rendered.subject);
+    const body = String(rendered.body || "").trim();
 
     if (!senderId) throw new Error("Please select sender.");
     if (!to) throw new Error("Missing customer email.");
     if (!subject || !body) throw new Error("Missing email subject or body.");
+    if (hasUnresolvedTemplateVariables(`${subject}\n${body}`)) {
+      throw new Error("Email still contains unresolved {{variables}}. Please preview or fill customer data before sending.");
+    }
 
-    const originalText = dom.sendEmailBtn.textContent;
-    dom.sendEmailBtn.disabled = true;
-    dom.sendEmailBtn.textContent = "發送中...";
+    const sendButtons = [dom.sendEmailBtn, dom.sendEmailTopBtn].filter(Boolean);
+    const originalTexts = new Map(sendButtons.map((button) => [button, button.textContent]));
+    sendButtons.forEach((button) => {
+      button.disabled = true;
+      button.textContent = "發送中...";
+    });
 
     try {
       const response = await fetch(`${API_BASE}/api/send-email`, {
@@ -2380,6 +2566,7 @@
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || "Send email failed.");
 
+      dom.emailPreview.textContent = renderEmailText(subject, body, attachments);
       addEmailSentLog(customer, subject, payload.messageId || "", attachments);
       state.emailAttachments = persistableAttachments(state.emailAttachments);
       UI.renderAttachmentList();
@@ -2388,8 +2575,10 @@
       UI.refreshAll();
       UI.toast("✅ 郵件已成功發送！", "good");
     } finally {
-      dom.sendEmailBtn.textContent = originalText;
-      dom.sendEmailBtn.disabled = false;
+      sendButtons.forEach((button) => {
+        button.textContent = originalTexts.get(button) || "發送郵件";
+        button.disabled = false;
+      });
     }
   }
 
@@ -2617,22 +2806,31 @@
     UI.toast("Backup restored.", "good");
   }
 
-    async function refreshImportFiles() {
-      const payload = await ExcelHandler.listImportFiles();
-      const files = payload.files || [];
+    function renderExcelFileOptions(files = [], target = "customer") {
+      const emptyLabel = target === "customer"
+        ? "No customer list Excel files found. Rename the file with Customer/Client/Contact, then refresh."
+        : "No product Excel files found.";
       const options = files.length
         ? files.map((file, index) => `<option value="${escapeHtml(file)}">${index + 1}. ${escapeHtml(file)}</option>`).join("")
-        : `<option value="">No Excel files found</option>`;
+        : `<option value="">${escapeHtml(emptyLabel)}</option>`;
       const listHtml = files.length
         ? files.map((file, index) => `<button class="excel-file-item" type="button" data-file-index="${index + 1}">${index + 1}. ${escapeHtml(file)}</button>`).join("")
-        : `<div class="empty">No Excel files found.</div>`;
-      dom.customerImportFileSelect.innerHTML = options;
-      dom.productImportFileSelect.innerHTML = options;
-      if (dom.excelFileList) dom.excelFileList.innerHTML = listHtml;
-      if (dom.productExcelFileList) dom.productExcelFileList.innerHTML = listHtml;
-      if (files.length && !dom.customerImportIndex.value) dom.customerImportIndex.value = "1";
-      if (files.length && !dom.productImportIndex.value) dom.productImportIndex.value = "1";
-      UI.toast(`Excel files: ${files.length}`, files.length ? "good" : "warn");
+        : `<div class="empty">${escapeHtml(emptyLabel)}</div>`;
+      return { options, listHtml };
+    }
+
+    async function refreshImportFiles(options = {}) {
+      const payload = await ExcelHandler.listImportFiles();
+      const files = payload.files || [];
+      const customerFiles = files.filter((file) => ExcelHandler.isCustomerFile(file));
+      const customerRendered = renderExcelFileOptions(customerFiles, "customer");
+
+      if (dom.customerImportFileSelect) dom.customerImportFileSelect.innerHTML = customerRendered.options;
+      if (dom.excelFileList) dom.excelFileList.innerHTML = customerRendered.listHtml;
+      if (customerFiles.length && dom.customerImportIndex) dom.customerImportIndex.value = "1";
+      if (!options.silent) {
+        UI.toast(`Customer Excel files: ${customerFiles.length}`, customerFiles.length ? "good" : "warn");
+      }
   }
 
   async function refreshSenders() {
@@ -2701,12 +2899,12 @@
       "fetchWebsiteBtn", "runAnalysisBtn", "saveCustomerBtn", "clearAnalysisBtn", "staleBanner",
       "templatePurpose", "newBlankTemplateBtn", "templateSubject", "emailTo", "emailCc", "emailBcc", "manageEmailContactsBtn", "templateBody", "templatePreviewPane", "emailEditModeBtn", "emailPreviewModeBtn",
       "senderSelect", "senderStatus", "attachmentType", "attachmentName", "attachmentUrl",
-      "addAttachmentBtn", "uploadAttachmentBtn", "attachmentFileInput", "attachmentList", "previewTemplateBtn", "saveTemplateBtn", "saveTemplateTopBtn", "deleteTemplateBtn", "deleteTemplateTopBtn",
-      "analysisResult", "manualOverrideBtn", "companyInfoTable", "ratingHero", "fourScores", "signalTags",
+      "addAttachmentBtn", "uploadAttachmentBtn", "attachmentFileInput", "attachmentUploadStatus", "attachmentList", "previewTemplateBtn", "saveTemplateBtn", "saveTemplateTopBtn", "deleteTemplateBtn", "deleteTemplateTopBtn", "sendEmailTopBtn",
+      "analysisPlaceholder", "runAnalysisSideBtn", "analysisResult", "manualOverrideBtn", "companyInfoTable", "ratingHero", "fourScores", "signalTags",
       "scoringBreakdown", "recommendedProducts", "actionSuggestions", "copyEmailBtn", "sendEmailBtn", "emailPreview",
-      "addLogBtn", "timeline", "analysisHistory", "addProductBtn", "importProductsBtn", "productImportFileSelect", "productImportIndex", "productSearch",
+      "addLogBtn", "timeline", "analysisHistory", "addProductBtn", "importProductsBtn", "productExcelFileInput", "productSearch",
       "productView", "productTable", "addCustomerBtn", "importCustomersBtn", "syncInboxBtn", "importUpdateBtn",
-      "exportCustomersBtn", "customerImportFileSelect", "customerImportIndex", "importCustomersConfigBtn", "excelFileList", "productExcelFileList", "customerTypeFilter", "ratingFilter",
+      "exportCustomersBtn", "customerImportFileSelect", "customerImportIndex", "importCustomersConfigBtn", "uploadCustomerExcelBtn", "customerExcelFileInput", "excelFileList", "customerTypeFilter", "ratingFilter",
       "followStatusFilter", "customerSearch", "selectAllCustomers", "bulkAnalyzeSelectedBtn",
       "bulkAnalyzeAllBtn", "bulkDeleteBtn", "bulkConvertBtn", "bulkFollowStatus", "bulkNextFollowDate", "bulkProgressBar", "bulkProgressText", "customerList", "backupExportBtn",
       "backupImportBtn", "backupFileInput", "productDialog", "productForm", "productDialogTitle",
@@ -2731,6 +2929,7 @@
     document.querySelectorAll(".nav-button").forEach((button) => button.addEventListener("click", () => UI.showPage(button.dataset.page)));
     dom.fetchWebsiteBtn.addEventListener("click", () => fetchWebsite().catch((error) => UI.toast(error.message, "bad")));
     dom.runAnalysisBtn.addEventListener("click", () => runAnalysis().catch((error) => UI.toast(error.message, "bad")));
+    dom.runAnalysisSideBtn?.addEventListener("click", () => runAnalysis().catch((error) => UI.toast(error.message, "bad")));
     dom.saveCustomerBtn.addEventListener("click", async () => {
       const analyzed = await runAnalysis({ autoFetch: false }).catch((error) => {
         DB.addErrorLog("保存客戶", error, formCustomer());
@@ -2751,7 +2950,7 @@
       if (dom.emailCc) dom.emailCc.value = "";
       if (dom.emailBcc) dom.emailBcc.value = "";
       dom.analysisResult.classList.add("hidden");
-      dom.sendEmailBtn.disabled = true;
+      dom.analysisPlaceholder?.classList.remove("hidden");
       UI.toast("Form cleared.", "good");
     });
     dom.loadCustomerSelect.addEventListener("change", () => {
@@ -2773,6 +2972,11 @@
       UI.toast("Email copied.", "good");
     });
     dom.sendEmailBtn.addEventListener("click", () => sendCurrentEmail().catch((error) => {
+      DB.addErrorLog("發送郵件", error, formCustomer());
+      UI.refreshAll();
+      UI.toast(`❌ 發送失敗：${error.message}`, "bad");
+    }));
+    dom.sendEmailTopBtn?.addEventListener("click", () => sendCurrentEmail().catch((error) => {
       DB.addErrorLog("發送郵件", error, formCustomer());
       UI.refreshAll();
       UI.toast(`❌ 發送失敗：${error.message}`, "bad");
@@ -2830,7 +3034,19 @@
       button.addEventListener("click", () => insertIntoTemplateBody(button.dataset.insert || ""));
     });
     dom.addAttachmentBtn?.addEventListener("click", addAttachmentFromEditor);
-    dom.uploadAttachmentBtn?.addEventListener("click", () => dom.attachmentFileInput?.click());
+    dom.uploadAttachmentBtn?.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (dom.attachmentUploadStatus) {
+        dom.attachmentUploadStatus.textContent = "Choose PDF, Word, Excel, JPG, PNG, GIF, HEIC, or HEIF files.";
+        dom.attachmentUploadStatus.className = "attachment-upload-status";
+      }
+      dom.attachmentFileInput?.click();
+    });
+    dom.uploadAttachmentBtn?.addEventListener("keydown", (event) => {
+      if (!["Enter", " "].includes(event.key)) return;
+      event.preventDefault();
+      dom.attachmentFileInput?.click();
+    });
     dom.attachmentFileInput?.addEventListener("change", (event) => uploadAttachments(event.target.files).catch((error) => {
       DB.addErrorLog("上傳附件", error, formCustomer());
       UI.refreshAll();
@@ -2854,11 +3070,31 @@
     }));
     dom.addProductBtn.addEventListener("click", () => openProductDialog());
     dom.saveProductDialogBtn.addEventListener("click", saveProductFromDialog);
-    dom.importProductsBtn.addEventListener("click", () => ExcelHandler.importProductsFromConfig().catch((error) => {
-      DB.addErrorLog("導入 config 產品 Excel", error);
-      UI.refreshAll();
-      UI.toast(error.message, "bad");
-    }));
+    dom.importProductsBtn.addEventListener("click", () => {
+      dom.productExcelFileInput?.click();
+    });
+    dom.productExcelFileInput?.addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const originalText = dom.importProductsBtn?.textContent || "";
+      try {
+        if (dom.importProductsBtn) {
+          dom.importProductsBtn.disabled = true;
+          dom.importProductsBtn.textContent = "導入中... / Importing...";
+        }
+        await ExcelHandler.importProductsFromUpload(file);
+      } catch (error) {
+        DB.addErrorLog("上傳導入產品 Excel", error);
+        UI.refreshAll();
+        UI.toast(error.message, "bad");
+      } finally {
+        if (dom.importProductsBtn) {
+          dom.importProductsBtn.disabled = false;
+          dom.importProductsBtn.textContent = originalText || "導入產品 Excel";
+        }
+        event.target.value = "";
+      }
+    });
     dom.productSearch.addEventListener("input", () => UI.renderProductList());
     dom.productView.addEventListener("change", () => UI.renderProductList());
     dom.addCustomerBtn.addEventListener("click", () => openCustomerDialog());
@@ -2873,29 +3109,46 @@
       UI.refreshAll();
       UI.toast(error.message, "bad");
     }));
-    dom.customerImportFileSelect.addEventListener("change", () => {
+    dom.customerImportFileSelect?.addEventListener("change", () => {
       dom.customerImportIndex.value = String(dom.customerImportFileSelect.selectedIndex + 1);
-    });
-    dom.productImportFileSelect.addEventListener("change", () => {
-      dom.productImportIndex.value = String(dom.productImportFileSelect.selectedIndex + 1);
     });
     dom.excelFileList?.addEventListener("click", (event) => {
       const button = event.target.closest("[data-file-index]");
       if (!button) return;
+      if (!dom.customerImportIndex || !dom.customerImportFileSelect) return;
       dom.customerImportIndex.value = button.dataset.fileIndex;
       dom.customerImportFileSelect.selectedIndex = Number(button.dataset.fileIndex) - 1;
     });
-    dom.productExcelFileList?.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-file-index]");
-      if (!button) return;
-      dom.productImportIndex.value = button.dataset.fileIndex;
-      dom.productImportFileSelect.selectedIndex = Number(button.dataset.fileIndex) - 1;
-    });
-    dom.importCustomersConfigBtn.addEventListener("click", () => ExcelHandler.importCustomersFromConfig().catch((error) => {
+    dom.importCustomersConfigBtn?.addEventListener("click", () => ExcelHandler.importCustomersFromConfig().catch((error) => {
       DB.addErrorLog("導入 config Excel", error);
       UI.refreshAll();
       UI.toast(error.message, "bad");
     }));
+    dom.uploadCustomerExcelBtn?.addEventListener("click", () => {
+      dom.customerExcelFileInput?.click();
+    });
+    dom.customerExcelFileInput?.addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const originalText = dom.uploadCustomerExcelBtn?.textContent || "";
+      try {
+        if (dom.uploadCustomerExcelBtn) {
+          dom.uploadCustomerExcelBtn.disabled = true;
+          dom.uploadCustomerExcelBtn.textContent = "導入中... / Importing...";
+        }
+        await ExcelHandler.importCustomersFromUpload(file);
+      } catch (error) {
+        DB.addErrorLog("上傳導入客戶 Excel", error);
+        UI.refreshAll();
+        UI.toast(error.message, "bad");
+      } finally {
+        if (dom.uploadCustomerExcelBtn) {
+          dom.uploadCustomerExcelBtn.disabled = false;
+          dom.uploadCustomerExcelBtn.textContent = originalText || "選擇本機 Excel / Choose Excel from computer";
+        }
+        event.target.value = "";
+      }
+    });
     dom.importUpdateBtn.addEventListener("click", () => ExcelHandler.importUpdateFromConfig().catch((error) => {
       DB.addErrorLog("匯入 config 更新 Excel", error);
       UI.refreshAll();
@@ -3086,7 +3339,7 @@
     });
     bindEvents();
     UI.refreshAll();
-    refreshImportFiles().catch((error) => {
+    refreshImportFiles({ silent: true }).catch((error) => {
       if (error.hostOnly) {
         UI.toast("Excel import is host-only. Colleagues can use shared data directly.", "warn");
         return;

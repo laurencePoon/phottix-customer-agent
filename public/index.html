@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Phottix Customer Agent</title>
-  <link rel="stylesheet" href="style.css?v=20260628-qa24">
+  <link rel="stylesheet" href="style.css?v=20260630-toast-full-text">
 </head>
 <body>
   <div class="app-shell">
@@ -16,6 +16,13 @@
           <p>Sales intelligence workspace</p>
         </div>
       </div>
+
+      <nav class="side-nav" aria-label="Main navigation">
+        <button class="nav-button active" data-page="analysisPage" type="button">客戶分析 / Analysis</button>
+        <button class="nav-button" data-page="productsPage" type="button">產品資料庫 / Products</button>
+        <button class="nav-button" data-page="customersPage" type="button">客戶池 / Customers</button>
+        <button id="sendersNavBtn" class="nav-button hidden" data-page="sendersPage" type="button">寄件者管理 / Senders</button>
+      </nav>
 
       <section class="today-widget">
         <div class="widget-head">
@@ -33,13 +40,6 @@
         <h3><span class="widget-icon" aria-hidden="true">◌</span> 統計摘要 / Summary</h3>
         <div id="statsSummary" class="stats-grid"></div>
       </section>
-
-      <nav class="side-nav" aria-label="Main navigation">
-        <button class="nav-button active" data-page="analysisPage" type="button">客戶分析 / Analysis</button>
-        <button class="nav-button" data-page="productsPage" type="button">產品資料庫 / Products</button>
-        <button class="nav-button" data-page="customersPage" type="button">客戶池 / Customers</button>
-        <button id="sendersNavBtn" class="nav-button hidden" data-page="sendersPage" type="button">寄件者管理 / Senders</button>
-      </nav>
 
       <section class="error-widget">
         <div class="widget-head">
@@ -61,7 +61,7 @@
         <div>
           <h2 id="pageTitle">客戶分析 / Customer Analysis</h2>
           <p id="pageSubtitle">抓取官網、提取業務信號、評分、推薦產品並生成英文開發信。</p>
-          <div class="import-hint"><span aria-hidden="true">ⓘ</span><strong>導入提示 / Import Note:</strong> 「從客戶池載入」會讀取團隊共享客戶池資料，不會覆蓋目前輸入，直到你保存。</div>
+          <div class="import-hint"><span aria-hidden="true">ⓘ</span><strong>提示 / Note:</strong> 從客戶池載入共享資料；選擇客戶後才會填入目前表單。</div>
         </div>
         <div id="toast" class="toast" role="status">Ready</div>
       </header>
@@ -89,7 +89,7 @@
                 <label>公司名 / Company <span class="required">*</span>
                   <input id="companyName" type="text" placeholder="B&H Photo Video" required>
                 </label>
-                <label>官網 / Website
+                <label class="website-highlight-field">官網 / Website
                   <input id="website" type="text" inputmode="url" pattern="^(https?://)?[^\s]+\.[^\s]+.*$" placeholder="shturl.cc/PJ832">
                   <small class="field-help">支援完整網址或短網址 / Full URL or short link accepted</small>
                 </label>
@@ -169,9 +169,9 @@
             </form>
 
             <div class="action-row form-actions">
-              <button id="fetchWebsiteBtn" class="secondary-button" type="button">抓取官網 / Fetch Website</button>
-              <button id="runAnalysisBtn" class="primary-button" type="button">生成客戶分析 & 一鍵填充郵件 / Generate</button>
-              <button id="saveCustomerBtn" class="secondary-button" type="button">存入客戶池 / Save</button>
+              <button id="fetchWebsiteBtn" class="secondary-button" type="button">抓取 / Fetch</button>
+              <button id="runAnalysisBtn" class="primary-button" type="button">生成 / Generate</button>
+              <button id="saveCustomerBtn" class="secondary-button" type="button">保存 / Save</button>
               <button id="clearAnalysisBtn" class="ghost-button" type="button">清空 / Clear</button>
             </div>
 
@@ -192,6 +192,7 @@
                     <button id="emailEditModeBtn" class="mini-button active" type="button">編輯 / Edit</button>
                     <button id="emailPreviewModeBtn" class="mini-button" type="button">預覽 / Preview</button>
                   </div>
+                  <button id="sendEmailTopBtn" class="primary-button send-email-top" type="button">📤 發送郵件</button>
                   <button id="saveTemplateTopBtn" class="secondary-button template-save-top" type="button">💾 儲存為範本</button>
                   <button id="deleteTemplateTopBtn" class="ghost-button hidden" type="button">🗑️ 刪除</button>
                 </div>
@@ -249,7 +250,7 @@
                 <span>📎 點擊或拖曳上傳檔案（單檔上限 10MB）</span>
                 <span style="font-size:12px;color:#999;">支援：PDF, Word, Excel, 圖片</span>
               </div>
-              <input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif" disabled>
+              <input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.heic,.heif" disabled>
               <div class="attachment-list-placeholder">
                 TODO: 未來這裡會顯示已上傳的附件清單：檔名、大小、移除按鈕
               </div>
@@ -274,9 +275,10 @@
                 <input id="attachmentName" type="text" placeholder="Display name, e.g. M200R catalog">
                 <input id="attachmentUrl" type="url" placeholder="https://... file / video / web link">
                 <button id="addAttachmentBtn" class="secondary-button" type="button">新增</button>
-                <button id="uploadAttachmentBtn" class="ghost-button" type="button">📎 上傳附件</button>
+                <button id="uploadAttachmentBtn" class="ghost-button attachment-upload-button" type="button">📎 上傳附件</button>
               </div>
-              <input id="attachmentFileInput" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif">
+              <input id="attachmentFileInput" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.heic,.heif">
+              <div id="attachmentUploadStatus" class="attachment-upload-status">Ready to upload files.</div>
               <div id="attachmentList" class="attachment-list-placeholder"></div>
             </div>
             <div class="variable-list">
@@ -298,6 +300,14 @@
               <small class="template-help">③ 修改 Subject / Body 後，點「儲存為範本」並輸入名稱，例如：報價信。</small>
             </div>
           </section>
+
+        <section id="analysisPlaceholder" class="card result-card analysis-placeholder-card">
+          <div class="analysis-placeholder-content">
+            <h3>分析結果會顯示在這裡 / Analysis result will appear here</h3>
+            <p>這是右側快捷入口，功能與左側 Generate 相同。完成後，這裡會顯示評分、推薦產品、郵件預覽、發送郵件與跟進時間線。</p>
+            <button id="runAnalysisSideBtn" class="primary-button" type="button">快捷：生成並顯示結果 / Shortcut: Show Analysis Result</button>
+          </div>
+        </section>
 
         <section id="analysisResult" class="card result-card hidden">
           <div class="card-head">
@@ -342,7 +352,7 @@
             <div class="card-head compact">
               <h4>F. 英文開發信</h4>
               <button id="copyEmailBtn" class="secondary-button" type="button">複製郵件</button>
-              <button id="sendEmailBtn" class="primary-button" type="button" disabled>📤 發送郵件</button>
+              <button id="sendEmailBtn" class="primary-button" type="button">📤 發送郵件</button>
             </div>
             <!-- TODO: 郵件預覽區未來會顯示「附件：xxx.pdf (123KB)」等資訊 -->
             <pre id="emailPreview" class="email-preview"></pre>
@@ -374,7 +384,8 @@
             </div>
             <div class="action-row">
               <button id="addProductBtn" class="secondary-button" type="button">新增產品</button>
-              <button id="importProductsBtn" class="ghost-button" type="button">導入產品 Excel</button>
+              <button id="importProductsBtn" class="secondary-button" type="button">導入產品 Excel / Upload Product Excel</button>
+              <input id="productExcelFileInput" class="hidden-file-input" type="file" accept=".xlsx,.xls,.csv">
             </div>
           </div>
           <div class="toolbar">
@@ -384,13 +395,29 @@
               <option value="all">完整目錄</option>
             </select>
           </div>
-          <div class="toolbar">
-            <select id="productImportFileSelect"></select>
-            <input id="productImportIndex" type="number" min="1" placeholder="Type file number, e.g. 1">
-            <div class="excel-import-section">
-              <label>Excel 文件清單 / Excel Files</label>
-              <div id="productExcelFileList" class="excel-file-list"></div>
-            </div>
+          <div class="product-match-help">
+            <strong>Recommended For：</strong>
+            A = 批發商 / Wholesaler,
+            B = 實體零售商 / Physical Reseller,
+            C = 網店零售商 / Online Reseller,
+            D = 工作室 / Studio or End User,
+            All = 所有客戶皆適用 / suitable for all buyers.
+            <br>
+            <strong>Priority：</strong>
+            1 = 最優先推薦 / first recommendation,
+            2 = 第二優先 / second,
+            3 = 第三優先 / third,
+            空白或較大數字 = 排在後面 / blank or larger numbers appear later.
+            <br>
+            <strong>設定邏輯 / Setup logic：</strong>
+            Recommended For 決定「這個產品給誰」；Priority 決定「符合的人裡，先推哪個」。
+            <br>
+            <strong>建議設定 / Suggested setup：</strong>
+            高單價 / 批發量大產品 = A + Priority 1；
+            實體店容易展示的熱銷款 = B + Priority 1；
+            輕便、容易網店銷售的產品 = C + Priority 1；
+            套裝、服務型、工作室常用產品 = D + Priority 1；
+            基礎配件、所有人都可能需要 = All + Priority 2 或 3。
           </div>
           <div id="productTable" class="table-wrap"></div>
         </section>
@@ -407,18 +434,13 @@
               <button id="addCustomerBtn" class="secondary-button" type="button">新增客戶</button>
               <button id="importCustomersBtn" class="secondary-button" type="button">刷新導入文件</button>
               <button id="importUpdateBtn" class="ghost-button" type="button">匯入更新 Excel</button>
-              <button id="exportCustomersBtn" class="primary-button" type="button">導出決策表</button>
+              <button id="exportCustomersBtn" class="primary-button" type="button">導出客戶 / Export Customer Excel</button>
             </div>
           </div>
 
           <div class="toolbar">
-            <select id="customerImportFileSelect"></select>
-            <input id="customerImportIndex" type="number" min="1" placeholder="Type file number, e.g. 1">
-            <button id="importCustomersConfigBtn" class="secondary-button" type="button">導入選中文件 / Import Selected File</button>
-            <div class="excel-import-section">
-              <label>Excel 文件清單 / Excel Files</label>
-              <div id="excelFileList" class="excel-file-list"></div>
-            </div>
+            <button id="uploadCustomerExcelBtn" class="secondary-button" type="button">選擇本機 Excel / Choose Excel from computer</button>
+            <input id="customerExcelFileInput" class="hidden-file-input" type="file" accept=".xlsx,.xls,.csv">
           </div>
 
           <div class="toolbar">
@@ -443,7 +465,9 @@
               <option value="cancelled">cancelled</option>
               <option value="deferred">deferred</option>
             </select>
-            <input id="customerSearch" type="search" placeholder="搜尋公司、官網、郵箱...">
+            <label class="customer-search-box">搜尋 / Search
+              <input id="customerSearch" type="search" placeholder="輸入公司、官網、聯絡人、郵箱...">
+            </label>
           </div>
 
           <div class="bulk-box">
@@ -687,6 +711,6 @@
     </form>
   </dialog>
 
-  <script src="script.js?v=20260629-buying-role"></script>
+  <script src="script.js?v=20260630-toast-full-text"></script>
 </body>
 </html>
