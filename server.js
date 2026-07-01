@@ -142,8 +142,29 @@ function getSqliteDb() {
       updatedAt TEXT
     )
   `);
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS groups (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_at TEXT
+    )
+  `);
+  ensureOptionalCustomerGroupColumn(sqliteDb);
   seedDefaultSender(sqliteDb);
   return sqliteDb;
+}
+
+function ensureOptionalCustomerGroupColumn(db) {
+  try {
+    const table = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'customers'").get();
+    if (!table) return;
+    const columns = db.prepare("PRAGMA table_info(customers)").all();
+    if (!columns.some((column) => column.name === "group_id")) {
+      db.exec("ALTER TABLE customers ADD COLUMN group_id TEXT");
+    }
+  } catch (error) {
+    console.warn(`Optional customers.group_id migration skipped: ${error.message}`);
+  }
 }
 
 function uid(prefix = "id") {
@@ -198,8 +219,21 @@ function publicCustomTemplate(row) {
   };
 }
 
+function publicGroup(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    created_at: row.created_at
+  };
+}
+
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function normalizeGroupId(value) {
+  const text = String(value || "").trim();
+  return text && text !== "null" && text !== "__ungrouped__" ? text : "";
 }
 
 function seedDefaultSender(db) {
@@ -837,6 +871,8 @@ app.get("/api/customers", (req, res) => {
       success: true,
       customers: customers.map((customer) => ({
         ...customer,
+        groupId: normalizeGroupId(customer.groupId || customer.group_id),
+        group_id: normalizeGroupId(customer.group_id || customer.groupId),
         emailContacts: normalizeCustomerEmailContacts(customer.emailContacts)
       }))
     });
@@ -863,6 +899,8 @@ app.put("/api/customers/:id", (req, res) => {
       ...customers[index],
       ...(req.body || {}),
       id,
+      groupId: normalizeGroupId(req.body?.groupId ?? req.body?.group_id ?? customers[index].groupId ?? customers[index].group_id),
+      group_id: normalizeGroupId(req.body?.group_id ?? req.body?.groupId ?? customers[index].group_id ?? customers[index].groupId),
       emailContacts: normalizeCustomerEmailContacts(req.body?.emailContacts ?? customers[index].emailContacts)
     };
     customers[index] = nextCustomer;
@@ -870,6 +908,137 @@ app.put("/api/customers/:id", (req, res) => {
     res.json({ success: true, customer: nextCustomer });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to update customer." });
+  }
+});
+
+app.get("/api/groups", (req, res) => {
+  try {
+    const rows = getSqliteDb()
+      .prepare("SELECT id, name, created_at FROM groups ORDER BY name COLLATE NOCASE")
+      .all();
+    res.json({ success: true, hostOnly: isHostImportRequest(req), groups: rows.map(publicGroup) });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to load groups." });
+  }
+});
+
+app.post("/api/groups", (req, res) => {
+  if (rejectRemoteAdmin(req, res)) return;
+  try {
+    const name = String(req.body?.name || "").trim();
+    if (!name) {
+      res.status(400).json({ success: false, error: "Group name is required." });
+      return;
+    }
+    const id = uid("group");
+    const createdAt = new Date().toISOString();
+    getSqliteDb().prepare("INSERT INTO groups (id, name, created_at) VALUES (?, ?, ?)")
+      .run(id, name, createdAt);
+    const group = getSqliteDb().prepare("SELECT id, name, created_at FROM groups WHERE id = ?").get(id);
+    res.json({ success: true, group: publicGroup(group) });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to create group." });
+  }
+});
+
+app.put("/api/groups/:id", (req, res) => {
+  if (rejectRemoteAdmin(req, res)) return;
+  try {
+    const id = String(req.params.id || "").trim();
+    const name = String(req.body?.name || "").trim();
+    if (!id || !name) {
+      res.status(400).json({ success: false, error: "Group id and name are required." });
+      return;
+    }
+    const result = getSqliteDb().prepare("UPDATE groups SET name = ? WHERE id = ?").run(name, id);
+    if (!result.changes) {
+      res.status(404).json({ success: false, error: "Group not found." });
+      return;
+    }
+    const group = getSqliteDb().prepare("SELECT id, name, created_at FROM groups WHERE id = ?").get(id);
+    res.json({ success: true, group: publicGroup(group) });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to update group." });
+  }
+});
+
+app.delete("/api/groups/:id", (req, res) => {
+  if (rejectRemoteAdmin(req, res)) return;
+  try {
+    const id = String(req.params.id || "").trim();
+    const result = getSqliteDb().prepare("DELETE FROM groups WHERE id = ?").run(id);
+    if (!result.changes) {
+      res.status(404).json({ success: false, error: "Group not found." });
+      return;
+    }
+    const snapshot = readSharedStore();
+    const customers = Array.isArray(snapshot.data.phottix_customers) ? snapshot.data.phottix_customers : [];
+    const updatedCustomers = customers.map((customer) => {
+      const currentGroupId = normalizeGroupId(customer.groupId || customer.group_id);
+      if (currentGroupId !== id) return customer;
+      return { ...customer, groupId: "", group_id: "" };
+    });
+    writeSharedKey("phottix_customers", updatedCustomers);
+    res.json({ success: true, movedToUngrouped: customers.filter((customer) => normalizeGroupId(customer.groupId || customer.group_id) === id).length });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to delete group." });
+  }
+});
+
+app.put("/api/customers/:id/group", (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    const groupId = normalizeGroupId(req.body?.group_id ?? req.body?.groupId);
+    const snapshot = readSharedStore();
+    const customers = Array.isArray(snapshot.data.phottix_customers) ? snapshot.data.phottix_customers : [];
+    const index = customers.findIndex((customer) => String(customer.id || "") === id);
+    if (index < 0) {
+      res.status(404).json({ success: false, error: "Customer not found." });
+      return;
+    }
+    if (groupId) {
+      const group = getSqliteDb().prepare("SELECT id FROM groups WHERE id = ?").get(groupId);
+      if (!group) {
+        res.status(400).json({ success: false, error: "Group not found." });
+        return;
+      }
+    }
+    customers[index] = { ...customers[index], groupId, group_id: groupId };
+    writeSharedKey("phottix_customers", customers);
+    res.json({ success: true, customer: customers[index] });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to move customer group." });
+  }
+});
+
+app.post("/api/customers/batch-group", (req, res) => {
+  try {
+    const customerIds = Array.isArray(req.body?.customerIds) ? req.body.customerIds.map((id) => String(id || "")) : [];
+    const groupId = normalizeGroupId(req.body?.group_id ?? req.body?.groupId);
+    if (!customerIds.length) {
+      res.status(400).json({ success: false, error: "Please select customers first." });
+      return;
+    }
+    if (groupId) {
+      const group = getSqliteDb().prepare("SELECT id FROM groups WHERE id = ?").get(groupId);
+      if (!group) {
+        res.status(400).json({ success: false, error: "Group not found." });
+        return;
+      }
+    }
+    const idSet = new Set(customerIds);
+    const snapshot = readSharedStore();
+    const customers = Array.isArray(snapshot.data.phottix_customers) ? snapshot.data.phottix_customers : [];
+    let updated = 0;
+    const updatedCustomers = customers.map((customer) => {
+      if (!idSet.has(String(customer.id || ""))) return customer;
+      updated += 1;
+      return { ...customer, groupId, group_id: groupId };
+    });
+    writeSharedKey("phottix_customers", updatedCustomers);
+    res.json({ success: true, updated });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to batch move customers." });
   }
 });
 

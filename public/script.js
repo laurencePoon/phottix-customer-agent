@@ -153,6 +153,7 @@
     selectedTemplateKind: "default",
     selectedCustomTemplateId: "",
     senders: [],
+    groups: [],
     isHostAdmin: false
   };
 
@@ -627,6 +628,8 @@
         ...customer,
         city: customer.city || "",
         industry: customer.industry || "",
+        groupId: normalizeGroupId(customer.groupId || customer.group_id),
+        group_id: normalizeGroupId(customer.group_id || customer.groupId),
         buyingRole: normalizeBuyingRole(customer.buyingRole),
         isBuyingRoleManuallyReviewed: Boolean(customer.isBuyingRoleManuallyReviewed),
         customerScore: normalizeCustomerScore(customer.customerScore),
@@ -1176,15 +1179,21 @@
       }
       return files[index - 1];
     },
-    importCustomerRows(rows) {
+    importCustomerRows(rows, options = {}) {
       DB.backup("before_customer_import");
       const customers = DB.getCustomers();
+      const targetGroupId = normalizeGroupId(options.groupId ?? dom.customerImportGroupSelect?.value);
       let added = 0;
       let skipped = 0;
       let forceUpdated = 0;
+      let movedGroup = 0;
       for (const row of rows) {
         const incoming = normalizeImportedCustomer(row);
         incoming._normalizedDomain = importedRowDomain(row) || normalizeDomain(incoming.website);
+        if (targetGroupId || options.forceGroup) {
+          incoming.groupId = targetGroupId;
+          incoming.group_id = targetGroupId;
+        }
         if (!incoming.companyName && !incoming.website && !incoming.contactEmail) continue;
         const index = customers.findIndex((item) => isDuplicateCustomer(item, incoming));
         if (index >= 0) {
@@ -1200,6 +1209,13 @@
               isBuyingRoleManuallyReviewed: customers[index].isBuyingRoleManuallyReviewed || incoming.isBuyingRoleManuallyReviewed
             };
             forceUpdated += 1;
+          } else if (options.forceGroup) {
+            customers[index] = {
+              ...customers[index],
+              groupId: targetGroupId,
+              group_id: targetGroupId
+            };
+            movedGroup += 1;
           } else {
             skipped += 1;
           }
@@ -1210,15 +1226,15 @@
       }
       DB.setCustomers(customers);
       UI.refreshAll();
-      UI.toast(`新增：${added} 筆，跳過：${skipped} 筆（重複客戶），強制更新：${forceUpdated} 筆。`, "good");
+      UI.toast(`新增：${added} 筆，跳過：${skipped} 筆（重複客戶），強制更新：${forceUpdated} 筆，更新組別：${movedGroup} 筆。`, "good");
     },
     async importCustomersFromConfig(filename) {
       const cleanName = normalizeText(filename || this.selectedImportFilename()).replace(/^["']|["']$/g, "");
       if (!cleanName) throw new Error("Please type or select an Excel filename first.");
-      this.importCustomerRows(await this.parseConfigFile(cleanName));
+      this.importCustomerRows(await this.parseConfigFile(cleanName), { groupId: dom.customerImportGroupSelect?.value, forceGroup: true });
     },
     async importCustomersFromUpload(file) {
-      this.importCustomerRows(await this.parseUploadedCustomerFile(file));
+      this.importCustomerRows(await this.parseUploadedCustomerFile(file), { groupId: dom.customerImportGroupSelect?.value, forceGroup: true });
     },
     importProductRows(rows) {
       DB.backup("before_product_import");
@@ -1259,6 +1275,8 @@
         country: customer.country,
         city: customer.city,
         industry: customer.industry,
+        group_id: normalizeGroupId(customer.groupId || customer.group_id),
+        group_name: groupName(customer.groupId || customer.group_id),
         buying_role: normalizeBuyingRole(customer.buyingRole),
         buying_role_manually_reviewed: customer.isBuyingRoleManuallyReviewed ? "YES" : "NO",
         customer_score: customer.customerScore ?? "",
@@ -1320,7 +1338,9 @@
           notes: [customers[index].notes, normalized.notes].filter(Boolean).join(" | "),
           buyingRole: incoming.isBuyingRoleManuallyReviewed ? incoming.buyingRole : customers[index].buyingRole,
           isBuyingRoleManuallyReviewed: customers[index].isBuyingRoleManuallyReviewed || incoming.isBuyingRoleManuallyReviewed,
-          customerScore: incoming.customerScore ?? customers[index].customerScore
+          customerScore: incoming.customerScore ?? customers[index].customerScore,
+          groupId: incoming.groupId || customers[index].groupId || customers[index].group_id || "",
+          group_id: incoming.group_id || customers[index].group_id || customers[index].groupId || ""
         };
         updated += 1;
       }
@@ -1426,6 +1446,86 @@
     }
   };
 
+  const GroupApi = {
+    async list() {
+      const response = await fetch(`${API_BASE}/api/groups`, { cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to load groups.");
+      state.groups = Array.isArray(payload.groups) ? payload.groups : [];
+      state.isHostAdmin = Boolean(payload.hostOnly || state.isHostAdmin);
+      return state.groups;
+    },
+    async create(name) {
+      const cleanName = normalizeText(name);
+      if (!cleanName) throw new Error("Group name is required.");
+      const response = await fetch(`${API_BASE}/api/groups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: cleanName })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to create group.");
+      await this.list();
+      UI.renderGroupControls();
+      UI.renderCustomerList();
+      UI.toast("Group created.", "good");
+      return payload.group;
+    },
+    async update(id, name) {
+      const cleanName = normalizeText(name);
+      if (!id || !cleanName) throw new Error("Group name is required.");
+      const response = await fetch(`${API_BASE}/api/groups/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: cleanName })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to update group.");
+      await this.list();
+      UI.renderGroupControls();
+      UI.renderCustomerList();
+      UI.toast("Group updated.", "good");
+      return payload.group;
+    },
+    async remove(id) {
+      const response = await fetch(`${API_BASE}/api/groups/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to delete group.");
+      await this.list();
+      await DB.initSharedStore();
+      UI.refreshAll();
+      UI.toast(`Group deleted. ${payload.movedToUngrouped || 0} customers moved to ungrouped.`, "good");
+    },
+    async moveCustomer(customerId, groupId) {
+      const response = await fetch(`${API_BASE}/api/customers/${encodeURIComponent(customerId)}/group`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_id: normalizeGroupId(groupId) })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to move customer.");
+      await DB.initSharedStore();
+      UI.refreshAll();
+      UI.toast(`Customer moved to ${groupName(groupId)}.`, "good");
+      return payload.customer;
+    },
+    async batchMove(customerIds, groupId) {
+      const ids = Array.isArray(customerIds) ? customerIds.filter(Boolean) : [];
+      if (!ids.length) throw new Error("Please select customers first.");
+      const response = await fetch(`${API_BASE}/api/customers/batch-group`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerIds: ids, group_id: normalizeGroupId(groupId) })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to move selected customers.");
+      await DB.initSharedStore();
+      state.selectedCustomerIds.clear();
+      UI.refreshAll();
+      UI.toast(`Moved ${payload.updated || 0} customers to ${groupName(groupId)}.`, "good");
+    }
+  };
+
   const UI = {
     toast(message, tone = "") {
       dom.toast.textContent = message;
@@ -1447,6 +1547,7 @@
       this.renderTodayFollowUps();
       this.renderStats();
       this.renderErrorLogs();
+      this.renderGroupControls();
       this.renderLoadCustomerSelect();
       this.renderSenderSelector();
       this.renderSenderList();
@@ -1552,7 +1653,10 @@
     },
     renderLoadCustomerSelect() {
       const customers = DB.getCustomers();
-      dom.loadCustomerSelect.innerHTML = `<option value="">從客戶池載入 / Load from Customer Pool</option>${customers.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.companyName || item.website || item.contactEmail)}</option>`).join("")}`;
+      dom.loadCustomerSelect.innerHTML = `<option value="">從客戶池載入 / Load from Customer Pool</option>${customers.map((item) => {
+        const label = item.companyName || item.website || item.contactEmail;
+        return `<option value="${escapeHtml(item.id)}">${escapeHtml(label)} · ${escapeHtml(groupName(item.groupId || item.group_id))}</option>`;
+      }).join("")}`;
     },
     renderProductList() {
       const query = normalizeText(dom.productSearch.value).toLowerCase();
@@ -1604,6 +1708,7 @@
             </header>
             <div class="customer-meta">
               <span class="status-pill">${escapeHtml(customer.customerType || "prospect")}</span>
+              <span class="status-pill">Group: ${escapeHtml(groupName(customer.groupId || customer.group_id))}</span>
               <span class="status-pill">Buying Role: ${escapeHtml(normalizeBuyingRole(customer.buyingRole))}${customer.isBuyingRoleManuallyReviewed ? " / Manual" : ""}</span>
               <span class="status-pill">Customer Score: ${escapeHtml(customer.customerScore ?? "—")}</span>
               <span class="status-pill">${escapeHtml(customer.followUpStatus || "open")}</span>
@@ -1617,6 +1722,11 @@
               </label>
               <label>Customer Score
                 <input data-action="change-customer-score" data-id="${escapeHtml(customer.id)}" type="number" min="1" max="100" step="1" value="${escapeHtml(customer.customerScore ?? "")}" placeholder="1-100">
+              </label>
+              <label>Group
+                <select data-action="change-customer-group" data-id="${escapeHtml(customer.id)}">
+                  ${groupOptionsHtml(customer.groupId || customer.group_id)}
+                </select>
               </label>
             </div>
             <p>${escapeHtml([customer.contactName, customer.contactEmail, customer.country, customer.city, customer.industry].filter(Boolean).join(" · ") || "No contact info")}</p>
@@ -1738,6 +1848,44 @@
       this.renderAttachmentList();
       setEmailEditorMode("edit");
     },
+    renderGroupControls() {
+      const filterValue = dom.groupFilter?.value || "";
+      const importValue = dom.customerImportGroupSelect?.value || "";
+      const bulkValue = dom.bulkGroupSelect?.value || "";
+      const groupOptions = state.groups.map((group) => `<option value="${escapeHtml(group.id)}">${escapeHtml(group.name)}</option>`).join("");
+      if (dom.groupFilter) {
+        dom.groupFilter.innerHTML = `<option value="">全部組別</option><option value="__ungrouped__">未分組 / Ungrouped</option>${groupOptions}`;
+        dom.groupFilter.value = Array.from(dom.groupFilter.options).some((option) => option.value === filterValue) ? filterValue : "";
+      }
+      if (dom.customerImportGroupSelect) {
+        dom.customerImportGroupSelect.innerHTML = `<option value="">未分組 / Ungrouped</option>${groupOptions}`;
+        dom.customerImportGroupSelect.value = Array.from(dom.customerImportGroupSelect.options).some((option) => option.value === importValue) ? importValue : "";
+      }
+      if (dom.bulkGroupSelect) {
+        dom.bulkGroupSelect.innerHTML = `<option value="">移動到：未分組</option>${state.groups.map((group) => `<option value="${escapeHtml(group.id)}">移動到：${escapeHtml(group.name)}</option>`).join("")}`;
+        dom.bulkGroupSelect.value = Array.from(dom.bulkGroupSelect.options).some((option) => option.value === bulkValue) ? bulkValue : "";
+      }
+      if (dom.dialogGroup) {
+        const current = dom.dialogGroup.value;
+        dom.dialogGroup.innerHTML = groupOptionsHtml(current);
+      }
+      if (dom.groupList) {
+        if (!state.groups.length) {
+          dom.groupList.innerHTML = `<span class="empty-inline">尚未建立組別</span>`;
+        } else {
+          dom.groupList.innerHTML = state.groups.map((group) => `
+            <span class="group-chip">
+              ${escapeHtml(group.name)}
+              ${state.isHostAdmin ? `
+                <button data-action="edit-group" data-id="${escapeHtml(group.id)}" type="button">Edit</button>
+                <button data-action="delete-group" data-id="${escapeHtml(group.id)}" type="button">Delete</button>
+              ` : ""}
+            </span>
+          `).join("");
+        }
+      }
+      if (dom.addGroupBtn) dom.addGroupBtn.classList.toggle("hidden", !state.isHostAdmin);
+    },
     renderAttachmentList() {
       if (!dom.attachmentList) return;
       const attachments = normalizeAttachments(state.emailAttachments);
@@ -1848,12 +1996,39 @@
     return CUSTOMER_TYPES.includes(text) ? text : "prospect";
   }
 
+  function normalizeGroupId(value) {
+    const text = normalizeText(value);
+    return text && text !== "null" && text !== "__ungrouped__" ? text : "";
+  }
+
+  function groupName(groupId) {
+    const id = normalizeGroupId(groupId);
+    if (!id) return "未分組 / Ungrouped";
+    return state.groups.find((group) => group.id === id)?.name || "Unknown Group";
+  }
+
+  function resolveGroupId(value) {
+    const text = normalizeGroupId(value);
+    if (!text) return "";
+    return state.groups.find((group) => group.id === text || group.name.toLowerCase() === text.toLowerCase())?.id || text;
+  }
+
+  function groupOptionsHtml(selected = "", options = {}) {
+    const selectedId = normalizeGroupId(selected);
+    const firstLabel = options.firstLabel || "未分組 / Ungrouped";
+    return [
+      `<option value="" ${!selectedId ? "selected" : ""}>${escapeHtml(firstLabel)}</option>`,
+      ...state.groups.map((group) => `<option value="${escapeHtml(group.id)}" ${group.id === selectedId ? "selected" : ""}>${escapeHtml(group.name)}</option>`)
+    ].join("");
+  }
+
   function normalizeImportedCustomer(row) {
     const n = normalizeKeys(row);
     const customerTypeText = getAny(n, "Customer Type", "customer_type", "客戶類型", "客户类型");
     const industry = getAny(n, "Industry", "industry", "行業類別", "行业类别", "行業", "行业");
     const buyingRole = normalizeBuyingRole(getAny(n, "Buying Role", "buying_role", "buyingRole", "購買角色", "购买角色"));
     const customerScore = normalizeCustomerScore(getAny(n, "Customer Score", "customer_score", "customerScore", "客戶價值分數", "客户价值分数", "客戶分數", "客户分数"));
+    const groupId = resolveGroupId(getAny(n, "Group ID", "group_id", "groupId", "Group", "group", "組別", "组别", "客戶組別", "客户组别"));
     const country = getAny(n, "Country", "country", "國家", "国家", "地區", "地区", "國家地區名", "国家地区名", "國家地區名稱", "国家地区名称");
     const city = getAny(n, "City", "city", "城市", "城巿");
     const notes = [
@@ -1871,6 +2046,8 @@
       country,
       city,
       industry,
+      groupId,
+      group_id: groupId,
       buyingRole,
       isBuyingRoleManuallyReviewed: buyingRole !== "Unknown",
       customerScore,
@@ -1974,6 +2151,9 @@
       customer.website,
       customer.contactName,
       customer.contactEmail,
+      customer.groupId,
+      customer.group_id,
+      groupName(customer.groupId || customer.group_id),
       ...emailContacts
     ].filter(Boolean).join(" ").toLowerCase();
   }
@@ -1982,11 +2162,15 @@
     const type = dom.customerTypeFilter.value;
     const rating = dom.ratingFilter.value;
     const status = dom.followStatusFilter.value;
+    const groupFilter = dom.groupFilter?.value || "";
     const query = normalizeText(dom.customerSearch.value).toLowerCase();
     return customers.filter((customer) => {
       if (type && customer.customerType !== type) return false;
       if (rating && customer.rating !== rating) return false;
       if (status && customer.followUpStatus !== status) return false;
+      const customerGroupId = normalizeGroupId(customer.groupId || customer.group_id);
+      if (groupFilter === "__ungrouped__" && customerGroupId) return false;
+      if (groupFilter && groupFilter !== "__ungrouped__" && customerGroupId !== groupFilter) return false;
       if (query && !customerSearchText(customer).includes(query)) return false;
       return true;
     });
@@ -2003,6 +2187,8 @@
       country: normalizeText(dom.country.value),
       city: normalizeText(dom.city.value),
       industry: normalizeText(dom.industry.value),
+      groupId: normalizeGroupId(existing?.groupId || existing?.group_id),
+      group_id: normalizeGroupId(existing?.group_id || existing?.groupId),
       buyingRole: normalizeBuyingRole(dom.buyingRole?.value || existing?.buyingRole),
       isBuyingRoleManuallyReviewed: Boolean(existing?.isBuyingRoleManuallyReviewed || state.buyingRoleManualDirty),
       customerScore: normalizeCustomerScore(existing?.customerScore),
@@ -2232,6 +2418,10 @@
     dom.dialogContactName.value = customer?.contactName || "";
     dom.dialogContactEmail.value = customer?.contactEmail || "";
     dom.dialogCountry.value = customer?.country || "";
+    if (dom.dialogGroup) {
+      dom.dialogGroup.innerHTML = groupOptionsHtml(customer?.groupId || customer?.group_id);
+      dom.dialogGroup.value = normalizeGroupId(customer?.groupId || customer?.group_id);
+    }
     dom.dialogCustomerScore.value = customer?.customerScore ?? "";
     dom.dialogBuyingRole.value = normalizeBuyingRole(customer?.buyingRole);
     dom.dialogCustomerType.value = customer?.customerType || "prospect";
@@ -2252,6 +2442,8 @@
       contactName: normalizeText(dom.dialogContactName.value),
       contactEmail: normalizeText(dom.dialogContactEmail.value),
       country: normalizeText(dom.dialogCountry.value),
+      groupId: normalizeGroupId(dom.dialogGroup?.value),
+      group_id: normalizeGroupId(dom.dialogGroup?.value),
       customerScore: normalizeCustomerScore(dom.dialogCustomerScore.value),
       emailContacts: normalizeEmailContacts(existing?.emailContacts),
       buyingRole: selectedBuyingRole,
@@ -2666,6 +2858,21 @@
     UI.toast(`Updated follow-up fields for ${selected.length} customers.`, "good");
   }
 
+  function bulkMoveSelectedToGroup() {
+    const selected = selectedCustomers();
+    if (!selected.length) {
+      UI.toast("Please select customers first.", "warn");
+      return;
+    }
+    const groupId = normalizeGroupId(dom.bulkGroupSelect?.value);
+    if (!confirm(`Move ${selected.length} selected customers to ${groupName(groupId)}?`)) return;
+    GroupApi.batchMove(selected.map((item) => item.id), groupId).catch((error) => {
+      DB.addErrorLog("批量移動組別", error);
+      UI.refreshAll();
+      UI.toast(error.message, "bad");
+    });
+  }
+
   function purgeDeprecatedProductStatus() {
     const rawProducts = DB.read(STORAGE.products, []);
     const deprecatedKeys = ["status", "Status", "productStatus"];
@@ -2903,14 +3110,14 @@
       "emailStrategyNote",
       "addLogBtn", "timeline", "analysisHistory", "addProductBtn", "importProductsBtn", "productExcelFileInput", "productSearch",
       "productView", "productTable", "addCustomerBtn", "importCustomersBtn", "syncInboxBtn", "importUpdateBtn",
-      "exportCustomersBtn", "customerImportFileSelect", "customerImportIndex", "importCustomersConfigBtn", "uploadCustomerExcelBtn", "customerExcelFileInput", "excelFileList", "customerTypeFilter", "ratingFilter",
-      "followStatusFilter", "customerSearch", "selectAllCustomers", "bulkAnalyzeSelectedBtn",
-      "bulkAnalyzeAllBtn", "bulkDeleteBtn", "bulkConvertBtn", "bulkFollowStatus", "bulkNextFollowDate", "bulkProgressBar", "bulkProgressText", "customerList", "backupExportBtn",
+      "exportCustomersBtn", "customerImportFileSelect", "customerImportIndex", "importCustomersConfigBtn", "uploadCustomerExcelBtn", "customerExcelFileInput", "customerImportGroupSelect", "excelFileList", "addGroupBtn", "groupList", "customerTypeFilter", "ratingFilter",
+      "followStatusFilter", "groupFilter", "customerSearch", "selectAllCustomers", "bulkAnalyzeSelectedBtn",
+      "bulkAnalyzeAllBtn", "bulkDeleteBtn", "bulkConvertBtn", "bulkGroupSelect", "bulkMoveGroupBtn", "bulkFollowStatus", "bulkNextFollowDate", "bulkProgressBar", "bulkProgressText", "customerList", "backupExportBtn",
       "backupImportBtn", "backupFileInput", "productDialog", "productForm", "productDialogTitle",
       "productId", "productName", "productCategory", "productInPool", "productPriority",
       "productPriorityNumber", "productRecommendedFor", "productSku", "productDescription", "productPrice", "productUrl", "productLaunchDate",
       "saveProductDialogBtn", "customerDialog", "customerForm", "customerDialogTitle", "customerId",
-      "dialogCompanyName", "dialogWebsite", "dialogContactName", "dialogContactEmail", "dialogCountry", "dialogCustomerScore",
+      "dialogCompanyName", "dialogWebsite", "dialogContactName", "dialogContactEmail", "dialogCountry", "dialogGroup", "dialogCustomerScore",
       "dialogBuyingRole", "dialogCustomerType", "dialogFollowStatus", "dialogNextFollowDate", "saveCustomerDialogBtn",
       "overrideDialog", "overrideForm", "overrideRating", "overrideReason", "saveOverrideBtn",
       "logDialog", "logForm", "logCustomerId", "logDate", "logChannel", "logContactPerson", "logSubject",
@@ -3089,6 +3296,11 @@
     dom.productView.addEventListener("change", () => UI.renderProductList());
     dom.addCustomerBtn.addEventListener("click", () => openCustomerDialog());
     dom.saveCustomerDialogBtn.addEventListener("click", saveCustomerFromDialog);
+    dom.addGroupBtn?.addEventListener("click", () => {
+      const name = prompt("Group name / 組別名稱");
+      if (!name) return;
+      GroupApi.create(name).catch((error) => UI.toast(error.message, "bad"));
+    });
     dom.importCustomersBtn.addEventListener("click", () => refreshImportFiles().catch((error) => {
       DB.addErrorLog("列出導入文件", error);
       UI.refreshAll();
@@ -3149,7 +3361,7 @@
       UI.refreshAll();
       UI.toast(error.message, "bad");
     }));
-    [dom.customerTypeFilter, dom.ratingFilter, dom.followStatusFilter, dom.customerSearch].forEach((item) => item.addEventListener("input", () => UI.renderCustomerList()));
+    [dom.customerTypeFilter, dom.ratingFilter, dom.followStatusFilter, dom.groupFilter, dom.customerSearch].forEach((item) => item?.addEventListener("input", () => UI.renderCustomerList()));
     dom.selectAllCustomers.addEventListener("change", () => {
       filterCustomers(DB.getCustomers()).forEach((customer) => {
         if (dom.selectAllCustomers.checked) state.selectedCustomerIds.add(customer.id);
@@ -3161,6 +3373,7 @@
     dom.bulkAnalyzeAllBtn.addEventListener("click", () => bulkAnalyze(DB.getCustomers()));
     dom.bulkDeleteBtn.addEventListener("click", bulkDeleteSelected);
     dom.bulkConvertBtn.addEventListener("click", bulkConvertSelected);
+    dom.bulkMoveGroupBtn?.addEventListener("click", bulkMoveSelectedToGroup);
     dom.bulkFollowStatus.addEventListener("change", bulkUpdateFollowUpSelected);
     dom.bulkNextFollowDate.addEventListener("change", bulkUpdateFollowUpSelected);
     dom.backupExportBtn.addEventListener("click", exportBackup);
@@ -3214,6 +3427,19 @@
       }
       if (action === "delete-sender" && confirm("Delete this sender?")) {
         SenderApi.remove(id).catch((error) => UI.toast(error.message, "bad"));
+      }
+      if (action === "edit-group") {
+        const group = state.groups.find((item) => item.id === id);
+        if (!group) return;
+        const name = prompt("Edit group name / 編輯組別名稱", group.name);
+        if (!name || normalizeText(name) === group.name) return;
+        GroupApi.update(id, name).catch((error) => UI.toast(error.message, "bad"));
+      }
+      if (action === "delete-group") {
+        const group = state.groups.find((item) => item.id === id);
+        if (!group) return;
+        if (!confirm(`Delete group "${group.name}"? Customers in this group will move to Ungrouped.`)) return;
+        GroupApi.remove(id).catch((error) => UI.toast(error.message, "bad"));
       }
       if (action === "remove-email-contact") {
         state.emailContactsDraft = normalizeEmailContacts(state.emailContactsDraft).filter((_, index) => String(index) !== String(id));
@@ -3270,6 +3496,9 @@
         UI.renderCustomerList();
         UI.toast(`Customer Score saved: ${nextScore ?? "empty"}`, "good");
       }
+      if (action === "change-customer-group") {
+        GroupApi.moveCustomer(id, target.value).catch((error) => UI.toast(error.message, "bad"));
+      }
       if (action === "edit-email-contact-email" || action === "edit-email-contact-role") {
         const index = Number(id);
         const contacts = normalizeEmailContacts(state.emailContactsDraft);
@@ -3321,6 +3550,10 @@
     await CustomTemplateApi.list().catch((error) => {
       DB.addErrorLog("載入自訂範本", error);
       state.customTemplates = [];
+    });
+    await GroupApi.list().catch((error) => {
+      DB.addErrorLog("載入客戶組別", error);
+      state.groups = [];
     });
     await refreshSenders().catch((error) => {
       DB.addErrorLog("載入寄件者", error);

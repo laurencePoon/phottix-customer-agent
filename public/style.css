@@ -2678,6 +2678,59 @@ textarea {
   padding: 8px;
 }
 
+.import-group-picker {
+  min-width: 220px;
+}
+
+.group-management {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  margin: 0 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.group-management p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.group-actions,
+.group-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.group-chip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(20, 25, 36, 0.85);
+  color: var(--text);
+  font-size: 0.76rem;
+}
+
+.group-chip button {
+  padding: 3px 5px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+}
+
+.empty-inline {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .internal-note {
   padding: 9px 10px;
   border: 1px solid rgba(246, 192, 101, 0.26);
@@ -2773,8 +2826,18 @@ textarea {
 
 @media (max-width: 720px) {
   .email-contact-row,
-  .email-contact-editor {
+  .email-contact-editor,
+  .group-management {
     grid-template-columns: 1fr;
+  }
+
+  .group-management {
+    display: grid;
+  }
+
+  .group-actions,
+  .group-list {
+    justify-content: flex-start;
   }
 }
 
