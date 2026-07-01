@@ -2678,6 +2678,29 @@ textarea {
   padding: 8px;
 }
 
+.internal-note {
+  padding: 9px 10px;
+  border: 1px solid rgba(246, 192, 101, 0.26);
+  border-radius: 8px;
+  background: rgba(56, 46, 31, 0.28);
+  color: #f6c065;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.internal-email-angle {
+  display: grid;
+  gap: 6px;
+  margin: -2px 0 10px;
+}
+
+.internal-email-angle-title {
+  color: #f6c065;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .analysis-side .rating-big strong {
   font-size: 2.4rem;
 }
@@ -3210,7 +3233,6 @@ textarea::placeholder {
 .primary-button,
 #runAnalysisBtn,
 #runAnalysisSideBtn,
-#sendEmailBtn,
 #sendEmailTopBtn {
   background: #24a167;
   border-color: rgba(36, 161, 103, 0.44);
@@ -3222,8 +3244,6 @@ textarea::placeholder {
 #runAnalysisBtn:focus-visible,
 #runAnalysisSideBtn:hover,
 #runAnalysisSideBtn:focus-visible,
-#sendEmailBtn:hover,
-#sendEmailBtn:focus-visible,
 #sendEmailTopBtn:hover,
 #sendEmailTopBtn:focus-visible {
   background: #2bb877;
@@ -3233,7 +3253,6 @@ textarea::placeholder {
 .primary-button:active,
 #runAnalysisBtn:active,
 #runAnalysisSideBtn:active,
-#sendEmailBtn:active,
 #sendEmailTopBtn:active {
   background: #1f8e5a;
 }
@@ -3348,7 +3367,6 @@ textarea,
 
 .primary-button,
 #runAnalysisSideBtn,
-#sendEmailBtn,
 #sendEmailTopBtn {
   background: #24a167;
   border-color: rgba(36, 161, 103, 0.48);
@@ -3358,8 +3376,6 @@ textarea,
 .primary-button:hover,
 #runAnalysisSideBtn:hover,
 #runAnalysisSideBtn:focus-visible,
-#sendEmailBtn:hover,
-#sendEmailBtn:focus-visible,
 #sendEmailTopBtn:hover,
 #sendEmailTopBtn:focus-visible {
   background: #2bb877;
@@ -3367,7 +3383,6 @@ textarea,
 
 .primary-button:active,
 #runAnalysisSideBtn:active,
-#sendEmailBtn:active,
 #sendEmailTopBtn:active {
   background: #1f8e5a;
 }

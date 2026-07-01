@@ -988,7 +988,6 @@
         const company = customer.companyName || "your team";
         const greeting = customer.contactName || "there";
         const products = this.describeProducts(emailRecommendedProducts || customer.recommendedProducts || []);
-        const strategyLine = emailStrategy ? `For this account, I would keep the angle ${emailStrategy.message}.` : "";
         const isExisting = customer.customerType === "existing";
         return {
           emailRecommendedProducts,
@@ -1002,8 +1001,6 @@
             `I wanted to share a quick update on our new Phottix products that may be useful for ${company}'s next product refresh or reorder planning.`,
             "",
             `The items I would suggest reviewing first are ${products}.`,
-            strategyLine ? "" : null,
-            strategyLine || null,
             "",
             "Would you like me to send the latest overview, availability, and sample pricing?",
             "",
@@ -1016,8 +1013,6 @@
             `I came across ${company} and wanted to briefly introduce a few new Phottix products that may fit your photo/video equipment range.`,
             "",
             `A few items that may be worth a quick look are ${products}.`,
-            strategyLine ? "" : null,
-            strategyLine || null,
             "",
             "No pressure at all, but would it be alright if I sent over a short product overview for the right person on your team?",
             "",
@@ -1033,9 +1028,6 @@
       const key = purposeKey(customer.emailPurpose || "First Touch");
       const template = templates[key] || templates.first_touch || DEFAULT_TEMPLATES.first_touch;
       const rendered = this.renderTemplate(template, this.variables(customer, emailAnalysis));
-      if (emailStrategy && !rendered.body.includes(emailStrategy.message)) {
-        rendered.body = `${rendered.body}\n\nSuggested angle: ${emailStrategy.message}.`;
-      }
       return { ...rendered, emailRecommendedProducts, emailStrategy };
     }
   };
@@ -1666,9 +1658,17 @@
         </div>
       `).join("") : `<div class="empty">推薦池沒有可用產品，請先在產品資料庫選入 Recommendation Pool。</div>`;
       dom.actionSuggestions.innerHTML = buildSuggestions(analysis).map((item) => `<div class="recommend-card">${escapeHtml(item)}</div>`).join("");
+      if (dom.emailStrategyNote) {
+        if (analysis.emailStrategy?.message) {
+          dom.emailStrategyNote.classList.remove("hidden");
+          dom.emailStrategyNote.textContent = `Internal suggested angle: ${analysis.emailStrategy.message}.`;
+        } else {
+          dom.emailStrategyNote.classList.add("hidden");
+          dom.emailStrategyNote.textContent = "";
+        }
+      }
       state.emailAttachments = normalizeAttachments(customer.emailDraft?.emailAttachments || analysis.emailDraft.emailAttachments || state.emailAttachments);
       this.renderAttachmentList();
-      dom.emailPreview.textContent = renderEmailText(analysis.emailDraft.subject, analysis.emailDraft.body, state.emailAttachments);
       this.renderTimeline(customer.id);
       this.renderAnalysisHistory(customer.id);
       this.toast(`${analysis.rating} / ${analysis.totalScore} analysis ready.`, "good");
@@ -2542,7 +2542,7 @@
       throw new Error("Email still contains unresolved {{variables}}. Please preview or fill customer data before sending.");
     }
 
-    const sendButtons = [dom.sendEmailBtn, dom.sendEmailTopBtn].filter(Boolean);
+    const sendButtons = [dom.sendEmailTopBtn].filter(Boolean);
     const originalTexts = new Map(sendButtons.map((button) => [button, button.textContent]));
     sendButtons.forEach((button) => {
       button.disabled = true;
@@ -2566,7 +2566,6 @@
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || "Send email failed.");
 
-      dom.emailPreview.textContent = renderEmailText(subject, body, attachments);
       addEmailSentLog(customer, subject, payload.messageId || "", attachments);
       state.emailAttachments = persistableAttachments(state.emailAttachments);
       UI.renderAttachmentList();
@@ -2735,7 +2734,6 @@
       EmailEngine.variables(customer, emailAnalysis)
     );
     const attachments = normalizeAttachments(state.emailAttachments);
-    dom.emailPreview.textContent = renderEmailText(rendered.subject, rendered.body, attachments);
     if (state.currentAnalysis) {
       state.currentAnalysis.emailDraft = { ...rendered, emailAttachments: attachments };
       state.currentAnalysis.emailRecommendedProducts = emailAnalysis.emailRecommendedProducts;
@@ -2901,7 +2899,8 @@
       "senderSelect", "senderStatus", "attachmentType", "attachmentName", "attachmentUrl",
       "addAttachmentBtn", "uploadAttachmentBtn", "attachmentFileInput", "attachmentUploadStatus", "attachmentList", "previewTemplateBtn", "saveTemplateBtn", "saveTemplateTopBtn", "deleteTemplateBtn", "deleteTemplateTopBtn", "sendEmailTopBtn",
       "analysisPlaceholder", "runAnalysisSideBtn", "analysisResult", "manualOverrideBtn", "companyInfoTable", "ratingHero", "fourScores", "signalTags",
-      "scoringBreakdown", "recommendedProducts", "actionSuggestions", "copyEmailBtn", "sendEmailBtn", "emailPreview",
+      "scoringBreakdown", "recommendedProducts", "actionSuggestions",
+      "emailStrategyNote",
       "addLogBtn", "timeline", "analysisHistory", "addProductBtn", "importProductsBtn", "productExcelFileInput", "productSearch",
       "productView", "productTable", "addCustomerBtn", "importCustomersBtn", "syncInboxBtn", "importUpdateBtn",
       "exportCustomersBtn", "customerImportFileSelect", "customerImportIndex", "importCustomersConfigBtn", "uploadCustomerExcelBtn", "customerExcelFileInput", "excelFileList", "customerTypeFilter", "ratingFilter",
@@ -2967,15 +2966,6 @@
         dom.buyingRoleManualStatus.textContent = "Manual value selected. Save customer to keep it.";
       }
     });
-    dom.copyEmailBtn.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(dom.emailPreview.textContent || "");
-      UI.toast("Email copied.", "good");
-    });
-    dom.sendEmailBtn.addEventListener("click", () => sendCurrentEmail().catch((error) => {
-      DB.addErrorLog("發送郵件", error, formCustomer());
-      UI.refreshAll();
-      UI.toast(`❌ 發送失敗：${error.message}`, "bad");
-    }));
     dom.sendEmailTopBtn?.addEventListener("click", () => sendCurrentEmail().catch((error) => {
       DB.addErrorLog("發送郵件", error, formCustomer());
       UI.refreshAll();

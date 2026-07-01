@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Phottix Customer Agent</title>
-  <link rel="stylesheet" href="style.css?v=20260630-accepted-color-refinement">
+  <link rel="stylesheet" href="style.css?v=20260701-internal-email-angle">
 </head>
 <body>
   <div class="app-shell">
@@ -219,6 +219,10 @@
               <textarea id="templateSubject" rows="2" class="subject-textarea"></textarea>
               <small class="template-help">在這裡修改要保存到自訂範本的 Subject。</small>
             </label>
+            <div class="internal-email-angle">
+              <div class="internal-email-angle-title">F. 內部郵件策略 / Internal Email Angle</div>
+              <div id="emailStrategyNote" class="internal-note hidden"></div>
+            </div>
             <div class="email-copy-fields">
               <label>To / 收件人
                 <input id="emailTo" type="text" inputmode="email" placeholder="buyer@example.com">
@@ -346,16 +350,6 @@
               <h4>G. 操作建議</h4>
               <div id="actionSuggestions" class="suggestion-list"></div>
             </div>
-          </div>
-
-          <div class="result-block">
-            <div class="card-head compact">
-              <h4>F. 英文開發信</h4>
-              <button id="copyEmailBtn" class="secondary-button" type="button">複製郵件</button>
-              <button id="sendEmailBtn" class="primary-button" type="button">📤 發送郵件</button>
-            </div>
-            <!-- TODO: 郵件預覽區未來會顯示「附件：xxx.pdf (123KB)」等資訊 -->
-            <pre id="emailPreview" class="email-preview"></pre>
           </div>
 
           <div class="result-block">
@@ -711,6 +705,6 @@
     </form>
   </dialog>
 
-  <script src="script.js?v=20260630-accepted-color-refinement"></script>
+  <script src="script.js?v=20260701-internal-email-angle"></script>
 </body>
 </html>
