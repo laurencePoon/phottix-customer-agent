@@ -3506,6 +3506,187 @@ textarea,
   color: #e2e8f0;
 }
 
+/* Clean UI pass: keep all functions, but tuck admin/template helpers away by default. */
+.sidebar-advanced,
+.template-tools,
+.variable-list,
+.template-advanced-actions {
+  min-width: 0;
+}
+
+.sidebar-advanced {
+  display: block;
+  margin-top: auto;
+}
+
+.sidebar-advanced > summary,
+.template-tools > summary,
+.variable-list > summary,
+.template-advanced-actions > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.sidebar-advanced > summary::-webkit-details-marker,
+.template-tools > summary::-webkit-details-marker,
+.variable-list > summary::-webkit-details-marker,
+.template-advanced-actions > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sidebar-advanced > summary::after,
+.template-tools > summary::after,
+.variable-list > summary::after,
+.template-advanced-actions > summary::after {
+  content: "+";
+  flex: 0 0 auto;
+  color: #8f9bab;
+  font-weight: 800;
+}
+
+.sidebar-advanced[open] > summary::after,
+.template-tools[open] > summary::after,
+.variable-list[open] > summary::after,
+.template-advanced-actions[open] > summary::after {
+  content: "-";
+}
+
+.sidebar-advanced > summary {
+  padding: 8px 9px;
+  border: 1px solid #2a303f;
+  border-radius: 10px;
+  background: rgba(20, 25, 36, 0.76);
+  color: #9aa8ba;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.sidebar-advanced[open] > summary {
+  color: #e2e8f0;
+  background: #141924;
+}
+
+.sidebar-advanced .error-widget,
+.sidebar-advanced .backup-box {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 10px;
+  box-shadow: none;
+  background: #141924;
+}
+
+.sidebar-advanced .backup-box {
+  display: grid;
+  gap: 7px;
+}
+
+.mail-editor-head {
+  align-items: center;
+}
+
+.editor-head-actions {
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.send-email-top {
+  min-width: 112px;
+}
+
+.template-picker {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.template-tools,
+.variable-list,
+.template-advanced-actions {
+  display: block;
+  margin-top: 8px;
+  border: 1px solid rgba(42, 48, 63, 0.86);
+  border-radius: 10px;
+  background: rgba(20, 25, 36, 0.72);
+}
+
+.template-tools:not([open]),
+.variable-list:not([open]),
+.template-advanced-actions:not([open]) {
+  background: transparent;
+  border-color: rgba(42, 48, 63, 0.64);
+}
+
+.template-tools > summary,
+.variable-list > summary,
+.template-advanced-actions > summary {
+  padding: 7px 9px;
+  color: #9aa8ba;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.template-tools[open] > summary,
+.variable-list[open] > summary,
+.template-advanced-actions[open] > summary {
+  color: #d7e1ee;
+}
+
+.template-tools-actions,
+.variable-chip-list,
+.template-actions-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 0 8px 8px;
+}
+
+.template-actions-grid .template-help {
+  flex: 1 1 100%;
+  margin-top: 2px;
+}
+
+.variable-list {
+  gap: 0;
+}
+
+.variable-list span {
+  display: inline-flex;
+}
+
+.attachment-placeholder {
+  border-style: dashed;
+  background: rgba(20, 25, 36, 0.68);
+  box-shadow: none;
+}
+
+.attachment-head span,
+.attachment-upload-status {
+  color: #7e8ba0;
+}
+
+.analysis-placeholder-card {
+  background: rgba(20, 25, 36, 0.54);
+}
+
+.analysis-placeholder-content {
+  gap: 8px;
+}
+
+.analysis-placeholder-content p {
+  color: #8f9bab;
+}
+
+@media (max-width: 1080px) and (min-width: 900px) {
+  .editor-head-actions {
+    flex-wrap: wrap;
+  }
+}
+
 .field-help,
 input::placeholder,
 textarea::placeholder {

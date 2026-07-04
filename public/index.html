@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Phottix Customer Agent</title>
-  <link rel="stylesheet" href="style.css?v=20260701-internal-email-angle">
+  <link rel="stylesheet" href="style.css?v=20260704-clean-ui">
 </head>
 <body>
   <div class="app-shell">
@@ -41,19 +41,22 @@
         <div id="statsSummary" class="stats-grid"></div>
       </section>
 
-      <section class="error-widget">
-        <div class="widget-head">
-          <span><span class="widget-icon" aria-hidden="true">!</span> 錯誤日誌 / Errors</span>
-          <button id="clearErrorLogsBtn" class="mini-button" type="button">清除</button>
-        </div>
-        <div id="errorLogList" class="today-list"></div>
-      </section>
+      <details class="sidebar-advanced">
+        <summary>進階工具 / Advanced</summary>
+        <section class="error-widget">
+          <div class="widget-head">
+            <span><span class="widget-icon" aria-hidden="true">!</span> 錯誤日誌 / Errors</span>
+            <button id="clearErrorLogsBtn" class="mini-button" type="button">清除</button>
+          </div>
+          <div id="errorLogList" class="today-list"></div>
+        </section>
 
-      <div class="backup-box">
-        <button id="backupExportBtn" class="ghost-button" type="button">導出 JSON 備份</button>
-        <button id="backupImportBtn" class="ghost-button" type="button">還原 JSON 備份</button>
-        <input id="backupFileInput" type="file" accept=".json" hidden>
-      </div>
+        <div class="backup-box">
+          <button id="backupExportBtn" class="ghost-button" type="button">導出 JSON 備份</button>
+          <button id="backupImportBtn" class="ghost-button" type="button">還原 JSON 備份</button>
+          <input id="backupFileInput" type="file" accept=".json" hidden>
+        </div>
+      </details>
     </aside>
 
     <main class="main">
@@ -193,8 +196,6 @@
                     <button id="emailPreviewModeBtn" class="mini-button" type="button">預覽 / Preview</button>
                   </div>
                   <button id="sendEmailTopBtn" class="primary-button send-email-top" type="button">📤 發送郵件</button>
-                  <button id="saveTemplateTopBtn" class="secondary-button template-save-top" type="button">💾 儲存為範本</button>
-                  <button id="deleteTemplateTopBtn" class="ghost-button hidden" type="button">🗑️ 刪除</button>
                 </div>
               </div>
               <div class="template-toolbar">
@@ -202,7 +203,6 @@
                   <label>模板預設 / Template
                     <select id="templatePurpose"></select>
                   </label>
-                  <button id="newBlankTemplateBtn" class="ghost-button" type="button">📄 新增範本</button>
                 </div>
                 <div class="sender-selector">
                   <span class="sender-avatar" aria-hidden="true">P</span>
@@ -214,6 +214,14 @@
                   <span id="senderStatus">未載入寄件者</span>
                 </div>
               </div>
+              <details class="template-tools">
+                <summary>範本工具 / Template Tools</summary>
+                <div class="template-tools-actions">
+                  <button id="newBlankTemplateBtn" class="ghost-button" type="button">📄 新增範本</button>
+                  <button id="saveTemplateTopBtn" class="secondary-button template-save-top" type="button">💾 儲存為範本</button>
+                  <button id="deleteTemplateTopBtn" class="ghost-button hidden" type="button">🗑️ 刪除</button>
+                </div>
+              </details>
             </div>
             <label class="template-edit-field">① 編輯郵件主題 / Edit Subject
               <textarea id="templateSubject" rows="2" class="subject-textarea"></textarea>
@@ -285,24 +293,30 @@
               <div id="attachmentUploadStatus" class="attachment-upload-status">Ready to upload files.</div>
               <div id="attachmentList" class="attachment-list-placeholder"></div>
             </div>
-            <div class="variable-list">
-              <span>{{公司名}}</span>
-              <span>{{聯絡人}}</span>
-              <span>{{官網}}</span>
-              <span>{{客戶類型}}</span>
-              <span>{{官網發現的產品線}}</span>
-              <span>{{推薦產品}}</span>
-              <span>{{評分}}</span>
-              <span>{{郵件目的}}</span>
-              <span>{{郵件推薦策略}}</span>
-              <span>{{emailAttachments}}</span>
-            </div>
-            <div class="action-row template-actions">
-              <button id="previewTemplateBtn" class="ghost-button" type="button">預覽範本</button>
-              <button id="saveTemplateBtn" class="secondary-button" type="button">💾 儲存為範本</button>
-              <button id="deleteTemplateBtn" class="ghost-button hidden" type="button">🗑️ 刪除範本</button>
-              <small class="template-help">③ 修改 Subject / Body 後，點「儲存為範本」並輸入名稱，例如：報價信。</small>
-            </div>
+            <details class="variable-list">
+              <summary>可用變數 / Available Variables</summary>
+              <div class="variable-chip-list">
+                <span>{{公司名}}</span>
+                <span>{{聯絡人}}</span>
+                <span>{{官網}}</span>
+                <span>{{客戶類型}}</span>
+                <span>{{官網發現的產品線}}</span>
+                <span>{{推薦產品}}</span>
+                <span>{{評分}}</span>
+                <span>{{郵件目的}}</span>
+                <span>{{郵件推薦策略}}</span>
+                <span>{{emailAttachments}}</span>
+              </div>
+            </details>
+            <details class="template-actions template-advanced-actions">
+              <summary>更多範本操作 / More Template Actions</summary>
+              <div class="template-actions-grid">
+                <button id="previewTemplateBtn" class="ghost-button" type="button">預覽範本</button>
+                <button id="saveTemplateBtn" class="secondary-button" type="button">💾 儲存為範本</button>
+                <button id="deleteTemplateBtn" class="ghost-button hidden" type="button">🗑️ 刪除範本</button>
+                <small class="template-help">③ 修改 Subject / Body 後，點「儲存為範本」並輸入名稱，例如：報價信。</small>
+              </div>
+            </details>
           </section>
 
         <section id="analysisPlaceholder" class="card result-card analysis-placeholder-card">
