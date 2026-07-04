@@ -1572,6 +1572,15 @@
           ? `可用寄件者：${activeSenders.length}`
           : "沒有啟用的寄件者";
       }
+      this.updateSenderAvatar();
+    },
+    updateSenderAvatar() {
+      if (!dom.senderAvatar) return;
+      const sender = state.senders.find((item) => item.id === dom.senderSelect?.value);
+      const source = normalizeText(sender?.name || sender?.email || "");
+      const initial = source.match(/[A-Za-z0-9]/)?.[0]?.toUpperCase() || "S";
+      dom.senderAvatar.textContent = initial;
+      dom.senderAvatar.title = sender ? `${sender.name || sender.email} sender` : "Sender";
     },
     renderSenderList() {
       if (!dom.senderList) return;
@@ -3103,7 +3112,7 @@
       "buyingRole", "buyingRoleManualStatus", "instagram", "facebook", "emailPurpose", "businessNotes", "manualWebsiteSummary", "websiteExtract",
       "fetchWebsiteBtn", "runAnalysisBtn", "saveCustomerBtn", "clearAnalysisBtn", "staleBanner",
       "templatePurpose", "newBlankTemplateBtn", "templateSubject", "emailTo", "emailCc", "emailBcc", "manageEmailContactsBtn", "templateBody", "templatePreviewPane", "emailEditModeBtn", "emailPreviewModeBtn",
-      "senderSelect", "senderStatus", "attachmentType", "attachmentName", "attachmentUrl",
+      "senderAvatar", "senderSelect", "senderStatus", "attachmentType", "attachmentName", "attachmentUrl",
       "addAttachmentBtn", "uploadAttachmentBtn", "attachmentFileInput", "attachmentUploadStatus", "attachmentList", "previewTemplateBtn", "saveTemplateBtn", "saveTemplateTopBtn", "deleteTemplateBtn", "deleteTemplateTopBtn", "sendEmailTopBtn",
       "analysisPlaceholder", "runAnalysisSideBtn", "analysisResult", "manualOverrideBtn", "companyInfoTable", "ratingHero", "fourScores", "signalTags",
       "scoringBreakdown", "recommendedProducts", "actionSuggestions",
@@ -3178,6 +3187,7 @@
       UI.refreshAll();
       UI.toast(`❌ 發送失敗：${error.message}`, "bad");
     }));
+    dom.senderSelect?.addEventListener("change", () => UI.updateSenderAvatar());
     dom.manualOverrideBtn.addEventListener("click", () => {
       if (!state.currentCustomerId && !state.currentAnalysis) return UI.toast("Run analysis first.", "warn");
       dom.overrideReason.value = "";

@@ -3516,7 +3516,7 @@ textarea,
 
 .sidebar-advanced {
   display: block;
-  margin-top: auto;
+  margin-top: 0;
 }
 
 .sidebar-advanced > summary,
@@ -3572,6 +3572,13 @@ textarea,
   background: #141924;
 }
 
+.sidebar-advanced .advanced-note {
+  margin: 7px 2px 0;
+  color: #8f9bab;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
 .sidebar-advanced .error-widget,
 .sidebar-advanced .backup-box {
   margin-top: 8px;
@@ -3584,6 +3591,12 @@ textarea,
 .sidebar-advanced .backup-box {
   display: grid;
   gap: 7px;
+}
+
+.sidebar-advanced .backup-title {
+  color: #d7e1ee;
+  font-size: 0.7rem;
+  line-height: 1.25;
 }
 
 .mail-editor-head {
@@ -3685,6 +3698,620 @@ textarea,
   .editor-head-actions {
     flex-wrap: wrap;
   }
+}
+
+/* Bold UI test pass: stronger sales-workspace hierarchy without changing app logic. */
+body {
+  background:
+    radial-gradient(circle at 18% -8%, rgba(246, 192, 101, 0.12), transparent 34%),
+    radial-gradient(circle at 86% 10%, rgba(36, 161, 103, 0.14), transparent 32%),
+    linear-gradient(135deg, #0d1118 0%, #12161e 44%, #0e141d 100%);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.75), transparent 78%);
+}
+
+.sidebar {
+  background:
+    linear-gradient(180deg, rgba(26, 32, 44, 0.98), rgba(13, 17, 24, 0.98)),
+    #1a202c;
+  border-right-color: rgba(246, 192, 101, 0.14);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.03);
+}
+
+.brand {
+  padding: 4px 2px 8px;
+}
+
+.brand-mark {
+  background:
+    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.82), transparent 10%),
+    linear-gradient(135deg, #f6c065, #24a167);
+  color: #0d1118;
+  box-shadow: 0 0 0 4px rgba(246, 192, 101, 0.08), 0 12px 30px rgba(0, 0, 0, 0.32);
+}
+
+.brand h1 {
+  color: #ffffff;
+}
+
+.side-nav {
+  border-color: rgba(246, 192, 101, 0.13);
+  background: rgba(20, 25, 36, 0.78);
+}
+
+.nav-button {
+  position: relative;
+  overflow: hidden;
+  color: #9aa8ba;
+}
+
+.nav-button::before {
+  content: "";
+  position: absolute;
+  inset: 7px auto 7px 7px;
+  width: 3px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.nav-button.active {
+  background: linear-gradient(135deg, rgba(246, 192, 101, 0.16), rgba(36, 161, 103, 0.08));
+  border-color: rgba(246, 192, 101, 0.28);
+  color: #ffffff;
+}
+
+.nav-button.active::before {
+  background: #f6c065;
+  box-shadow: 0 0 14px rgba(246, 192, 101, 0.5);
+}
+
+.topbar {
+  position: relative;
+  padding: 12px 14px;
+  border: 1px solid rgba(246, 192, 101, 0.13);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(26, 32, 44, 0.96), rgba(20, 25, 36, 0.9)),
+    #1a202c;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.26);
+}
+
+.topbar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(246, 192, 101, 0.12), transparent 26%, rgba(36, 161, 103, 0.1));
+  opacity: 0.7;
+}
+
+.topbar > * {
+  position: relative;
+  z-index: 1;
+}
+
+.topbar h2 {
+  color: #ffffff;
+  letter-spacing: -0.02em;
+}
+
+.workflow-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.workflow-strip span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  padding: 4px 9px 4px 5px;
+  border: 1px solid rgba(246, 192, 101, 0.16);
+  border-radius: 999px;
+  background: rgba(20, 25, 36, 0.68);
+  color: #b8c3d3;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.workflow-strip strong {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #f6c065;
+  color: #111722;
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+.toast {
+  border-radius: 12px;
+}
+
+.analysis-workspace {
+  gap: 14px;
+  grid-template-columns: minmax(300px, 0.92fr) minmax(420px, 1.35fr);
+}
+
+.analysis-main > .card,
+.analysis-side > .card,
+.analysis-side > .result-card {
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(26, 32, 44, 0.98), rgba(20, 25, 36, 0.94)),
+    #1a202c;
+  border-color: rgba(255, 255, 255, 0.085);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.25);
+}
+
+.analysis-main > .card {
+  border-top: 1px solid rgba(246, 192, 101, 0.24);
+}
+
+.analysis-side > .card {
+  border-top: 1px solid rgba(36, 161, 103, 0.28);
+}
+
+.card-head,
+.mail-editor-head {
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.card-head h3,
+.mail-editor-head h3 {
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.card-head p {
+  color: #8f9bab;
+}
+
+.load-customer-wrap {
+  padding: 8px;
+  border: 1px solid rgba(246, 192, 101, 0.13);
+  border-radius: 12px;
+  background: rgba(20, 25, 36, 0.58);
+}
+
+.form-section {
+  position: relative;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(20, 25, 36, 0.92), rgba(20, 25, 36, 0.72));
+  border-color: rgba(255, 255, 255, 0.075);
+}
+
+.form-section::before {
+  content: "";
+  position: absolute;
+  inset: 10px auto 10px 0;
+  width: 3px;
+  border-radius: 999px;
+  background: rgba(246, 192, 101, 0.45);
+}
+
+.form-section legend {
+  border-radius: 999px;
+  background: rgba(41, 84, 168, 0.92);
+  box-shadow: 0 8px 20px rgba(41, 84, 168, 0.18);
+}
+
+label {
+  color: #cbd5e1;
+}
+
+input,
+select,
+textarea,
+#templateBody,
+#templateSubject {
+  border-radius: 11px;
+  background: rgba(12, 17, 26, 0.84);
+  border-color: rgba(255, 255, 255, 0.08);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: rgba(246, 192, 101, 0.58);
+  box-shadow: 0 0 0 3px rgba(246, 192, 101, 0.12);
+}
+
+.website-highlight-field {
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(246, 192, 101, 0.16), rgba(246, 192, 101, 0.055));
+  border-color: rgba(246, 192, 101, 0.38);
+}
+
+.form-actions {
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+  background: rgba(13, 17, 24, 0.78);
+  box-shadow: 0 -12px 34px rgba(0, 0, 0, 0.18);
+}
+
+#runAnalysisBtn,
+#sendEmailTopBtn,
+#runAnalysisSideBtn {
+  background: linear-gradient(135deg, #24a167, #37c987);
+  box-shadow: 0 10px 26px rgba(36, 161, 103, 0.22);
+}
+
+#runAnalysisBtn:hover,
+#sendEmailTopBtn:hover,
+#runAnalysisSideBtn:hover {
+  background: linear-gradient(135deg, #2bb877, #46d995);
+  box-shadow: 0 0 0 3px rgba(36, 161, 103, 0.16), 0 14px 34px rgba(36, 161, 103, 0.28);
+}
+
+.mail-editor-sticky {
+  border-radius: 15px;
+  background:
+    linear-gradient(180deg, rgba(26, 32, 44, 0.98), rgba(26, 32, 44, 0.88));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.template-toolbar {
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 14px;
+  background: rgba(12, 17, 26, 0.42);
+}
+
+.sender-selector {
+  border-radius: 13px;
+  background: rgba(20, 25, 36, 0.82);
+}
+
+.sender-avatar {
+  background: linear-gradient(135deg, #f6c065, #24a167);
+  color: #0d1118;
+}
+
+.template-edit-field {
+  border-left: 0;
+  border-radius: 15px;
+  background: rgba(20, 25, 36, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.065);
+}
+
+.template-edit-field::first-line {
+  color: #ffffff;
+}
+
+#templateSubject,
+#templateBody,
+.template-preview-pane {
+  background:
+    linear-gradient(180deg, rgba(12, 17, 26, 0.96), rgba(12, 17, 26, 0.88));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+#templateBody {
+  min-height: clamp(390px, 55vh, 760px);
+}
+
+.rich-toolbar {
+  padding: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 999px;
+  background: rgba(12, 17, 26, 0.62);
+}
+
+.email-copy-fields {
+  padding: 8px;
+  border: 1px solid rgba(36, 161, 103, 0.13);
+  border-radius: 14px;
+  background: rgba(36, 161, 103, 0.055);
+}
+
+.internal-note,
+.internal-email-angle {
+  border-radius: 13px;
+}
+
+.attachment-placeholder,
+.template-tools,
+.variable-list,
+.template-advanced-actions {
+  border-radius: 14px;
+}
+
+.analysis-placeholder-card {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(36, 161, 103, 0.2);
+}
+
+.analysis-placeholder-card::after {
+  content: "";
+  position: absolute;
+  right: -40px;
+  bottom: -50px;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(36, 161, 103, 0.16), transparent 68%);
+}
+
+.analysis-placeholder-content {
+  position: relative;
+  z-index: 1;
+}
+
+.analysis-placeholder-content h3 {
+  color: #bdf4d8;
+}
+
+@media (max-width: 1080px) and (min-width: 900px) {
+  .analysis-workspace {
+    grid-template-columns: minmax(270px, 0.9fr) minmax(350px, 1.2fr);
+    gap: 10px;
+  }
+
+  .workflow-strip span {
+    font-size: 0.68rem;
+  }
+}
+
+/* Function icon system: consistent visual anchors for sales users. */
+[data-icon] {
+  --icon-bg: rgba(246, 192, 101, 0.12);
+  --icon-border: rgba(246, 192, 101, 0.22);
+  --icon-color: #f6c065;
+}
+
+button[data-icon],
+summary[data-icon] {
+  gap: 7px;
+}
+
+button[data-icon] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+button[data-icon]::before,
+summary[data-icon]::before,
+.card-head h3::before,
+.mail-editor-head h3::before,
+.analysis-placeholder-content h3::before,
+.form-section legend::before,
+.attachment-head label::before,
+.email-copy-fields label::before,
+.template-edit-field::before {
+  display: inline-grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  min-width: 21px;
+  border: 1px solid var(--icon-border);
+  border-radius: 7px;
+  background: var(--icon-bg);
+  color: var(--icon-color);
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+button[data-icon]::before,
+summary[data-icon]::before {
+  content: attr(data-icon);
+}
+
+.primary-button[data-icon] {
+  --icon-bg: rgba(255, 255, 255, 0.18);
+  --icon-border: rgba(255, 255, 255, 0.26);
+  --icon-color: #ffffff;
+}
+
+.secondary-button[data-icon],
+.ghost-button[data-icon],
+.mini-button[data-icon] {
+  --icon-bg: rgba(148, 197, 255, 0.1);
+  --icon-border: rgba(148, 197, 255, 0.2);
+  --icon-color: #94c5ff;
+}
+
+.nav-button[data-icon] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-button[data-icon]::before {
+  content: attr(data-icon);
+  position: static;
+  inset: auto;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  border: 1px solid rgba(246, 192, 101, 0.18);
+  border-radius: 8px;
+  background: rgba(246, 192, 101, 0.08);
+  color: #f6c065;
+  font-size: 0.74rem;
+}
+
+.nav-button[data-icon].active::before,
+.nav-button[data-icon]:hover::before {
+  background: #f6c065;
+  color: #111722;
+  box-shadow: 0 0 14px rgba(246, 192, 101, 0.36);
+}
+
+.sidebar-advanced > summary[data-icon] {
+  justify-content: flex-start;
+}
+
+.sidebar-advanced > summary[data-icon]::after,
+.template-tools > summary[data-icon]::after,
+.variable-list > summary[data-icon]::after,
+.template-advanced-actions > summary[data-icon]::after {
+  margin-left: auto;
+}
+
+.card-head h3,
+.mail-editor-head h3,
+.analysis-placeholder-content h3,
+.form-section legend,
+.attachment-head label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.analysis-main > .card > .card-head h3::before {
+  content: "✎";
+  --icon-bg: rgba(246, 192, 101, 0.13);
+  --icon-border: rgba(246, 192, 101, 0.28);
+  --icon-color: #f6c065;
+}
+
+.mail-editor-head h3::before {
+  content: "✉";
+  --icon-bg: rgba(36, 161, 103, 0.14);
+  --icon-border: rgba(36, 161, 103, 0.28);
+  --icon-color: #bdf4d8;
+}
+
+#analysisResult > .card-head h3::before,
+.analysis-placeholder-content h3::before {
+  content: "◆";
+  --icon-bg: rgba(36, 161, 103, 0.14);
+  --icon-border: rgba(36, 161, 103, 0.28);
+  --icon-color: #bdf4d8;
+}
+
+#productsPage .card-head h3::before {
+  content: "▦";
+}
+
+#customersPage .card-head h3::before {
+  content: "◫";
+}
+
+#sendersPage .card-head h3::before {
+  content: "✉";
+}
+
+.form-section:nth-of-type(1) legend::before {
+  content: "⌂";
+}
+
+.form-section:nth-of-type(2) legend::before {
+  content: "@";
+}
+
+.form-section:nth-of-type(3) legend::before {
+  content: "◇";
+}
+
+.attachment-head label::before {
+  content: "⌁";
+  --icon-bg: rgba(148, 197, 255, 0.09);
+  --icon-border: rgba(148, 197, 255, 0.2);
+  --icon-color: #94c5ff;
+}
+
+.template-edit-field {
+  position: relative;
+  padding-top: 34px;
+}
+
+.template-edit-field::before {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  content: "✎";
+  --icon-bg: rgba(148, 197, 255, 0.09);
+  --icon-border: rgba(148, 197, 255, 0.2);
+  --icon-color: #94c5ff;
+}
+
+.template-edit-field:has(#templateSubject)::before {
+  content: "S";
+}
+
+.template-edit-field:has(#templateBody)::before {
+  content: "B";
+}
+
+.email-copy-fields label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 6px;
+}
+
+.email-copy-fields label input {
+  grid-column: 1 / -1;
+}
+
+.email-copy-fields label:nth-child(1)::before {
+  content: "To";
+  width: 26px;
+  min-width: 26px;
+  font-size: 0.58rem;
+}
+
+.email-copy-fields label:nth-child(2)::before {
+  content: "Cc";
+  width: 26px;
+  min-width: 26px;
+  font-size: 0.58rem;
+}
+
+.email-copy-fields label:nth-child(3)::before {
+  content: "Bc";
+  width: 26px;
+  min-width: 26px;
+  font-size: 0.58rem;
+}
+
+.workflow-strip span::before {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  background: rgba(36, 161, 103, 0.14);
+  color: #bdf4d8;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.workflow-strip span:nth-child(1)::before {
+  content: "⌂";
+}
+
+.workflow-strip span:nth-child(2)::before {
+  content: "✦";
+}
+
+.workflow-strip span:nth-child(3)::before {
+  content: "✉";
 }
 
 .field-help,

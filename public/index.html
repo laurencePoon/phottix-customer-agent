@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Phottix Customer Agent</title>
-  <link rel="stylesheet" href="style.css?v=20260704-clean-ui">
+  <link rel="stylesheet" href="style.css?v=20260704-bold-ui-icons-test">
 </head>
 <body>
   <div class="app-shell">
@@ -18,10 +18,10 @@
       </div>
 
       <nav class="side-nav" aria-label="Main navigation">
-        <button class="nav-button active" data-page="analysisPage" type="button">客戶分析 / Analysis</button>
-        <button class="nav-button" data-page="productsPage" type="button">產品資料庫 / Products</button>
-        <button class="nav-button" data-page="customersPage" type="button">客戶池 / Customers</button>
-        <button id="sendersNavBtn" class="nav-button hidden" data-page="sendersPage" type="button">寄件者管理 / Senders</button>
+        <button class="nav-button active" data-icon="◎" data-page="analysisPage" type="button">客戶分析 / Analysis</button>
+        <button class="nav-button" data-icon="▦" data-page="productsPage" type="button">產品資料庫 / Products</button>
+        <button class="nav-button" data-icon="◫" data-page="customersPage" type="button">客戶池 / Customers</button>
+        <button id="sendersNavBtn" class="nav-button hidden" data-icon="✉" data-page="sendersPage" type="button">寄件者管理 / Senders</button>
       </nav>
 
       <section class="today-widget">
@@ -42,7 +42,8 @@
       </section>
 
       <details class="sidebar-advanced">
-        <summary>進階工具 / Advanced</summary>
+        <summary data-icon="⚙">系統工具 / System Tools</summary>
+        <p class="advanced-note">查看錯誤日誌或做本機 JSON 備份。</p>
         <section class="error-widget">
           <div class="widget-head">
             <span><span class="widget-icon" aria-hidden="true">!</span> 錯誤日誌 / Errors</span>
@@ -52,6 +53,7 @@
         </section>
 
         <div class="backup-box">
+          <strong class="backup-title">備份工具 / Backup</strong>
           <button id="backupExportBtn" class="ghost-button" type="button">導出 JSON 備份</button>
           <button id="backupImportBtn" class="ghost-button" type="button">還原 JSON 備份</button>
           <input id="backupFileInput" type="file" accept=".json" hidden>
@@ -65,6 +67,11 @@
           <h2 id="pageTitle">客戶分析 / Customer Analysis</h2>
           <p id="pageSubtitle">抓取官網、提取業務信號、評分、推薦產品並生成英文開發信。</p>
           <div class="import-hint"><span aria-hidden="true">ⓘ</span><strong>提示 / Note:</strong> 從客戶池載入共享資料；選擇客戶後才會填入目前表單。</div>
+          <div class="workflow-strip" aria-label="Main workflow">
+            <span><strong>1</strong> 客戶資料 / Client</span>
+            <span><strong>2</strong> 生成分析 / Analyze</span>
+            <span><strong>3</strong> 編輯發信 / Email</span>
+          </div>
         </div>
         <div id="toast" class="toast" role="status">Ready</div>
       </header>
@@ -172,10 +179,10 @@
             </form>
 
             <div class="action-row form-actions">
-              <button id="fetchWebsiteBtn" class="secondary-button" type="button">抓取 / Fetch</button>
-              <button id="runAnalysisBtn" class="primary-button" type="button">生成 / Generate</button>
-              <button id="saveCustomerBtn" class="secondary-button" type="button">保存 / Save</button>
-              <button id="clearAnalysisBtn" class="ghost-button" type="button">清空 / Clear</button>
+              <button id="fetchWebsiteBtn" class="secondary-button" data-icon="⌕" type="button">抓取 / Fetch</button>
+              <button id="runAnalysisBtn" class="primary-button" data-icon="✦" type="button">生成 / Generate</button>
+              <button id="saveCustomerBtn" class="secondary-button" data-icon="✓" type="button">保存 / Save</button>
+              <button id="clearAnalysisBtn" class="ghost-button" data-icon="×" type="button">清空 / Clear</button>
             </div>
 
             <div id="staleBanner" class="banner hidden"></div>
@@ -192,10 +199,10 @@
                 </div>
                 <div class="editor-head-actions">
                   <div class="editor-mode-toggle" aria-label="Email editor mode">
-                    <button id="emailEditModeBtn" class="mini-button active" type="button">編輯 / Edit</button>
-                    <button id="emailPreviewModeBtn" class="mini-button" type="button">預覽 / Preview</button>
+                    <button id="emailEditModeBtn" class="mini-button active" data-icon="✎" type="button">編輯 / Edit</button>
+                    <button id="emailPreviewModeBtn" class="mini-button" data-icon="◉" type="button">預覽 / Preview</button>
                   </div>
-                  <button id="sendEmailTopBtn" class="primary-button send-email-top" type="button">📤 發送郵件</button>
+                  <button id="sendEmailTopBtn" class="primary-button send-email-top" data-icon="✈" type="button">發送郵件</button>
                 </div>
               </div>
               <div class="template-toolbar">
@@ -205,7 +212,7 @@
                   </label>
                 </div>
                 <div class="sender-selector">
-                  <span class="sender-avatar" aria-hidden="true">P</span>
+                  <span id="senderAvatar" class="sender-avatar" aria-hidden="true">S</span>
                   <label>寄件者 / Sender
                     <select id="senderSelect">
                       <option value="">請選擇寄件者</option>
@@ -215,11 +222,11 @@
                 </div>
               </div>
               <details class="template-tools">
-                <summary>範本工具 / Template Tools</summary>
+                <summary data-icon="▤">範本工具 / Template Tools</summary>
                 <div class="template-tools-actions">
-                  <button id="newBlankTemplateBtn" class="ghost-button" type="button">📄 新增範本</button>
-                  <button id="saveTemplateTopBtn" class="secondary-button template-save-top" type="button">💾 儲存為範本</button>
-                  <button id="deleteTemplateTopBtn" class="ghost-button hidden" type="button">🗑️ 刪除</button>
+                  <button id="newBlankTemplateBtn" class="ghost-button" data-icon="＋" type="button">新增範本</button>
+                  <button id="saveTemplateTopBtn" class="secondary-button template-save-top" data-icon="✓" type="button">儲存為範本</button>
+                  <button id="deleteTemplateTopBtn" class="ghost-button hidden" data-icon="×" type="button">刪除</button>
                 </div>
               </details>
             </div>
@@ -286,15 +293,15 @@
                 </select>
                 <input id="attachmentName" type="text" placeholder="Display name, e.g. M200R catalog">
                 <input id="attachmentUrl" type="url" placeholder="https://... file / video / web link">
-                <button id="addAttachmentBtn" class="secondary-button" type="button">新增</button>
-                <button id="uploadAttachmentBtn" class="ghost-button attachment-upload-button" type="button">📎 上傳附件</button>
+                <button id="addAttachmentBtn" class="secondary-button" data-icon="＋" type="button">新增</button>
+                <button id="uploadAttachmentBtn" class="ghost-button attachment-upload-button" data-icon="⌁" type="button">上傳附件</button>
               </div>
               <input id="attachmentFileInput" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.heic,.heif">
               <div id="attachmentUploadStatus" class="attachment-upload-status">Ready to upload files.</div>
               <div id="attachmentList" class="attachment-list-placeholder"></div>
             </div>
             <details class="variable-list">
-              <summary>可用變數 / Available Variables</summary>
+              <summary data-icon="{ }">可用變數 / Available Variables</summary>
               <div class="variable-chip-list">
                 <span>{{公司名}}</span>
                 <span>{{聯絡人}}</span>
@@ -309,11 +316,11 @@
               </div>
             </details>
             <details class="template-actions template-advanced-actions">
-              <summary>更多範本操作 / More Template Actions</summary>
+              <summary data-icon="⋯">更多範本操作 / More Template Actions</summary>
               <div class="template-actions-grid">
-                <button id="previewTemplateBtn" class="ghost-button" type="button">預覽範本</button>
-                <button id="saveTemplateBtn" class="secondary-button" type="button">💾 儲存為範本</button>
-                <button id="deleteTemplateBtn" class="ghost-button hidden" type="button">🗑️ 刪除範本</button>
+                <button id="previewTemplateBtn" class="ghost-button" data-icon="◉" type="button">預覽範本</button>
+                <button id="saveTemplateBtn" class="secondary-button" data-icon="✓" type="button">儲存為範本</button>
+                <button id="deleteTemplateBtn" class="ghost-button hidden" data-icon="×" type="button">刪除範本</button>
                 <small class="template-help">③ 修改 Subject / Body 後，點「儲存為範本」並輸入名稱，例如：報價信。</small>
               </div>
             </details>
@@ -323,7 +330,7 @@
           <div class="analysis-placeholder-content">
             <h3>分析結果會顯示在這裡 / Analysis result will appear here</h3>
             <p>這是右側快捷入口，功能與左側 Generate 相同。完成後，這裡會顯示評分、推薦產品、郵件預覽、發送郵件與跟進時間線。</p>
-            <button id="runAnalysisSideBtn" class="primary-button" type="button">快捷：生成並顯示結果 / Shortcut: Show Analysis Result</button>
+            <button id="runAnalysisSideBtn" class="primary-button" data-icon="✦" type="button">快捷：生成並顯示結果 / Shortcut: Show Analysis Result</button>
           </div>
         </section>
 
