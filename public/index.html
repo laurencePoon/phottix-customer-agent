@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Phottix Customer Agent</title>
-  <link rel="stylesheet" href="style.css?v=20260706-mail-scroll-fix">
+  <link rel="stylesheet" href="style.css?v=20260706-email-mode-toggle">
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <span class="brand-mark">P</span>
+        <span class="brand-mark"><span class="brand-letter">P</span></span>
         <div>
           <h1>Phottix Customer Agent</h1>
           <p>Sales intelligence workspace</p>
@@ -248,7 +248,9 @@
               <label>BCC / 密件副本
                 <input id="emailBcc" type="text" inputmode="email" placeholder="bcc1@example.com, bcc2@example.com">
               </label>
+              <button id="quickEmailContactsBtn" class="ghost-button contact-picker-button" type="button" aria-expanded="false">Pick Contacts</button>
               <button id="manageEmailContactsBtn" class="ghost-button" type="button">Contacts</button>
+              <div id="emailContactQuickPanel" class="email-contact-quick-panel hidden" role="menu" aria-label="Saved email contacts"></div>
             </div>
             <label class="template-edit-field">② 編輯郵件正文 / Edit Body
               <div class="rich-toolbar" aria-label="Formatting toolbar">

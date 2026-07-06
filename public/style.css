@@ -4344,3 +4344,250 @@ textarea::placeholder {
   top: auto !important;
   z-index: auto !important;
 }
+
+/* UI detail pass: typography, spacing, stronger primary actions, and contact picker polish. */
+body {
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+}
+
+#analysisPage .analysis-main > .card > .card-head {
+  margin-bottom: 16px;
+}
+
+.sidebar {
+  padding-top: 10px;
+  gap: 10px;
+}
+
+.brand {
+  padding: 2px 2px 2px;
+}
+
+.side-nav {
+  margin-top: 0;
+}
+
+.primary-button,
+#runAnalysisBtn,
+#runAnalysisSideBtn,
+#sendEmailTopBtn {
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  border-color: rgba(96, 165, 250, 0.58);
+  color: #ffffff;
+  box-shadow: 0 10px 26px rgba(37, 99, 235, 0.24);
+}
+
+.primary-button:hover,
+.primary-button:focus-visible,
+#runAnalysisBtn:hover,
+#runAnalysisBtn:focus-visible,
+#runAnalysisSideBtn:hover,
+#runAnalysisSideBtn:focus-visible,
+#sendEmailTopBtn:hover,
+#sendEmailTopBtn:focus-visible {
+  background: linear-gradient(135deg, #1d4ed8, #60a5fa);
+  border-color: rgba(147, 197, 253, 0.72);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.22), 0 14px 34px rgba(37, 99, 235, 0.34);
+}
+
+.primary-button:active,
+#runAnalysisBtn:active,
+#runAnalysisSideBtn:active,
+#sendEmailTopBtn:active {
+  background: linear-gradient(135deg, #1e40af, #2563eb);
+}
+
+.rich-toolbar .mini-button {
+  min-width: 34px;
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 0;
+}
+
+.rich-toolbar .mini-button::after {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.email-copy-fields {
+  position: relative;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto auto;
+}
+
+.contact-picker-button,
+#manageEmailContactsBtn {
+  min-height: 32px;
+}
+
+.email-contact-quick-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(96, 165, 250, 0.24);
+  border-radius: 12px;
+  background: rgba(12, 17, 26, 0.94);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.24);
+}
+
+.email-contact-quick-item {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 34px;
+  padding: 6px 8px;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(20, 25, 36, 0.88);
+  color: #e2e8f0;
+}
+
+.email-contact-quick-item:hover,
+.email-contact-quick-item:focus-visible {
+  border-color: rgba(96, 165, 250, 0.52);
+  background: rgba(37, 99, 235, 0.16);
+}
+
+.email-contact-quick-item strong {
+  color: #93c5fd;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+
+.email-contact-quick-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+}
+
+.email-contact-quick-empty {
+  padding: 8px;
+  color: #9aa8ba;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 1040px) and (min-width: 900px) {
+  .email-copy-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Keep both Generate entry points aligned with the green analysis-result cue. */
+#runAnalysisBtn,
+#runAnalysisSideBtn {
+  background: linear-gradient(135deg, #24a167, #37c987);
+  border-color: rgba(36, 161, 103, 0.58);
+  box-shadow: 0 10px 26px rgba(36, 161, 103, 0.24);
+}
+
+#runAnalysisBtn:hover,
+#runAnalysisBtn:focus-visible,
+#runAnalysisSideBtn:hover,
+#runAnalysisSideBtn:focus-visible {
+  background: linear-gradient(135deg, #2bb877, #46d995);
+  border-color: rgba(70, 217, 149, 0.72);
+  box-shadow: 0 0 0 3px rgba(36, 161, 103, 0.2), 0 14px 34px rgba(36, 161, 103, 0.32);
+}
+
+#runAnalysisBtn:active,
+#runAnalysisSideBtn:active {
+  background: linear-gradient(135deg, #1f8e5a, #24a167);
+}
+
+.brand-mark {
+  color: #ffffff !important;
+  text-shadow: none;
+}
+
+.brand-mark .brand-letter {
+  color: #ffffff !important;
+  font-weight: 900;
+  text-shadow: none;
+}
+
+.sender-avatar {
+  color: #05070a !important;
+  font-weight: 900;
+  text-shadow: none !important;
+}
+
+/* Clarify email editor actions: mode selection is blue, sending is green. */
+#sendEmailTopBtn {
+  background: linear-gradient(135deg, #24a167, #37c987);
+  border-color: rgba(36, 161, 103, 0.62);
+  color: #ffffff;
+  box-shadow: 0 10px 26px rgba(36, 161, 103, 0.26);
+}
+
+#sendEmailTopBtn:hover,
+#sendEmailTopBtn:focus-visible {
+  background: linear-gradient(135deg, #2bb877, #46d995);
+  border-color: rgba(70, 217, 149, 0.74);
+  box-shadow: 0 0 0 3px rgba(36, 161, 103, 0.2), 0 14px 34px rgba(36, 161, 103, 0.32);
+}
+
+#sendEmailTopBtn:active {
+  background: linear-gradient(135deg, #1f8e5a, #24a167);
+}
+
+.editor-mode-toggle .mini-button {
+  background: #253b63;
+  border-color: rgba(80, 113, 164, 0.52);
+  color: #dbeafe;
+}
+
+.editor-mode-toggle .mini-button:hover,
+.editor-mode-toggle .mini-button:focus-visible {
+  background: #304b7d;
+  border-color: rgba(105, 143, 202, 0.66);
+}
+
+.editor-mode-toggle .mini-button.active {
+  background: linear-gradient(135deg, #3b82f6, #60a5fa);
+  border-color: rgba(147, 197, 253, 0.86);
+  color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18), 0 10px 24px rgba(37, 99, 235, 0.28);
+}
+
+/* Edit/Preview are mode toggles, so keep them visually below the Send Email action. */
+.editor-mode-toggle {
+  padding: 3px;
+  border-radius: 13px;
+  background: rgba(12, 17, 26, 0.82);
+  border-color: rgba(80, 113, 164, 0.26);
+}
+
+.editor-mode-toggle .mini-button {
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: transparent;
+  border-color: transparent;
+  color: #a9b4c3;
+  box-shadow: none;
+}
+
+.editor-mode-toggle .mini-button::before {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  border-radius: 6px;
+}
+
+.editor-mode-toggle .mini-button:hover,
+.editor-mode-toggle .mini-button:focus-visible {
+  background: rgba(80, 113, 164, 0.22);
+  border-color: rgba(105, 143, 202, 0.24);
+  color: #e2e8f0;
+}
+
+.editor-mode-toggle .mini-button.active {
+  background: rgba(59, 130, 246, 0.26);
+  border-color: rgba(96, 165, 250, 0.46);
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.14);
+}

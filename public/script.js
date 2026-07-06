@@ -2233,6 +2233,60 @@
     if (dom.emailTo) dom.emailTo.value = isExisting && contacts.length ? contactsByRole(contacts, "to") : "";
     if (dom.emailCc) dom.emailCc.value = isExisting && contacts.length ? contactsByRole(contacts, "cc") : "";
     if (dom.emailBcc) dom.emailBcc.value = isExisting && contacts.length ? contactsByRole(contacts, "bcc") : "";
+    renderQuickEmailContactsPanel();
+  }
+
+  function currentQuickEmailContacts() {
+    const customer = DB.getCustomers().find((item) => item.id === state.currentCustomerId);
+    return normalizeEmailContacts(customer?.emailContacts);
+  }
+
+  function emailRoleInput(role) {
+    const normalized = normalizeEmailRole(role);
+    if (normalized === "cc") return dom.emailCc;
+    if (normalized === "bcc") return dom.emailBcc;
+    return dom.emailTo;
+  }
+
+  function appendEmailToInput(input, email) {
+    if (!input || !email) return;
+    const next = splitEmailList(input.value);
+    if (!next.some((item) => item.toLowerCase() === email.toLowerCase())) next.push(email);
+    input.value = next.join(", ");
+  }
+
+  function closeQuickEmailContactsPanel() {
+    dom.emailContactQuickPanel?.classList.add("hidden");
+    dom.quickEmailContactsBtn?.setAttribute("aria-expanded", "false");
+  }
+
+  function renderQuickEmailContactsPanel() {
+    if (!dom.emailContactQuickPanel) return;
+    const contacts = currentQuickEmailContacts();
+    dom.emailContactQuickPanel.innerHTML = contacts.length
+      ? contacts.map((contact, index) => `
+        <button class="email-contact-quick-item" data-action="quick-email-contact" data-id="${index}" type="button">
+          <strong>${escapeHtml(contact.role.toUpperCase())}</strong>
+          <span>${escapeHtml(contact.email)}</span>
+        </button>
+      `).join("")
+      : `<div class="email-contact-quick-empty">No saved contacts. Use Contacts to add one.</div>`;
+  }
+
+  function toggleQuickEmailContactsPanel() {
+    if (!dom.emailContactQuickPanel) return;
+    renderQuickEmailContactsPanel();
+    const willOpen = dom.emailContactQuickPanel.classList.contains("hidden");
+    dom.emailContactQuickPanel.classList.toggle("hidden", !willOpen);
+    dom.quickEmailContactsBtn?.setAttribute("aria-expanded", String(willOpen));
+  }
+
+  function applyQuickEmailContact(index) {
+    const contact = currentQuickEmailContacts()[Number(index)];
+    if (!contact) return;
+    appendEmailToInput(emailRoleInput(contact.role), contact.email);
+    closeQuickEmailContactsPanel();
+    UI.toast(`Added ${contact.email} to ${contact.role.toUpperCase()}.`, "good");
   }
 
   function fillAnalysisForm(customer) {
@@ -3111,7 +3165,7 @@
       "loadCustomerSelect", "companyName", "website", "contactName", "contactEmail", "country", "city", "industry",
       "buyingRole", "buyingRoleManualStatus", "instagram", "facebook", "emailPurpose", "businessNotes", "manualWebsiteSummary", "websiteExtract",
       "fetchWebsiteBtn", "runAnalysisBtn", "saveCustomerBtn", "clearAnalysisBtn", "staleBanner",
-      "templatePurpose", "newBlankTemplateBtn", "templateSubject", "emailTo", "emailCc", "emailBcc", "manageEmailContactsBtn", "templateBody", "templatePreviewPane", "emailEditModeBtn", "emailPreviewModeBtn",
+      "templatePurpose", "newBlankTemplateBtn", "templateSubject", "emailTo", "emailCc", "emailBcc", "quickEmailContactsBtn", "manageEmailContactsBtn", "emailContactQuickPanel", "templateBody", "templatePreviewPane", "emailEditModeBtn", "emailPreviewModeBtn",
       "senderAvatar", "senderSelect", "senderStatus", "attachmentType", "attachmentName", "attachmentUrl",
       "addAttachmentBtn", "uploadAttachmentBtn", "attachmentFileInput", "attachmentUploadStatus", "attachmentList", "previewTemplateBtn", "saveTemplateBtn", "saveTemplateTopBtn", "deleteTemplateBtn", "deleteTemplateTopBtn", "sendEmailTopBtn",
       "analysisPlaceholder", "runAnalysisSideBtn", "analysisResult", "manualOverrideBtn", "companyInfoTable", "ratingHero", "fourScores", "signalTags",
@@ -3164,6 +3218,7 @@
       if (dom.emailTo) dom.emailTo.value = "";
       if (dom.emailCc) dom.emailCc.value = "";
       if (dom.emailBcc) dom.emailBcc.value = "";
+      closeQuickEmailContactsPanel();
       dom.analysisResult.classList.add("hidden");
       dom.analysisPlaceholder?.classList.remove("hidden");
       UI.toast("Form cleared.", "good");
@@ -3259,6 +3314,10 @@
       UI.refreshAll();
       UI.toast(`Upload failed: ${error.message}`, "bad");
     }));
+    dom.quickEmailContactsBtn?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleQuickEmailContactsPanel();
+    });
     dom.manageEmailContactsBtn?.addEventListener("click", () => openEmailContactsDialog());
     dom.addEmailContactBtn?.addEventListener("click", addEmailContactFromDialog);
     dom.saveEmailContactsBtn?.addEventListener("click", saveEmailContactsFromDialog);
@@ -3266,6 +3325,11 @@
       if (event.key !== "Enter") return;
       event.preventDefault();
       addEmailContactFromDialog();
+    });
+    document.addEventListener("click", (event) => {
+      if (dom.emailContactQuickPanel?.classList.contains("hidden")) return;
+      if (event.target.closest(".email-copy-fields")) return;
+      closeQuickEmailContactsPanel();
     });
     dom.refreshSendersBtn?.addEventListener("click", () => refreshSenders().catch((error) => UI.toast(error.message, "bad")));
     dom.saveSenderBtn?.addEventListener("click", () => SenderApi.save().catch((error) => UI.toast(error.message, "bad")));
@@ -3418,6 +3482,7 @@
         }
       }
       if (action === "manage-email-contacts") openEmailContactsDialog(id);
+      if (action === "quick-email-contact") applyQuickEmailContact(id);
       if (action === "add-log") openLogDialog(id);
       if (action === "copy-log-email") {
         const log = DB.getLogs()[id];
