@@ -818,6 +818,18 @@ td {
   line-height: 1.55;
 }
 
+.customer-card a,
+.customer-card a:visited {
+  color: #ffffff;
+  text-decoration-color: rgba(255, 255, 255, 0.55);
+}
+
+.customer-card a:hover,
+.customer-card a:focus-visible {
+  color: #f2f5f9;
+  text-decoration-color: rgba(255, 255, 255, 0.85);
+}
+
 .email-preview {
   margin: 0;
   padding: 16px;
@@ -4590,4 +4602,2162 @@ body {
   border-color: rgba(96, 165, 250, 0.46);
   color: #ffffff;
   box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.14);
+}
+
+.theme-toggle {
+  margin-top: auto;
+  width: 100%;
+  min-height: 44px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  box-shadow: var(--shadow);
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.theme-toggle:hover {
+  background: rgba(242, 184, 75, 0.12);
+  border-color: rgba(242, 184, 75, 0.28);
+}
+
+.theme-toggle:active {
+  transform: translateY(1px);
+}
+
+body.light-mode {
+  color-scheme: light;
+  --bg: #f5f9fc;
+  --panel: #ffffff;
+  --panel-soft: #f8fbff;
+  --panel-lift: #ffffff;
+  --line: #dbe3ef;
+  --text: #222831;
+  --muted: #495057;
+  --faint: #86909c;
+  --accent: #40a8e8;
+  --accent-2: #2563eb;
+  --danger: #dc2626;
+  --good: #059669;
+  --warn: #d97706;
+  --shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  background: #f5f9fc;
+  color: #222831;
+}
+
+body.light-mode .sidebar {
+  background: #ffffff;
+  border-right: 1px solid var(--line);
+  box-shadow: 10px 0 30px rgba(15, 23, 42, 0.04);
+}
+
+body.light-mode .brand-mark {
+  background: linear-gradient(135deg, #40a8e8, #2563eb);
+  color: #ffffff;
+}
+
+body.light-mode .nav-button {
+  color: #5b6475;
+}
+
+body.light-mode .nav-button.active,
+body.light-mode .nav-button:hover {
+  color: #1f2937;
+  background: rgba(64, 168, 232, 0.12);
+  border-color: rgba(64, 168, 232, 0.24);
+}
+
+body.light-mode .today-widget,
+body.light-mode .stats-widget,
+body.light-mode .error-widget,
+body.light-mode .backup-box,
+body.light-mode .card,
+body.light-mode .result-block {
+  background: #ffffff;
+  border-color: var(--line);
+  box-shadow: var(--shadow);
+}
+
+body.light-mode .topbar #toast,
+body.light-mode .toast {
+  background: #ffffff;
+  color: var(--muted);
+  border-color: var(--line);
+}
+
+body.light-mode .toast.good {
+  color: #059669;
+  border-color: rgba(5, 150, 105, 0.18);
+}
+
+body.light-mode .toast.warn {
+  color: #d97706;
+  border-color: rgba(217, 119, 6, 0.18);
+}
+
+body.light-mode .toast.bad {
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.18);
+}
+
+body.light-mode .topbar .import-hint {
+  background: #eef6ff;
+  border: 1px solid rgba(64, 168, 232, 0.16);
+  color: #495057;
+}
+
+body.light-mode .topbar .import-hint span,
+body.light-mode .topbar .import-hint strong {
+  color: #40a8e8;
+}
+
+body.light-mode .card-head h3,
+body.light-mode .topbar h2,
+body.light-mode .mail-editor-head h3,
+body.light-mode .result-card h3,
+body.light-mode .result-card h4,
+body.light-mode .form-section legend {
+  color: #222831;
+}
+
+body.light-mode .card-head p,
+body.light-mode .topbar p,
+body.light-mode .brand p,
+body.light-mode .field-help,
+body.light-mode .template-help,
+body.light-mode .analysis-placeholder-content p,
+body.light-mode .sidebar-advanced .advanced-note,
+body.light-mode .attachment-head span,
+body.light-mode .attachment-upload-status,
+body.light-mode .topbar #toast,
+body.light-mode .topbar .import-hint {
+  color: #86909c;
+}
+
+body.light-mode .form-section,
+body.light-mode .sidebar-advanced > summary,
+body.light-mode .template-tools,
+body.light-mode .variable-list,
+body.light-mode .template-advanced-actions,
+body.light-mode .attachment-placeholder,
+body.light-mode .analysis-placeholder-card {
+  background: #f8fbff;
+  border-color: var(--line);
+}
+
+body.light-mode .sidebar-advanced > summary,
+body.light-mode .template-tools > summary,
+body.light-mode .variable-list > summary,
+body.light-mode .template-advanced-actions > summary {
+  background: #ffffff;
+  color: #5b6475;
+  border-color: var(--line);
+}
+
+body.light-mode .sidebar-advanced[open] > summary,
+body.light-mode .template-tools[open] > summary,
+body.light-mode .variable-list[open] > summary,
+body.light-mode .template-advanced-actions[open] > summary {
+  color: #1f2937;
+}
+
+body.light-mode .sidebar-advanced .error-widget,
+body.light-mode .sidebar-advanced .backup-box {
+  background: #ffffff;
+  border-color: var(--line);
+}
+
+body.light-mode input,
+body.light-mode select,
+body.light-mode textarea {
+  background: #ffffff;
+  color: #222831;
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+body.light-mode input::placeholder,
+body.light-mode textarea::placeholder {
+  color: #86909c;
+}
+
+body.light-mode .primary-button {
+  background: linear-gradient(135deg, #1f7d59 0%, #34a87c 100%);
+  color: #ffffff;
+}
+
+body.light-mode .primary-button:hover {
+  background: linear-gradient(135deg, #2bb877 0%, #3ccf8c 100%);
+}
+
+body.light-mode .primary-button:active {
+  background: linear-gradient(135deg, #1f8e5a 0%, #24a167 100%);
+}
+
+body.light-mode .secondary-button {
+  background: #eef6ff;
+  color: #2563eb;
+  border-color: rgba(37, 99, 235, 0.18);
+}
+
+body.light-mode .secondary-button:hover {
+  background: #e0ecff;
+}
+
+body.light-mode .secondary-button:active {
+  background: #d3e6ff;
+}
+
+body.light-mode .ghost-button,
+body.light-mode .mini-button {
+  background: #f3f6fb;
+  color: #5b6475;
+  border-color: var(--line);
+}
+
+body.light-mode .ghost-button:hover,
+body.light-mode .mini-button:hover {
+  background: #eaf0f7;
+  color: #222831;
+}
+
+body.light-mode .ghost-button:active,
+body.light-mode .mini-button:active {
+  background: #dfe7f0;
+}
+
+body.light-mode .mini-button.active,
+body.light-mode .editor-mode-toggle .mini-button.active {
+  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+body.light-mode .editor-mode-toggle {
+  background: #f4f7fb;
+  border-color: var(--line);
+}
+
+body.light-mode .editor-mode-toggle .mini-button {
+  background: transparent;
+  color: #5b6475;
+}
+
+body.light-mode .editor-mode-toggle .mini-button:hover,
+body.light-mode .editor-mode-toggle .mini-button:focus-visible {
+  background: rgba(64, 168, 232, 0.12);
+  color: #222831;
+}
+
+body.light-mode .today-stats span,
+body.light-mode .stat-card,
+body.light-mode .today-item,
+body.light-mode .tag-list span,
+body.light-mode .status-pill,
+body.light-mode .recommend-card,
+body.light-mode .timeline-item,
+body.light-mode .suggestion-list {
+  background: #f8fbff;
+  border-color: var(--line);
+  color: #495057;
+}
+
+body.light-mode .today-item.overdue {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.22);
+}
+
+body.light-mode .today-item.due-today {
+  background: rgba(5, 150, 105, 0.08);
+  border-color: rgba(5, 150, 105, 0.22);
+}
+
+body.light-mode .analysis-side table,
+body.light-mode .analysis-side th,
+body.light-mode .analysis-side td {
+  border-color: var(--line);
+}
+
+body.light-mode .analysis-side th {
+  background: #f4f7fb;
+  color: #495057;
+}
+
+body.light-mode .analysis-side td {
+  background: #ffffff;
+  color: #495057;
+}
+
+body.light-mode .template-preview-pane {
+  background: #ffffff;
+  color: #222831;
+  border-color: var(--line);
+}
+
+body.light-mode .email-contact-quick-panel {
+  background: #ffffff;
+  border-color: var(--line);
+  box-shadow: var(--shadow);
+}
+
+body.light-mode .internal-note {
+  background: #eefaf3;
+  color: #166534;
+  border-color: rgba(5, 150, 105, 0.18);
+}
+
+body.light-mode .banner {
+  background: #eef6ff;
+  color: #1f4bb8;
+  border-color: rgba(37, 99, 235, 0.18);
+}
+
+body.light-mode .theme-toggle {
+  background: #ffffff;
+  color: #222831;
+  border-color: var(--line);
+  box-shadow: var(--shadow);
+}
+
+body.light-mode .theme-toggle:hover {
+  background: #f3f7fb;
+}
+
+body.light-mode .theme-toggle:active {
+  background: #e6edf5;
+}
+
+body.light-mode dialog,
+body.light-mode .dialog-form {
+  background: #ffffff;
+  color: #222831;
+  border-color: var(--line);
+  box-shadow: var(--shadow);
+}
+
+body.light-mode dialog::backdrop {
+  background: rgba(15, 23, 42, 0.18);
+}
+
+/* Sender Management light partition: scoped to this page only. */
+body:has(#sendersPage.active) {
+  background: #fafcfe;
+  color: #1e293b;
+}
+
+body:has(#sendersPage.active) .app-shell {
+  background: #fafcfe;
+}
+
+body:has(#sendersPage.active) .main {
+  background: #fafcfe;
+}
+
+body:has(#sendersPage.active) .sidebar {
+  background: #f2f8ff;
+  border-right-color: #dbe7f5;
+  box-shadow: 10px 0 30px rgba(30, 64, 105, 0.04);
+  backdrop-filter: none;
+}
+
+body:has(#sendersPage.active) .brand h1,
+body:has(#sendersPage.active) .nav-button.active {
+  color: #1e293b;
+}
+
+body:has(#sendersPage.active) .brand p,
+body:has(#sendersPage.active) .nav-button,
+body:has(#sendersPage.active) .widget-head,
+body:has(#sendersPage.active) .stats-widget h3 {
+  color: #64748b;
+}
+
+body:has(#sendersPage.active) .nav-button.active,
+body:has(#sendersPage.active) .nav-button:hover {
+  background: #e3f2ff;
+  border-color: #bfddf7;
+}
+
+body:has(#sendersPage.active) .today-widget,
+body:has(#sendersPage.active) .stats-widget,
+body:has(#sendersPage.active) .sidebar-advanced > summary,
+body:has(#sendersPage.active) .theme-toggle {
+  background: rgba(255, 255, 255, 0.78);
+  border-color: #dbe7f5;
+  color: #334155;
+  box-shadow: none;
+}
+
+body:has(#sendersPage.active) .stat-card,
+body:has(#sendersPage.active) .today-stats span,
+body:has(#sendersPage.active) .today-item {
+  background: #ffffff;
+  border-color: #e5edf6;
+  color: #475569;
+}
+
+body:has(#sendersPage.active) .topbar {
+  position: relative;
+  padding: 12px 14px;
+  border: 1px solid #dceaf7;
+  border-radius: 14px;
+  background: #f0f7ff;
+  box-shadow: 0 6px 18px rgba(30, 64, 105, 0.05);
+}
+
+body:has(#sendersPage.active) .topbar::after {
+  display: none;
+}
+
+body:has(#sendersPage.active) .topbar h2 {
+  color: #1e293b;
+}
+
+body:has(#sendersPage.active) .topbar p,
+body:has(#sendersPage.active) .topbar .import-hint {
+  color: #64748b;
+}
+
+body:has(#sendersPage.active) .topbar .import-hint span,
+body:has(#sendersPage.active) .topbar .import-hint strong {
+  color: #3d8fda;
+}
+
+body:has(#sendersPage.active) .workflow-strip {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+body:has(#sendersPage.active) .workflow-strip span {
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid #dbe7f5;
+  color: #475569;
+}
+
+body:has(#sendersPage.active) .workflow-strip strong {
+  background: #dff1ff;
+  color: #2563eb;
+}
+
+body:has(#sendersPage.active) .topbar #toast,
+body:has(#sendersPage.active) .toast {
+  background: #ffffff;
+  border-color: #dbe7f5;
+  color: #64748b;
+}
+
+#sendersPage {
+  color: #334155;
+}
+
+#sendersPage > .card {
+  background: #f7faff;
+  border: 1px solid #dceaf7;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(30, 64, 105, 0.06);
+}
+
+#sendersPage .card-head {
+  margin: -2px -2px 16px;
+  padding: 14px;
+  border: 1px solid #dceaf7;
+  border-radius: 14px;
+  background: #f0f7ff;
+}
+
+#sendersPage .card-head h3 {
+  color: #1e293b;
+}
+
+#sendersPage .card-head h3::before {
+  background: #ffffff;
+  border-color: #bfddf7;
+  color: #2563eb;
+}
+
+#sendersPage .card-head p {
+  color: #64748b;
+}
+
+#sendersPage #refreshSendersBtn {
+  background: #eaf4ff;
+  border-color: #cfe4fb;
+  color: #2563eb;
+  box-shadow: none;
+}
+
+#sendersPage #refreshSendersBtn:hover {
+  background: #ddeeff;
+  border-color: #bad8f6;
+}
+
+#sendersPage .sender-form {
+  margin: 0 0 18px;
+  padding: 14px;
+  border: 1px solid #dceaf7;
+  border-radius: 14px;
+  background: #f7faff;
+}
+
+#sendersPage .sender-form label {
+  color: #334155;
+  font-weight: 700;
+}
+
+#sendersPage .sender-form input {
+  background: #ffffff;
+  border-color: #dbe7f5;
+  color: #1e293b;
+}
+
+#sendersPage .sender-form input::placeholder {
+  color: #94a3b8;
+}
+
+#sendersPage .sender-form input:focus {
+  border-color: #40a8e8;
+  box-shadow: 0 0 0 3px rgba(64, 168, 232, 0.12);
+}
+
+#sendersPage #saveSenderBtn {
+  background: #3d8fda;
+  border: 1px solid #327fc5;
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(61, 143, 218, 0.18);
+}
+
+#sendersPage #saveSenderBtn:hover {
+  background: #327fc5;
+}
+
+#sendersPage #resetSenderFormBtn {
+  background: #eef3f8;
+  border-color: #dbe7f5;
+  color: #475569;
+}
+
+#sendersPage #resetSenderFormBtn:hover {
+  background: #e2eaf3;
+  color: #334155;
+}
+
+#sendersPage .sender-form small {
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid #e8d99f;
+  border-radius: 10px;
+  background: #fff8e6;
+  color: #64748b;
+}
+
+#sendersPage #senderList.table-wrap {
+  padding: 0;
+  border: 1px solid #dceaf7;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 6px 18px rgba(30, 64, 105, 0.04);
+}
+
+#sendersPage table {
+  min-width: 680px;
+  background: #ffffff;
+}
+
+#sendersPage th,
+#sendersPage td {
+  border-bottom-color: #eef2f7;
+}
+
+#sendersPage th {
+  background: #ebf4ff;
+  color: #334155;
+}
+
+#sendersPage td {
+  background: #ffffff;
+  color: #475569;
+}
+
+#sendersPage tbody tr {
+  transition: background 0.16s ease;
+}
+
+#sendersPage tbody tr:hover td {
+  background: #f7faff;
+}
+
+#sendersPage .status-pill {
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+#sendersPage .status-pill.positive {
+  background: #eafbf2;
+  border-color: #c7eed9;
+  color: #16865a;
+}
+
+#sendersPage .status-pill.negative {
+  background: #f1f5f9;
+  border-color: #dce5ee;
+  color: #64748b;
+}
+
+#sendersPage #senderList .mini-button {
+  background: #eaf4ff;
+  border-color: #cfe4fb;
+  color: #2563eb;
+  box-shadow: none;
+}
+
+#sendersPage #senderList .mini-button:hover {
+  background: #ddeeff;
+}
+
+#sendersPage #senderList .mini-button[data-action="toggle-sender"] {
+  background: #fff7e6;
+  border-color: #f3dfa8;
+  color: #b7791f;
+}
+
+#sendersPage #senderList .mini-button[data-action="toggle-sender"]:hover {
+  background: #ffefcc;
+}
+
+#sendersPage #senderList .danger-button {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #dc2626;
+  box-shadow: none;
+}
+
+#sendersPage #senderList .danger-button:hover {
+  background: #ffe4e6;
+}
+
+#sendersPage .empty {
+  margin: 0;
+  background: #ffffff;
+  border-color: #dceaf7;
+  color: #64748b;
+}
+
+/* Unified light UI test: make the whole app match the Sender Management visual language. */
+body {
+  color-scheme: light;
+  --bg: #fafcfe;
+  --panel: #ffffff;
+  --panel-soft: #f7faff;
+  --panel-lift: #ffffff;
+  --line: #dbe7f5;
+  --text: #1e293b;
+  --muted: #64748b;
+  --faint: #94a3b8;
+  --accent: #3d8fda;
+  --accent-2: #2563eb;
+  --danger: #dc2626;
+  --good: #16865a;
+  --warn: #b7791f;
+  --shadow: 0 8px 24px rgba(30, 64, 105, 0.06);
+  background: #fafcfe;
+  color: #1e293b;
+}
+
+.app-shell,
+.main,
+.page.active {
+  background: #fafcfe;
+}
+
+.theme-toggle {
+  display: none;
+}
+
+.sidebar {
+  background: #f2f8ff;
+  border-right-color: #dbe7f5;
+  box-shadow: 10px 0 30px rgba(30, 64, 105, 0.04);
+  backdrop-filter: none;
+  scrollbar-color: #bfddf7 #eef6ff;
+}
+
+.brand h1,
+.topbar h2,
+.card-head h3,
+.mail-editor-head h3,
+.result-card h3,
+.result-card h4,
+.form-section legend,
+.template-edit-field,
+.attachment-head label,
+label {
+  color: #1e293b;
+}
+
+.brand p,
+.card-head p,
+.topbar p,
+.field-help,
+.template-help,
+.attachment-head span,
+.attachment-upload-status,
+.analysis-placeholder-content p,
+.sidebar-advanced .advanced-note,
+.sender-selector span,
+small {
+  color: #64748b;
+}
+
+.brand-mark {
+  background: linear-gradient(135deg, #40a8e8, #2563eb);
+  color: #ffffff;
+}
+
+.nav-button {
+  color: #64748b;
+}
+
+.nav-button.active,
+.nav-button:hover {
+  color: #1e293b;
+  background: #e3f2ff;
+  border-color: #bfddf7;
+}
+
+.today-widget,
+.stats-widget,
+.error-widget,
+.backup-box,
+.card,
+.result-block,
+.result-card,
+.template-preview-pane,
+.analysis-placeholder-card,
+.email-contact-quick-panel,
+.sender-selector,
+.dialog-form,
+dialog {
+  background: #ffffff;
+  border-color: #dbe7f5;
+  color: #1e293b;
+  box-shadow: 0 8px 24px rgba(30, 64, 105, 0.06);
+}
+
+.today-stats span,
+.stat-card,
+.today-item,
+.timeline-item,
+.recommend-card,
+.suggestion-list,
+.score-row,
+.customer-card,
+.product-card,
+.backup-box,
+.excel-file-list,
+.excel-file-item {
+  background: #f7faff;
+  border-color: #dbe7f5;
+  color: #475569;
+}
+
+.today-item:hover,
+.customer-card:hover,
+.product-card:hover,
+.excel-file-item:hover {
+  background: #eef6ff;
+  border-color: #bfddf7;
+}
+
+.topbar {
+  position: relative;
+  padding: 12px 14px;
+  border: 1px solid #dceaf7;
+  border-radius: 14px;
+  background: #f0f7ff;
+  box-shadow: 0 6px 18px rgba(30, 64, 105, 0.05);
+}
+
+.topbar::after {
+  display: none;
+}
+
+.topbar .import-hint {
+  background: transparent;
+  border: 0;
+  color: #64748b;
+}
+
+.topbar .import-hint span,
+.topbar .import-hint strong {
+  color: #3d8fda;
+}
+
+.workflow-strip {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.workflow-strip span {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid #dbe7f5;
+  color: #334155;
+}
+
+.workflow-strip strong {
+  background: #dff1ff;
+  color: #2563eb;
+}
+
+.toast,
+.topbar #toast {
+  background: #ffffff;
+  border-color: #dbe7f5;
+  color: #64748b;
+}
+
+.toast.good,
+.topbar #toast.good {
+  background: #eafbf2;
+  border-color: #c7eed9;
+  color: #16865a;
+}
+
+.toast.warn,
+.topbar #toast.warn {
+  background: #fff8e6;
+  border-color: #e8d99f;
+  color: #b7791f;
+}
+
+.toast.bad,
+.topbar #toast.bad {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #dc2626;
+}
+
+.analysis-workspace > *,
+.analysis-main > .card,
+.analysis-side > .card,
+.analysis-side > .result-card,
+#productsPage > .card,
+#customersPage > .card,
+#sendersPage > .card {
+  background: #f7faff;
+  border-color: #dceaf7;
+  box-shadow: 0 8px 24px rgba(30, 64, 105, 0.06);
+}
+
+.card-head,
+.mail-editor-head,
+#sendersPage .card-head {
+  background: #f0f7ff;
+  border: 1px solid #dceaf7;
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.form-section,
+.template-tools,
+.variable-list,
+.template-advanced-actions,
+.attachment-placeholder,
+.email-copy-fields,
+.internal-email-angle,
+.toolbar,
+.bulk-action-bar,
+.customer-import-card,
+.sender-form,
+#sendersPage .sender-form {
+  background: #f7faff;
+  border-color: #dceaf7;
+}
+
+.form-section legend,
+.tag-list span,
+.status-pill {
+  background: #ebf4ff;
+  color: #334155;
+  border-color: #cfe4fb;
+}
+
+input,
+select,
+textarea {
+  background: #ffffff;
+  border-color: #dbe7f5;
+  color: #1e293b;
+  box-shadow: none;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #40a8e8;
+  box-shadow: 0 0 0 3px rgba(64, 168, 232, 0.12);
+}
+
+.primary-button,
+#sendersPage #saveSenderBtn,
+.send-email-top {
+  background: #3d8fda;
+  border: 1px solid #327fc5;
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(61, 143, 218, 0.18);
+}
+
+.primary-button:hover,
+#sendersPage #saveSenderBtn:hover,
+.send-email-top:hover {
+  background: #327fc5;
+}
+
+.secondary-button,
+.ghost-button,
+.mini-button,
+.attachment-upload-button,
+#sendersPage #refreshSendersBtn,
+#sendersPage #resetSenderFormBtn {
+  background: #eef3f8;
+  border-color: #dbe7f5;
+  color: #475569;
+  box-shadow: none;
+}
+
+.secondary-button:hover,
+.ghost-button:hover,
+.mini-button:hover,
+.attachment-upload-button:hover,
+#sendersPage #refreshSendersBtn:hover,
+#sendersPage #resetSenderFormBtn:hover {
+  background: #e2eaf3;
+  color: #334155;
+}
+
+.mini-button.active,
+.editor-mode-toggle .mini-button.active {
+  background: #dff1ff;
+  border-color: #bfddf7;
+  color: #2563eb;
+  box-shadow: inset 0 0 0 1px rgba(64, 168, 232, 0.14);
+}
+
+.editor-mode-toggle {
+  background: #eef6ff;
+  border-color: #dbe7f5;
+}
+
+.danger-button,
+#sendersPage #senderList .danger-button {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #dc2626;
+  box-shadow: none;
+}
+
+.danger-button:hover,
+#sendersPage #senderList .danger-button:hover {
+  background: #ffe4e6;
+}
+
+.banner,
+.sender-form small,
+#sendersPage .sender-form small {
+  background: #fff8e6;
+  border-color: #e8d99f;
+  color: #64748b;
+}
+
+.internal-note {
+  background: #eafbf2;
+  border-color: #c7eed9;
+  color: #16865a;
+}
+
+.table-wrap,
+#sendersPage #senderList.table-wrap,
+#productsPage .table-wrap {
+  background: #ffffff;
+  border: 1px solid #dceaf7;
+  border-radius: 14px;
+  box-shadow: 0 6px 18px rgba(30, 64, 105, 0.04);
+}
+
+table {
+  background: #ffffff;
+}
+
+th {
+  background: #ebf4ff;
+  color: #334155;
+}
+
+td {
+  background: #ffffff;
+  color: #475569;
+}
+
+th,
+td {
+  border-bottom-color: #eef2f7;
+}
+
+tbody tr:hover td {
+  background: #f7faff;
+}
+
+.status-pill.positive {
+  background: #eafbf2;
+  border-color: #c7eed9;
+  color: #16865a;
+}
+
+.status-pill.negative,
+.status-pill.bad {
+  background: #f1f5f9;
+  border-color: #dce5ee;
+  color: #64748b;
+}
+
+.status-pill.warn {
+  background: #fff7e6;
+  border-color: #f3dfa8;
+  color: #b7791f;
+}
+
+.template-preview-pane,
+.email-preview {
+  background: #ffffff;
+  color: #1e293b;
+  border-color: #dbe7f5;
+}
+
+.template-preview-pane mark,
+.variable-chip-list span,
+.variable-list span {
+  background: #eafbf2;
+  color: #166534;
+  border-color: #c7eed9;
+}
+
+.attachment-list,
+.attachment-item,
+.email-contact-quick-item {
+  background: #ffffff;
+  border-color: #dbe7f5;
+  color: #475569;
+}
+
+.rating-big strong,
+.stat-card strong,
+.widget-head strong {
+  color: #2563eb;
+}
+
+.bar {
+  background: #e5edf6;
+}
+
+.bar span {
+  background: linear-gradient(90deg, #40a8e8, #2563eb);
+}
+
+.empty {
+  background: #ffffff;
+  border-color: #dceaf7;
+  color: #64748b;
+}
+
+dialog::backdrop {
+  background: rgba(15, 23, 42, 0.18);
+}
+
+#analysisPage .form-actions {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+#analysisPage .form-actions #fetchWebsiteBtn,
+#analysisPage .form-actions #saveCustomerBtn,
+#analysisPage .form-actions #clearAnalysisBtn {
+  background: #244a82;
+  border-color: #35639e;
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(36, 74, 130, 0.16);
+}
+
+#analysisPage .form-actions #fetchWebsiteBtn:hover,
+#analysisPage .form-actions #saveCustomerBtn:hover,
+#analysisPage .form-actions #clearAnalysisBtn:hover,
+#analysisPage .form-actions #fetchWebsiteBtn:focus-visible,
+#analysisPage .form-actions #saveCustomerBtn:focus-visible,
+#analysisPage .form-actions #clearAnalysisBtn:focus-visible {
+  background: #2c5b9c;
+  border-color: #4173b3;
+}
+
+#analysisPage .form-actions #runAnalysisBtn {
+  background: #2fbf7c;
+  border-color: #28a86c;
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(47, 191, 124, 0.22);
+}
+
+#analysisPage .form-actions #runAnalysisBtn:hover,
+#analysisPage .form-actions #runAnalysisBtn:focus-visible {
+  background: #36cd88;
+  border-color: #2fbf7c;
+}
+
+.product-match-help {
+  border-color: #cfe4fb;
+  background: #ffffff;
+  color: #1e293b;
+  box-shadow: 0 6px 16px rgba(30, 64, 105, 0.04);
+}
+
+.product-match-help strong {
+  color: #2563eb;
+}
+
+.side-nav {
+  border: 1px solid #dbe7f5;
+  background: #f2f8ff;
+  box-shadow: none;
+}
+
+.nav-button {
+  color: #334155;
+  background: transparent;
+  border-color: transparent;
+}
+
+.nav-button:hover {
+  color: #1e293b;
+  background: #eaf4ff;
+  border-color: #cfe4fb;
+}
+
+.nav-button.active {
+  color: #10213b;
+  background: #e3f2ff;
+  border-color: #bfddf7;
+  box-shadow: 0 8px 20px rgba(61, 143, 218, 0.12);
+}
+
+.nav-button::before {
+  background: transparent;
+  box-shadow: none;
+}
+
+.nav-button.active::before {
+  background: #3d8fda;
+  box-shadow: none;
+}
+
+.nav-button[data-icon]::before {
+  background: #eafbf2;
+  border-color: #c7eed9;
+  color: #2563eb;
+}
+
+.nav-button[data-icon].active::before,
+.nav-button[data-icon]:hover::before {
+  background: #f8b94f;
+  border-color: #f3cc82;
+  color: #10213b;
+}
+
+/* Customer Pool batch tools: keep the light UI consistent and readable. */
+.bulk-box {
+  background: #f7faff;
+  border: 1px solid #dceaf7;
+  color: #1e293b;
+  box-shadow: 0 6px 16px rgba(30, 64, 105, 0.04);
+}
+
+.bulk-box label,
+.bulk-box #bulkProgressText {
+  color: #334155;
+}
+
+.bulk-box select,
+.bulk-box input {
+  background: #ffffff;
+  border-color: #cfe0f2;
+  color: #1e293b;
+}
+
+.bulk-box .secondary-button {
+  background: #e8f4ff;
+  border-color: #bfddf7;
+  color: #1d4f8f;
+}
+
+.bulk-box .secondary-button:hover,
+.bulk-box .secondary-button:focus-visible {
+  background: #d9edff;
+  border-color: #9fcdf4;
+  color: #153f76;
+}
+
+.bulk-box .ghost-button {
+  background: #eef3f8;
+  border-color: #dbe7f5;
+  color: #475569;
+}
+
+.bulk-box .ghost-button:hover,
+.bulk-box .ghost-button:focus-visible {
+  background: #e2eaf3;
+  color: #334155;
+}
+
+.bulk-box #bulkDeleteBtn {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #dc2626;
+}
+
+.bulk-box #bulkDeleteBtn:hover,
+.bulk-box #bulkDeleteBtn:focus-visible {
+  background: #ffe4e6;
+}
+
+.bulk-box .progress-shell {
+  background: #e5edf6;
+  border: 1px solid #d5e3f2;
+}
+
+.bulk-box .progress-shell span {
+  background: linear-gradient(90deg, #40a8e8, #2fbf7c);
+}
+
+/* Right email panel light contrast pass: remove leftover dark panels only in the mail editor. */
+.analysis-side,
+.analysis-side .card,
+.analysis-side .mail-editor-sticky {
+  background: #f7faff;
+  color: #1e293b;
+}
+
+.analysis-side .card {
+  border-color: #dceaf7;
+  box-shadow: 0 8px 24px rgba(30, 64, 105, 0.06);
+}
+
+.analysis-side .mail-editor-sticky {
+  border: 1px solid #dceaf7;
+  border-radius: 16px;
+  box-shadow: none;
+}
+
+.analysis-side .mail-editor-head,
+.analysis-side .template-toolbar,
+.analysis-side .template-tools,
+.analysis-side .template-edit-field,
+.analysis-side .email-copy-fields,
+.analysis-side .internal-email-angle,
+.analysis-side .attachment-placeholder,
+.analysis-side .variable-list,
+.analysis-side .template-advanced-actions {
+  background: #ffffff;
+  border: 1px solid #dbe7f5;
+  color: #1e293b;
+  box-shadow: 0 6px 16px rgba(30, 64, 105, 0.04);
+}
+
+.analysis-side .mail-editor-head {
+  background: #f0f7ff;
+  border-color: #dceaf7;
+}
+
+.analysis-side .template-toolbar,
+.analysis-side .email-copy-fields,
+.analysis-side .attachment-placeholder {
+  background: #f7faff;
+}
+
+.analysis-side .mail-editor-head h3,
+.analysis-side .template-edit-field,
+.analysis-side .template-edit-field::first-line,
+.analysis-side .attachment-head label,
+.analysis-side .internal-email-angle-title,
+.analysis-side label {
+  color: #1e293b;
+}
+
+.analysis-side .mail-editor-head p,
+.analysis-side .template-help,
+.analysis-side .attachment-head span,
+.analysis-side .attachment-upload-status,
+.analysis-side #senderStatus,
+.analysis-side small {
+  color: #64748b;
+}
+
+.analysis-side input,
+.analysis-side select,
+.analysis-side textarea,
+.analysis-side #templateSubject,
+.analysis-side #templateBody,
+.analysis-side .template-preview-pane,
+.analysis-side .attachment-list-placeholder,
+.analysis-side .attachment-item,
+.analysis-side .email-contact-quick-panel,
+.analysis-side .email-contact-quick-item {
+  background: #ffffff;
+  border-color: #cfe0f2;
+  color: #1e293b;
+  box-shadow: none;
+}
+
+.analysis-side input::placeholder,
+.analysis-side textarea::placeholder {
+  color: #94a3b8;
+}
+
+.analysis-side input:focus,
+.analysis-side select:focus,
+.analysis-side textarea:focus,
+.analysis-side #templateSubject:focus,
+.analysis-side #templateBody:focus {
+  border-color: #40a8e8;
+  box-shadow: 0 0 0 3px rgba(64, 168, 232, 0.14);
+}
+
+.analysis-side .sender-selector {
+  background: #ffffff;
+  border: 1px solid #cfe0f2;
+  color: #1e293b;
+  box-shadow: none;
+}
+
+.analysis-side .sender-avatar {
+  background: #eafbf2;
+  border: 1px solid #c7eed9;
+  color: #10213b;
+}
+
+.analysis-side .rich-toolbar {
+  background: #eef6ff;
+  border: 1px solid #dbe7f5;
+  box-shadow: none;
+}
+
+.analysis-side .rich-toolbar .mini-button,
+.analysis-side .mini-button,
+.analysis-side .ghost-button,
+.analysis-side .secondary-button,
+.analysis-side .attachment-upload-button {
+  background: #eef3f8;
+  border-color: #dbe7f5;
+  color: #334155;
+  box-shadow: none;
+}
+
+.analysis-side .rich-toolbar .mini-button:hover,
+.analysis-side .mini-button:hover,
+.analysis-side .ghost-button:hover,
+.analysis-side .secondary-button:hover,
+.analysis-side .attachment-upload-button:hover,
+.analysis-side .rich-toolbar .mini-button:focus-visible,
+.analysis-side .mini-button:focus-visible,
+.analysis-side .ghost-button:focus-visible,
+.analysis-side .secondary-button:focus-visible,
+.analysis-side .attachment-upload-button:focus-visible {
+  background: #dff1ff;
+  border-color: #bfddf7;
+  color: #1d4f8f;
+}
+
+.analysis-side .editor-mode-toggle {
+  background: #e8f4ff;
+  border-color: #bfddf7;
+}
+
+.analysis-side .editor-mode-toggle .mini-button.active {
+  background: #3d8fda;
+  border-color: #327fc5;
+  color: #ffffff;
+}
+
+.analysis-side #sendEmailTopBtn,
+.analysis-side .send-email-top {
+  background: #2fbf7c;
+  border-color: #28a86c;
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(47, 191, 124, 0.22);
+}
+
+.analysis-side #sendEmailTopBtn:hover,
+.analysis-side #sendEmailTopBtn:focus-visible,
+.analysis-side .send-email-top:hover,
+.analysis-side .send-email-top:focus-visible {
+  background: #36cd88;
+  border-color: #2fbf7c;
+}
+
+.analysis-side .template-tools:not([open]),
+.analysis-side .variable-list:not([open]),
+.analysis-side .template-advanced-actions:not([open]) {
+  background: #ffffff;
+  border-color: #dbe7f5;
+}
+
+.analysis-side .template-tools > summary,
+.analysis-side .variable-list > summary,
+.analysis-side .template-advanced-actions > summary {
+  color: #334155;
+}
+
+.analysis-side .template-tools > summary::after,
+.analysis-side .variable-list > summary::after,
+.analysis-side .template-advanced-actions > summary::after {
+  color: #2563eb;
+}
+
+.analysis-side .variable-chip-list span,
+.analysis-side .variable-list span,
+.analysis-side .variable-inline,
+.analysis-side .template-preview-pane mark {
+  background: #eafbf2;
+  border-color: #c7eed9;
+  color: #166534;
+}
+
+.analysis-side .internal-note {
+  background: #eafbf2;
+  border-color: #c7eed9;
+  color: #16865a;
+}
+
+.analysis-side .attachment-grid input,
+.analysis-side .attachment-grid select,
+.analysis-side .attachment-grid #attachmentUrl {
+  background: #ffffff;
+  border-color: #cfe0f2;
+  color: #1e293b;
+}
+
+.analysis-side .attachment-list-placeholder {
+  background: #ffffff;
+  border: 1px dashed #cfe0f2;
+  color: #64748b;
+}
+
+.analysis-side .template-preview-pane {
+  line-height: 1.7;
+}
+
+/* Website field: keep the useful amber highlight, but make it readable on the light UI. */
+.website-highlight-field {
+  background: #fff8e6;
+  border: 1px solid #f2c46d;
+  color: #92400e;
+  box-shadow: 0 6px 16px rgba(146, 64, 14, 0.06);
+}
+
+.website-highlight-field input,
+.website-highlight-field #website {
+  background: #ffffff;
+  border-color: #d59a2f;
+  color: #111827;
+  box-shadow: none;
+}
+
+.website-highlight-field input::placeholder,
+.website-highlight-field #website::placeholder {
+  color: #64748b;
+}
+
+.website-highlight-field input:focus,
+.website-highlight-field #website:focus {
+  background: #ffffff;
+  border-color: #2563eb;
+  color: #111827;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+.website-highlight-field .field-help {
+  color: #475569;
+}
+
+/* Softer action buttons: light blue for tools, light green for main actions. */
+#analysisPage .form-actions #fetchWebsiteBtn,
+#analysisPage .form-actions #saveCustomerBtn,
+#analysisPage .form-actions #clearAnalysisBtn,
+.analysis-side .editor-mode-toggle .mini-button,
+.analysis-side #emailEditModeBtn,
+.analysis-side #emailPreviewModeBtn {
+  --icon-bg: #ccebff;
+  --icon-border: #9fcdf4;
+  --icon-color: #1d4f8f;
+  background: #dff1ff;
+  border-color: #9fcdf4;
+  color: #174a7c;
+  box-shadow: 0 8px 18px rgba(64, 168, 232, 0.14);
+}
+
+#analysisPage .form-actions #fetchWebsiteBtn:hover,
+#analysisPage .form-actions #saveCustomerBtn:hover,
+#analysisPage .form-actions #clearAnalysisBtn:hover,
+#analysisPage .form-actions #fetchWebsiteBtn:focus-visible,
+#analysisPage .form-actions #saveCustomerBtn:focus-visible,
+#analysisPage .form-actions #clearAnalysisBtn:focus-visible,
+.analysis-side .editor-mode-toggle .mini-button:hover,
+.analysis-side .editor-mode-toggle .mini-button:focus-visible,
+.analysis-side #emailEditModeBtn:hover,
+.analysis-side #emailEditModeBtn:focus-visible,
+.analysis-side #emailPreviewModeBtn:hover,
+.analysis-side #emailPreviewModeBtn:focus-visible {
+  background: #ccebff;
+  border-color: #7dbff0;
+  color: #123e68;
+  box-shadow: 0 0 0 3px rgba(64, 168, 232, 0.16), 0 10px 22px rgba(64, 168, 232, 0.18);
+}
+
+.analysis-side .editor-mode-toggle .mini-button.active,
+.analysis-side #emailEditModeBtn.active,
+.analysis-side #emailPreviewModeBtn.active {
+  --icon-bg: #bfe6ff;
+  --icon-border: #86c7f2;
+  --icon-color: #155a8a;
+  background: #ccebff;
+  border-color: #86c7f2;
+  color: #123e68;
+  box-shadow: inset 0 0 0 1px rgba(64, 168, 232, 0.18);
+}
+
+#analysisPage .form-actions #runAnalysisBtn,
+.analysis-side #sendEmailTopBtn,
+.analysis-side .send-email-top {
+  --icon-bg: #c6f1d8;
+  --icon-border: #8fdcab;
+  --icon-color: #16865a;
+  background: #dff8ea;
+  border-color: #9ee7bd;
+  color: #12613f;
+  box-shadow: 0 10px 24px rgba(47, 191, 124, 0.16);
+}
+
+#analysisPage .form-actions #runAnalysisBtn:hover,
+#analysisPage .form-actions #runAnalysisBtn:focus-visible,
+.analysis-side #sendEmailTopBtn:hover,
+.analysis-side #sendEmailTopBtn:focus-visible,
+.analysis-side .send-email-top:hover,
+.analysis-side .send-email-top:focus-visible {
+  background: #cdf3de;
+  border-color: #78d79e;
+  color: #0f5134;
+  box-shadow: 0 0 0 3px rgba(47, 191, 124, 0.16), 0 14px 30px rgba(47, 191, 124, 0.2);
+}
+
+#analysisPage .form-actions #runAnalysisBtn:active,
+.analysis-side #sendEmailTopBtn:active,
+.analysis-side .send-email-top:active {
+  background: #b8e9cf;
+  border-color: #65c88c;
+}
+
+/* Match all primary action buttons to the middle Shortcut green action. */
+#analysisPage .form-actions #runAnalysisBtn,
+#runAnalysisBtn,
+#runAnalysisSideBtn,
+.analysis-side #sendEmailTopBtn,
+.analysis-side .send-email-top {
+  --icon-bg: rgba(255, 255, 255, 0.18);
+  --icon-border: rgba(255, 255, 255, 0.32);
+  --icon-color: #ffffff;
+  background: linear-gradient(135deg, #24a167, #37c987);
+  border-color: rgba(36, 161, 103, 0.62);
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.24);
+  box-shadow: 0 10px 26px rgba(36, 161, 103, 0.26);
+}
+
+#analysisPage .form-actions #runAnalysisBtn:hover,
+#analysisPage .form-actions #runAnalysisBtn:focus-visible,
+#runAnalysisBtn:hover,
+#runAnalysisBtn:focus-visible,
+#runAnalysisSideBtn:hover,
+#runAnalysisSideBtn:focus-visible,
+.analysis-side #sendEmailTopBtn:hover,
+.analysis-side #sendEmailTopBtn:focus-visible,
+.analysis-side .send-email-top:hover,
+.analysis-side .send-email-top:focus-visible {
+  background: linear-gradient(135deg, #2bb877, #46d995);
+  border-color: rgba(70, 217, 149, 0.74);
+  color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(36, 161, 103, 0.2), 0 14px 34px rgba(36, 161, 103, 0.32);
+}
+
+#analysisPage .form-actions #runAnalysisBtn:active,
+#runAnalysisBtn:active,
+#runAnalysisSideBtn:active,
+.analysis-side #sendEmailTopBtn:active,
+.analysis-side .send-email-top:active {
+  background: linear-gradient(135deg, #1f8e5a, #24a167);
+}
+
+/* Remove leftover dark-blue icon blocks from the light UI. */
+.widget-icon,
+.secondary-button[data-icon]::before,
+.ghost-button[data-icon]::before,
+.mini-button[data-icon]::before,
+summary[data-icon]::before,
+.card-head h3::before,
+.mail-editor-head h3::before,
+.analysis-placeholder-content h3::before,
+.form-section legend::before,
+.attachment-head label::before,
+.email-copy-fields label::before,
+.template-edit-field::before,
+.nav-button[data-icon]::before {
+  background: #e8f4ff;
+  border-color: #bfddf7;
+  color: #1d4f8f;
+  box-shadow: none;
+  text-shadow: none;
+}
+
+.widget-icon {
+  border: 1px solid #bfddf7;
+}
+
+.secondary-button[data-icon]:hover::before,
+.ghost-button[data-icon]:hover::before,
+.mini-button[data-icon]:hover::before,
+summary[data-icon]:hover::before,
+.nav-button[data-icon]:hover::before,
+.nav-button[data-icon].active::before {
+  background: #d9edff;
+  border-color: #9fcdf4;
+  color: #174a7c;
+}
+
+/* Customer input pool selector: match the light right-panel style. */
+.load-customer-wrap {
+  background: #f0f7ff;
+  border: 1px solid #dceaf7;
+  border-radius: 14px;
+  color: #1e293b;
+  box-shadow: 0 6px 16px rgba(30, 64, 105, 0.04);
+}
+
+.load-customer-wrap span {
+  color: #1d4f8f;
+  font-weight: 800;
+}
+
+.load-customer-wrap select,
+.load-customer-wrap #loadCustomerSelect {
+  background: #ffffff;
+  border-color: #cfe0f2;
+  color: #1e293b;
+  box-shadow: none;
+}
+
+.load-customer-wrap select:focus,
+.load-customer-wrap #loadCustomerSelect:focus {
+  border-color: #40a8e8;
+  box-shadow: 0 0 0 3px rgba(64, 168, 232, 0.14);
+}
+
+/* Typography hierarchy: section titles must stay larger than fields below them. */
+.card-head h3,
+.mail-editor-head h3,
+.result-card h3,
+#productsPage .card-head h3,
+#customersPage .card-head h3,
+#sendersPage .card-head h3 {
+  font-size: clamp(1.06rem, 1.15vw, 1.22rem);
+  line-height: 1.18;
+  font-weight: 800;
+}
+
+.form-section legend,
+.attachment-head label,
+.internal-email-angle-title,
+.template-tools > summary,
+.variable-list > summary,
+.template-advanced-actions > summary {
+  font-size: clamp(0.92rem, 0.95vw, 1.02rem);
+  line-height: 1.25;
+  font-weight: 800;
+}
+
+label,
+.template-edit-field,
+.template-picker label,
+.sender-selector label,
+.email-copy-fields label,
+.customer-search-box,
+.customer-role-edit label,
+.sender-form label,
+.dialog-form label {
+  font-size: 0.84rem;
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+input,
+select,
+textarea,
+#templateSubject,
+#templateBody,
+.subject-textarea,
+.attachment-grid input,
+.attachment-grid select,
+.sender-selector select,
+.template-toolbar select,
+.email-copy-fields input,
+.load-customer-wrap select,
+.load-customer-wrap #loadCustomerSelect {
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.field-help,
+.template-help,
+.attachment-head span,
+.attachment-upload-status,
+.card-head p,
+.mail-editor-head p,
+.topbar p,
+small {
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.website-highlight-field {
+  font-size: 0.84rem;
+  line-height: 1.3;
+}
+
+.website-highlight-field input,
+.website-highlight-field #website {
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+/* Compact typography pass: field text should never compete with section titles. */
+.card-head h3,
+.mail-editor-head h3,
+.result-card h3,
+#productsPage .card-head h3,
+#customersPage .card-head h3,
+#sendersPage .card-head h3,
+.group-management strong {
+  font-size: clamp(0.98rem, 1.04vw, 1.12rem);
+  line-height: 1.18;
+}
+
+.form-section legend,
+.attachment-head label,
+.internal-email-angle-title {
+  font-size: clamp(0.82rem, 0.86vw, 0.92rem);
+  line-height: 1.24;
+}
+
+label,
+.template-edit-field,
+.template-picker label,
+.sender-selector label,
+.email-copy-fields label,
+.customer-search-box,
+.customer-role-edit label,
+.sender-form label,
+.dialog-form label,
+.import-group-picker {
+  font-size: 0.74rem;
+  line-height: 1.25;
+}
+
+input,
+select,
+textarea,
+button,
+.primary-button,
+.secondary-button,
+.ghost-button,
+.mini-button,
+#templateSubject,
+#templateBody,
+.subject-textarea,
+.attachment-grid input,
+.attachment-grid select,
+.sender-selector select,
+.template-toolbar select,
+.email-copy-fields input,
+.load-customer-wrap select,
+.load-customer-wrap #loadCustomerSelect {
+  font-size: 0.78rem;
+  line-height: 1.28;
+}
+
+.field-help,
+.template-help,
+.attachment-head span,
+.attachment-upload-status,
+.card-head p,
+.mail-editor-head p,
+.topbar p,
+.group-management p,
+small {
+  font-size: 0.66rem;
+  line-height: 1.32;
+}
+
+#customersPage .toolbar label,
+#customersPage .toolbar select,
+#customersPage .toolbar input,
+#customersPage .toolbar button,
+#customersPage .bulk-box label,
+#customersPage .bulk-box select,
+#customersPage .bulk-box input,
+#customersPage .bulk-box button {
+  font-size: 0.74rem;
+}
+
+#customersPage .toolbar select,
+#customersPage .toolbar input,
+#customersPage .bulk-box select,
+#customersPage .bulk-box input {
+  min-height: 34px;
+}
+
+#customersPage .group-management strong {
+  font-weight: 800;
+}
+
+/* Rating distribution chips: remove dark pills from the light UI. */
+.rating-chip-row {
+  gap: 4px;
+}
+
+.rating-chip {
+  background: #e8f4ff;
+  border: 1px solid #bfddf7;
+  color: #1d4f8f;
+  border-radius: 8px;
+  padding: 2px 6px;
+  font-size: 0.64rem;
+  font-weight: 800;
+  box-shadow: none;
+}
+
+.rating-chip.a {
+  background: #eafbf2;
+  border-color: #c7eed9;
+  color: #16865a;
+}
+
+.rating-chip.b,
+.rating-chip.c,
+.rating-chip.d {
+  background: #e8f4ff;
+  border-color: #bfddf7;
+  color: #1d4f8f;
+}
+
+.rating-chip.nr {
+  background: #fff8e6;
+  border-color: #f2c46d;
+  color: #92400e;
+}
+
+/* Sidebar system tools: remove the last dark accordion block. */
+.sidebar-advanced > summary,
+.sidebar-advanced[open] > summary {
+  background: #f0f7ff;
+  border: 1px solid #dceaf7;
+  color: #1d4f8f;
+  box-shadow: 0 6px 16px rgba(30, 64, 105, 0.04);
+}
+
+.sidebar-advanced > summary:hover,
+.sidebar-advanced > summary:focus-visible {
+  background: #e8f4ff;
+  border-color: #bfddf7;
+  color: #174a7c;
+}
+
+.sidebar-advanced > summary::after {
+  color: #1d4f8f;
+}
+
+.sidebar-advanced .advanced-note {
+  color: #64748b;
+}
+
+.sidebar-advanced .error-widget,
+.sidebar-advanced .backup-box {
+  background: #ffffff;
+  border: 1px solid #dceaf7;
+  color: #334155;
+  box-shadow: 0 6px 16px rgba(30, 64, 105, 0.04);
+}
+
+.sidebar-advanced .backup-title {
+  color: #334155;
+}
+
+/* Customer Pool cards: match the compact size used by the bulk controls above. */
+#customersPage .customer-list,
+#customersPage .customer-card {
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+#customersPage .customer-card {
+  padding: 10px;
+}
+
+#customersPage .customer-card header {
+  gap: 8px;
+}
+
+#customersPage .customer-card h4 {
+  margin: 0 0 3px;
+  color: #1e293b;
+  font-size: 0.82rem;
+  line-height: 1.25;
+  font-weight: 800;
+}
+
+#customersPage .customer-card h4 input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+}
+
+#customersPage .customer-card p,
+#customersPage .customer-card a,
+#customersPage .customer-card a:visited {
+  color: #475569;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+#customersPage .customer-card a,
+#customersPage .customer-card a:visited {
+  color: #1d4f8f;
+  text-decoration-color: rgba(29, 79, 143, 0.34);
+}
+
+#customersPage .customer-card a:hover,
+#customersPage .customer-card a:focus-visible {
+  color: #174a7c;
+  text-decoration-color: rgba(23, 74, 124, 0.6);
+}
+
+#customersPage .customer-meta {
+  gap: 5px;
+  margin: 6px 0;
+}
+
+#customersPage .customer-card .status-pill,
+#customersPage .customer-card .rating-pill {
+  padding: 4px 7px;
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
+#customersPage .customer-role-edit {
+  max-width: none;
+  gap: 6px;
+}
+
+#customersPage .customer-role-edit label {
+  font-size: 0.68rem;
+  line-height: 1.25;
+}
+
+#customersPage .customer-role-edit select,
+#customersPage .customer-role-edit input {
+  min-height: 30px;
+  padding: 5px 7px;
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+#customersPage .customer-card footer {
+  gap: 6px;
+  margin-top: 8px;
+}
+
+#customersPage .customer-card footer .mini-button,
+#customersPage .customer-card footer .danger-button {
+  min-height: 28px;
+  padding: 5px 8px;
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
+/* Workflow icons: make the green symbols visible on the light background. */
+.workflow-strip span::before {
+  background: #d8f7e5;
+  border: 1px solid #86d9a8;
+  color: #16865a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.workflow-strip span:hover::before {
+  background: #c8f1da;
+  border-color: #64c98f;
+  color: #0f6f46;
+}
+
+/* Sidebar widgets and search box: restore readable contrast on light UI. */
+.today-widget .widget-head,
+.stats-widget .widget-head,
+.error-widget .widget-head {
+  color: #334155;
+}
+
+.today-widget .widget-head > span,
+.stats-widget .widget-head > span,
+.stats-widget h3,
+.error-widget .widget-head > span {
+  color: #334155;
+  font-weight: 800;
+}
+
+.today-widget .widget-head strong,
+.stats-widget .widget-head strong,
+.error-widget .widget-head strong {
+  color: #2563eb;
+}
+
+.today-widget .today-stats span,
+.stats-widget .stat-card {
+  background: #ffffff;
+  border: 1px solid #dceaf7;
+  color: #334155;
+}
+
+#customersPage .customer-search-box {
+  color: #1d4f8f;
+  font-weight: 800;
+}
+
+#customersPage .customer-search-box::before {
+  color: #1d4f8f;
+  text-shadow: none;
+}
+
+#customersPage .customer-search-box input,
+#customersPage #customerSearch {
+  background: #ffffff;
+  border-color: #cfe0f2;
+  color: #1e293b;
+  box-shadow: none;
+}
+
+#customersPage .customer-search-box input::placeholder,
+#customersPage #customerSearch::placeholder {
+  color: #64748b;
+}
+
+#customersPage .customer-search-box input:focus,
+#customersPage #customerSearch:focus {
+  background: #ffffff;
+  border-color: #40a8e8;
+  box-shadow: 0 0 0 3px rgba(64, 168, 232, 0.14);
+}
+
+/* Sender table compact pass: keep sender management in the same size system. */
+#sendersPage #senderList.table-wrap {
+  overflow-x: auto;
+}
+
+#sendersPage #senderList table {
+  font-size: 0.74rem;
+  min-width: 560px;
+}
+
+#sendersPage #senderList th,
+#sendersPage #senderList td {
+  padding: 7px 8px;
+  font-size: 0.74rem;
+  line-height: 1.3;
+}
+
+#sendersPage #senderList th {
+  font-size: 0.78rem;
+}
+
+#sendersPage #senderList .status-pill {
+  padding: 4px 8px;
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
+#sendersPage #senderList .mini-button,
+#sendersPage #senderList .danger-button {
+  min-height: 28px;
+  padding: 5px 8px;
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
+#sendersPage #senderList td:last-child {
+  white-space: nowrap;
+}
+
+/* Right analysis panel compact pass: reduce oversized helper accordions and placeholder copy. */
+.analysis-side .template-tools > summary,
+.analysis-side .variable-list > summary,
+.analysis-side .template-advanced-actions > summary {
+  min-height: 34px;
+  padding: 7px 9px;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  font-weight: 800;
+}
+
+.analysis-side .template-tools > summary::before,
+.analysis-side .variable-list > summary::before,
+.analysis-side .template-advanced-actions > summary::before,
+.analysis-side .analysis-placeholder-content h3::before {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  border-radius: 7px;
+  font-size: 0.62rem;
+}
+
+.analysis-side .template-tools > summary::after,
+.analysis-side .variable-list > summary::after,
+.analysis-side .template-advanced-actions > summary::after {
+  font-size: 0.86rem;
+}
+
+.analysis-side .analysis-placeholder-content {
+  gap: 8px;
+}
+
+.analysis-side .analysis-placeholder-content h3 {
+  font-size: 0.86rem;
+  line-height: 1.25;
+  font-weight: 800;
+}
+
+.analysis-side .analysis-placeholder-content p {
+  font-size: 0.7rem;
+  line-height: 1.38;
 }

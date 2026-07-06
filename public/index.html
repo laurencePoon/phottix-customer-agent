@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Phottix Customer Agent</title>
-  <link rel="stylesheet" href="style.css?v=20260706-email-mode-toggle">
+  <link rel="stylesheet" href="style.css?v=20260707-right-panel-compact">
 </head>
 <body>
   <div class="app-shell">
@@ -59,6 +59,7 @@
           <input id="backupFileInput" type="file" accept=".json" hidden>
         </div>
       </details>
+      <button id="themeToggle" class="theme-toggle" title="切換主題" aria-label="切換主題" type="button">🌙</button>
     </aside>
 
     <main class="main">
@@ -155,7 +156,7 @@
               <label>Facebook
                 <input id="facebook" type="url" placeholder="https://facebook.com/...">
               </label>
-              <label>郵件目的 / Email Purpose
+              <label hidden>郵件目的 / Email Purpose
                 <select id="emailPurpose">
                   <option value="First Touch">First Touch</option>
                   <option value="Product Follow-up">Product Follow-up</option>
@@ -557,7 +558,7 @@
               <input id="senderAppPassword" type="password" placeholder="16 位 Gmail App Password">
             </label>
             <div class="action-row">
-              <button id="saveSenderBtn" class="primary-button" type="button">保存寄件者</button>
+              <button id="saveSenderBtn" class="primary-button" type="button">新增寄件者 / Save Sender</button>
               <button id="resetSenderFormBtn" class="ghost-button" type="button">清空</button>
             </div>
             <small>App Password 會加密保存；編輯時若不填密碼，會保留原密碼。</small>
@@ -755,6 +756,6 @@
     </form>
   </dialog>
 
-  <script src="script.js?v=20260701-internal-email-angle"></script>
+  <script src="script.js?v=20260707-recipient-default"></script>
 </body>
 </html>

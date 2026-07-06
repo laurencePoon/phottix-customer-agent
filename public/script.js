@@ -386,6 +386,14 @@
     return normalizeText(purpose).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
   }
 
+  function syncEmailPurposeFromTemplate() {
+    if (!dom.emailPurpose || !dom.templatePurpose) return;
+    const [kind, id] = String(dom.templatePurpose.value || "").split(":");
+    if (kind !== "default") return;
+    const matchedPurpose = EMAIL_PURPOSES.find((purpose) => purposeKey(purpose) === id);
+    if (matchedPurpose) dom.emailPurpose.value = matchedPurpose;
+  }
+
   function ratingFromScore(score, evidenceEnough = true) {
     if (!evidenceEnough) return "NR";
     if (score >= 70) return "A";
@@ -1842,6 +1850,7 @@
       const [kind, id] = String(dom.templatePurpose.value || "").split(":");
       state.selectedTemplateKind = kind === "custom" ? "custom" : "default";
       state.selectedCustomTemplateId = state.selectedTemplateKind === "custom" ? id : "";
+      syncEmailPurposeFromTemplate();
       const template = state.selectedTemplateKind === "custom"
         ? state.customTemplates.find((item) => item.id === id)
         : DB.getTemplates()[id] || DEFAULT_TEMPLATES[id] || DEFAULT_TEMPLATES.first_touch;
@@ -2227,12 +2236,18 @@
     };
   }
 
-  function fillEmailRecipientFields(customer = {}) {
+  function fillEmailRecipientFields(customer = {}, options = {}) {
     const contacts = normalizeEmailContacts(customer.emailContacts);
     const isExisting = normalizeCustomerType(customer.customerType) === "existing";
-    if (dom.emailTo) dom.emailTo.value = isExisting && contacts.length ? contactsByRole(contacts, "to") : "";
-    if (dom.emailCc) dom.emailCc.value = isExisting && contacts.length ? contactsByRole(contacts, "cc") : "";
-    if (dom.emailBcc) dom.emailBcc.value = isExisting && contacts.length ? contactsByRole(contacts, "bcc") : "";
+    const setRecipientValue = (input, value) => {
+      if (!input) return;
+      if (options.preserveManual && normalizeText(input.value)) return;
+      input.value = value || "";
+    };
+    const fallbackTo = normalizeText(customer.contactEmail || dom.contactEmail?.value);
+    setRecipientValue(dom.emailTo, isExisting && contacts.length ? contactsByRole(contacts, "to") : fallbackTo);
+    setRecipientValue(dom.emailCc, isExisting && contacts.length ? contactsByRole(contacts, "cc") : "");
+    setRecipientValue(dom.emailBcc, isExisting && contacts.length ? contactsByRole(contacts, "bcc") : "");
     renderQuickEmailContactsPanel();
   }
 
@@ -2311,6 +2326,7 @@
     dom.manualWebsiteSummary.value = customer.manualWebsiteSummary || "";
     dom.websiteExtract.value = cleanWebsiteExtract(customer.websiteExtract || "");
     dom.emailPurpose.value = customer.emailPurpose || (customer.customerType === "existing" ? "Existing Customer Update" : "First Touch");
+    UI.renderTemplateEditor({ selectedValue: `default:${purposeKey(dom.emailPurpose.value || "First Touch")}` });
     fillEmailRecipientFields(customer);
     state.emailAttachments = normalizeAttachments(customer.emailDraft?.emailAttachments || []);
     UI.renderAttachmentList();
@@ -2416,6 +2432,7 @@
     state.currentAnalysis = analysis;
     state.currentCustomerId = customer.id;
     UI.renderAnalysisResult(customer, analysis);
+    if (!customerOverride) fillEmailRecipientFields(customer, { preserveManual: true });
     if (save) upsertCustomer(customer);
     return customer;
   }
@@ -3143,7 +3160,7 @@
     dom.senderEmail.value = "";
     dom.senderAppPassword.value = "";
     dom.senderAppPassword.placeholder = "16 位 Gmail App Password";
-    if (dom.saveSenderBtn) dom.saveSenderBtn.textContent = "保存寄件者";
+    if (dom.saveSenderBtn) dom.saveSenderBtn.textContent = "新增寄件者 / Save Sender";
   }
 
   function editSender(id) {
@@ -3154,8 +3171,23 @@
     dom.senderEmail.value = sender.email || "";
     dom.senderAppPassword.value = "";
     dom.senderAppPassword.placeholder = "留空則不更新密碼";
-    if (dom.saveSenderBtn) dom.saveSenderBtn.textContent = "更新寄件者";
+    if (dom.saveSenderBtn) dom.saveSenderBtn.textContent = "新增寄件者 / Save Sender";
     UI.showPage("sendersPage");
+  }
+
+  function applyThemePreference() {
+    const preferredTheme = localStorage.getItem("theme") === "light" ? "light" : "dark";
+    document.body.classList.toggle("light-mode", preferredTheme === "light");
+    if (dom.themeToggle) {
+      dom.themeToggle.textContent = preferredTheme === "light" ? "🌙" : "☀️";
+      dom.themeToggle.setAttribute("aria-pressed", preferredTheme === "light" ? "true" : "false");
+    }
+  }
+
+  function toggleThemePreference() {
+    const nextTheme = document.body.classList.contains("light-mode") ? "dark" : "light";
+    localStorage.setItem("theme", nextTheme);
+    applyThemePreference();
   }
 
   function bindDom() {
@@ -3185,7 +3217,7 @@
       "overrideDialog", "overrideForm", "overrideRating", "overrideReason", "saveOverrideBtn",
       "logDialog", "logForm", "logCustomerId", "logDate", "logChannel", "logContactPerson", "logSubject",
       "logSummary", "logResponse", "logNextAction", "logNextFollowDate", "saveLogBtn",
-      "sendersNavBtn", "refreshSendersBtn", "senderForm", "senderId", "senderName", "senderEmail",
+      "sendersNavBtn", "themeToggle", "refreshSendersBtn", "senderForm", "senderId", "senderName", "senderEmail",
       "senderAppPassword", "saveSenderBtn", "resetSenderFormBtn", "senderList",
       "emailContactsDialog", "emailContactsForm", "emailContactsCustomerId", "emailContactsList",
       "emailContactAddress", "emailContactRole", "addEmailContactBtn", "saveEmailContactsBtn",
@@ -3243,6 +3275,7 @@
       UI.toast(`❌ 發送失敗：${error.message}`, "bad");
     }));
     dom.senderSelect?.addEventListener("change", () => UI.updateSenderAvatar());
+    dom.themeToggle?.addEventListener("click", toggleThemePreference);
     dom.manualOverrideBtn.addEventListener("click", () => {
       if (!state.currentCustomerId && !state.currentAnalysis) return UI.toast("Run analysis first.", "warn");
       dom.overrideReason.value = "";
@@ -3617,6 +3650,7 @@
 
   async function init() {
     bindDom();
+    applyThemePreference();
     UI.toast("Loading shared database...", "warn");
     await DB.initSharedStore();
     purgeDeprecatedProductStatus();
