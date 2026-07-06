@@ -4336,3 +4336,11 @@ textarea::placeholder {
 .required {
   color: #f27171;
 }
+
+/* Mail editor scroll fix:
+   keep the right panel as one natural scroll area so the email body is not covered by the toolbar. */
+.mail-editor-sticky {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
+}
