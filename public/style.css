@@ -7185,3 +7185,911 @@ body {
   border-color: #fda4af;
   color: #b91c1c;
 }
+
+/* V1.1 Soft Team UI test: warmer, friendlier light palette with strong contrast. */
+:root {
+  --soft-page: #fffafd;
+  --soft-sidebar: #fff1f6;
+  --soft-workflow: #f1f8ff;
+  --soft-panel: #ffffff;
+  --soft-panel-blue: #f7fbff;
+  --soft-panel-mint: #f3fcf7;
+  --soft-header: #fff4f8;
+  --soft-subheader: #edf7ff;
+  --soft-border: #ead7e2;
+  --soft-blue-border: #cfe4fb;
+  --soft-text: #243044;
+  --soft-muted: #5f6f83;
+  --soft-blue: #2f8fd3;
+  --soft-blue-dark: #1f6fac;
+  --soft-green: #059669;
+  --soft-green-hover: #047857;
+  --soft-rose: #e879a3;
+  --soft-rose-dark: #be456d;
+}
+
+body,
+.app-shell,
+.main,
+.page.active {
+  background: var(--soft-page);
+  color: var(--soft-text);
+}
+
+.sidebar,
+.side-nav {
+  background: var(--soft-sidebar);
+  border-color: #f4cddd;
+  box-shadow: 10px 0 26px rgba(190, 69, 109, 0.06);
+}
+
+.brand,
+.logo {
+  color: var(--soft-text);
+}
+
+.brand small,
+.logo small,
+.topbar p,
+.card-head p,
+.mail-editor-head p,
+.field-help,
+.template-help,
+small {
+  color: var(--soft-muted);
+}
+
+.nav-button {
+  background: rgba(255, 255, 255, 0.62);
+  border-color: rgba(244, 205, 221, 0.9);
+  color: var(--soft-text);
+}
+
+.nav-button:hover,
+.nav-button:focus-visible {
+  background: #ffffff;
+  border-color: #f2b8ce;
+  color: var(--soft-rose-dark);
+}
+
+.nav-button.active {
+  background: #ffffff;
+  border-color: #efb1c9;
+  color: var(--soft-rose-dark);
+  box-shadow: inset 4px 0 0 var(--soft-rose), 0 8px 20px rgba(232, 121, 163, 0.13);
+}
+
+.nav-button[data-icon]::before {
+  background: #edf7ff;
+  border-color: #cfe4fb;
+  color: var(--soft-blue-dark);
+}
+
+.nav-button[data-icon].active::before,
+.nav-button[data-icon]:hover::before {
+  background: #ffe7f0;
+  border-color: #f2b8ce;
+  color: var(--soft-rose-dark);
+}
+
+.topbar,
+.workflow-strip,
+.workflow-strip span {
+  background: var(--soft-workflow);
+  border-color: var(--soft-blue-border);
+  color: var(--soft-text);
+}
+
+.workflow-strip {
+  box-shadow: 0 8px 22px rgba(47, 143, 211, 0.07);
+}
+
+.workflow-strip span::before,
+.workflow-strip span:hover::before {
+  background: #e8f8ef;
+  border-color: #9be2bd;
+  color: var(--soft-green);
+}
+
+.workflow-strip strong {
+  background: #dff3ff;
+  color: var(--soft-blue-dark);
+}
+
+.card,
+.analysis-main > .card,
+.analysis-side > .card,
+.analysis-side .result-card,
+#productsPage > .card,
+#customersPage > .card,
+#sendersPage > .card {
+  background: var(--soft-panel);
+  border-color: var(--soft-border);
+  color: var(--soft-text);
+  box-shadow: 0 10px 26px rgba(190, 69, 109, 0.055);
+}
+
+.card-head,
+.mail-editor-head,
+.analysis-main .card-head,
+.analysis-side .mail-editor-head,
+#productsPage .card-head,
+#customersPage .card-head,
+#sendersPage .card-head {
+  background: var(--soft-header);
+  border-color: #f4cddd;
+  color: var(--soft-text);
+  box-shadow: 0 6px 16px rgba(232, 121, 163, 0.06);
+}
+
+.card-head h3,
+.mail-editor-head h3,
+.result-card h3,
+#productsPage .card-head h3,
+#customersPage .card-head h3,
+#sendersPage .card-head h3,
+.group-management strong {
+  color: var(--soft-text);
+}
+
+.form-section,
+.template-tools,
+.variable-list,
+.template-advanced-actions,
+.attachment-placeholder,
+.email-copy-fields,
+.internal-email-angle,
+.toolbar,
+.bulk-action-bar,
+.customer-import-card,
+.sender-form,
+#sendersPage .sender-form,
+.load-customer-wrap {
+  background: var(--soft-panel-blue);
+  border-color: var(--soft-blue-border);
+  color: var(--soft-text);
+  box-shadow: 0 6px 18px rgba(47, 143, 211, 0.045);
+}
+
+.form-section legend,
+.attachment-head label,
+.internal-email-angle-title,
+.template-tools > summary,
+.variable-list > summary,
+.template-advanced-actions > summary,
+.group-management > div:first-child,
+.tag-list span,
+.status-pill,
+.rating-pill {
+  background: var(--soft-subheader);
+  border-color: var(--soft-blue-border);
+  color: var(--soft-blue-dark);
+}
+
+input,
+select,
+textarea,
+#templateSubject,
+#templateBody,
+.subject-textarea,
+.attachment-grid input,
+.attachment-grid select,
+.sender-selector select,
+.template-toolbar select,
+.email-copy-fields input,
+.load-customer-wrap select,
+.load-customer-wrap #loadCustomerSelect {
+  background: #ffffff;
+  border-color: #d7e3f0;
+  color: var(--soft-text);
+  box-shadow: none;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #8a98a8;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+#templateSubject:focus,
+#templateBody:focus {
+  border-color: var(--soft-blue);
+  box-shadow: 0 0 0 3px rgba(47, 143, 211, 0.15);
+}
+
+.primary-button,
+#runAnalysisBtn,
+#runAnalysisSideBtn,
+#sendEmailTopBtn,
+.send-email-top,
+#sendersPage #saveSenderBtn {
+  background: linear-gradient(135deg, var(--soft-green), #27b47f);
+  border-color: var(--soft-green);
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(5, 150, 105, 0.2);
+}
+
+.primary-button:hover,
+.primary-button:focus-visible,
+#runAnalysisBtn:hover,
+#runAnalysisBtn:focus-visible,
+#runAnalysisSideBtn:hover,
+#runAnalysisSideBtn:focus-visible,
+#sendEmailTopBtn:hover,
+#sendEmailTopBtn:focus-visible,
+.send-email-top:hover,
+.send-email-top:focus-visible,
+#sendersPage #saveSenderBtn:hover,
+#sendersPage #saveSenderBtn:focus-visible {
+  background: linear-gradient(135deg, var(--soft-green-hover), var(--soft-green));
+  border-color: var(--soft-green-hover);
+  color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.15), 0 12px 26px rgba(5, 150, 105, 0.23);
+}
+
+.secondary-button,
+.ghost-button,
+.mini-button,
+.attachment-upload-button,
+.template-action-button,
+.toolbar .secondary-button,
+.toolbar .ghost-button {
+  background: #ffffff;
+  border-color: #cfe4fb;
+  color: var(--soft-blue-dark);
+  box-shadow: none;
+}
+
+.secondary-button:hover,
+.secondary-button:focus-visible,
+.ghost-button:hover,
+.ghost-button:focus-visible,
+.mini-button:hover,
+.mini-button:focus-visible,
+.attachment-upload-button:hover,
+.attachment-upload-button:focus-visible,
+.template-action-button:hover,
+.template-action-button:focus-visible {
+  background: #edf7ff;
+  border-color: #a9d4f6;
+  color: #164f82;
+}
+
+.danger-button,
+#bulkDeleteBtn,
+.bulk-box #bulkDeleteBtn,
+#customersPage .bulk-box #bulkDeleteBtn {
+  background: #fff1f4;
+  border-color: #fecdd3;
+  color: #be123c;
+}
+
+.danger-button:hover,
+.danger-button:focus-visible,
+#bulkDeleteBtn:hover,
+#bulkDeleteBtn:focus-visible,
+.bulk-box #bulkDeleteBtn:hover,
+.bulk-box #bulkDeleteBtn:focus-visible,
+#customersPage .bulk-box #bulkDeleteBtn:hover,
+#customersPage .bulk-box #bulkDeleteBtn:focus-visible {
+  background: #ffe4ea;
+  border-color: #fda4af;
+  color: #9f1239;
+}
+
+.analysis-main > .card,
+#customersPage > .card,
+#sendersPage > .card {
+  background: #fffdfd;
+}
+
+.analysis-side > .card,
+.analysis-side .mail-editor-sticky,
+.analysis-side .attachment-placeholder,
+.analysis-side .template-toolbar,
+.analysis-side .email-copy-fields {
+  background: var(--soft-panel-blue);
+  border-color: var(--soft-blue-border);
+}
+
+.analysis-main .form-section:nth-of-type(odd),
+#customersPage .bulk-box,
+#customersPage .customer-list,
+#sendersPage #senderList.table-wrap {
+  background: var(--soft-panel-mint);
+  border-color: #cdeedc;
+}
+
+#customersPage > .card > .toolbar,
+#customersPage .group-management,
+#productsPage .product-guide,
+.bulk-box {
+  background: var(--soft-panel-blue);
+  border-color: var(--soft-blue-border);
+}
+
+#customersPage .group-management > div:first-child {
+  background: #fff4f8;
+  border-color: #f4cddd;
+}
+
+#customersPage .customer-card,
+.table-wrap,
+#sendersPage #senderList table {
+  background: #ffffff;
+  border-color: #e3edf7;
+  color: var(--soft-text);
+  box-shadow: 0 6px 18px rgba(47, 143, 211, 0.045);
+}
+
+#customersPage .customer-card:hover {
+  border-color: #f2b8ce;
+  box-shadow: 0 12px 24px rgba(232, 121, 163, 0.09);
+}
+
+#customersPage .customer-card .status-pill,
+#customersPage .customer-card .rating-pill,
+#customersPage .customer-meta span,
+.rating-chip {
+  background: #edf7ff;
+  border-color: #cfe4fb;
+  color: var(--soft-blue-dark);
+}
+
+.rating-chip.a,
+.status-pill.high,
+.rating-pill.a {
+  background: #e8f8ef;
+  border-color: #9be2bd;
+  color: var(--soft-green-hover);
+}
+
+.toast,
+.topbar #toast,
+.topbar #dbStatus {
+  background: #ffffff;
+  border-color: #f4cddd;
+  color: var(--soft-text);
+  box-shadow: 0 10px 24px rgba(190, 69, 109, 0.08);
+}
+
+.toast.ok,
+.topbar #toast.ok,
+.topbar #dbStatus.ok {
+  background: #e8f8ef;
+  border-color: #9be2bd;
+  color: var(--soft-green-hover);
+}
+
+.toast.warn,
+.topbar #toast.warn {
+  background: #fff8e6;
+  border-color: #f2d389;
+  color: #9a6700;
+}
+
+.toast.bad,
+.topbar #toast.bad {
+  background: #fff1f4;
+  border-color: #fecdd3;
+  color: #be123c;
+}
+
+.theme-toggle,
+.sidebar-advanced > summary,
+.sidebar-advanced[open] > summary,
+.today-widget .today-stats span,
+.stats-widget .stat-card,
+.sidebar-advanced .error-widget,
+.sidebar-advanced .backup-box {
+  background: #ffffff;
+  border-color: #f4cddd;
+  color: var(--soft-text);
+  box-shadow: 0 6px 16px rgba(190, 69, 109, 0.055);
+}
+
+.sidebar-advanced > summary:hover,
+.sidebar-advanced > summary:focus-visible,
+.theme-toggle:hover,
+.theme-toggle:focus-visible {
+  background: #fff4f8;
+  border-color: #f2b8ce;
+  color: var(--soft-rose-dark);
+}
+
+#productsPage .product-guide strong,
+#productsPage .product-guide b,
+.website-highlight-field span,
+.load-customer-wrap span,
+#customersPage .toolbar label,
+#customersPage .import-group-picker,
+#customersPage .customer-search-box,
+#customersPage .group-management strong {
+  color: var(--soft-blue-dark);
+}
+
+#customersPage .customer-search-box::before {
+  color: var(--soft-blue-dark);
+}
+
+/* Soft Team UI contrast fix: product upload button must stay readable on light panels. */
+#productsPage #importProductsBtn {
+  background: #e8f8ef;
+  border: 1px solid #8fd9ad;
+  color: #047857;
+  text-shadow: none;
+  box-shadow: 0 8px 18px rgba(5, 150, 105, 0.12);
+}
+
+#productsPage #importProductsBtn:hover,
+#productsPage #importProductsBtn:focus-visible {
+  background: #d7f3e3;
+  border-color: #64c98f;
+  color: #065f46;
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12), 0 10px 20px rgba(5, 150, 105, 0.14);
+}
+
+/* Soft Team UI: keep the right-side Generate shortcut blue like the left Generate button. */
+.analysis-side #runAnalysisSideBtn,
+#runAnalysisSideBtn {
+  --icon-bg: rgba(255, 255, 255, 0.22);
+  --icon-border: rgba(255, 255, 255, 0.42);
+  --icon-color: #ffffff;
+  background: linear-gradient(135deg, #40a8e8, #3d8fda);
+  border-color: #2f80c7;
+  color: #ffffff;
+  text-shadow: none;
+  box-shadow: 0 10px 24px rgba(64, 168, 232, 0.22);
+}
+
+.analysis-side #runAnalysisSideBtn:hover,
+.analysis-side #runAnalysisSideBtn:focus-visible,
+#runAnalysisSideBtn:hover,
+#runAnalysisSideBtn:focus-visible {
+  background: linear-gradient(135deg, #58b8ef, #40a8e8);
+  border-color: #2f80c7;
+  color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(64, 168, 232, 0.16), 0 14px 30px rgba(64, 168, 232, 0.24);
+}
+
+.analysis-side #runAnalysisSideBtn:active,
+#runAnalysisSideBtn:active {
+  background: linear-gradient(135deg, #2f80c7, #3d8fda);
+}
+
+/* V1.1 Readability Pass: typography, spacing, dividers, controls, and long-list clarity. */
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.app-shell,
+.main,
+.page,
+.card,
+.form-section,
+.analysis-side,
+#customersPage,
+#sendersPage {
+  letter-spacing: 0.005em;
+}
+
+.card,
+.analysis-main > .card,
+.analysis-side > .card,
+#customersPage > .card,
+#sendersPage > .card,
+#productsPage > .card {
+  border-width: 1px;
+}
+
+.card-head,
+.mail-editor-head,
+#productsPage .card-head,
+#customersPage .card-head,
+#sendersPage .card-head {
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+}
+
+.card-head h3,
+.mail-editor-head h3,
+.result-card h3,
+#productsPage .card-head h3,
+#customersPage .card-head h3,
+#sendersPage .card-head h3 {
+  margin: 0 0 4px;
+  font-size: clamp(1rem, 1.05vw, 1.16rem);
+  line-height: 1.24;
+  font-weight: 800;
+}
+
+.card-head p,
+.mail-editor-head p,
+.topbar p {
+  max-width: 68ch;
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.55;
+  font-weight: 500;
+}
+
+.form-section {
+  margin-bottom: 14px;
+  padding: 14px;
+  border-width: 1px;
+  border-left-width: 3px;
+}
+
+.form-section legend,
+.attachment-head label,
+.internal-email-angle-title,
+.template-tools > summary,
+.variable-list > summary,
+.template-advanced-actions > summary {
+  width: auto;
+  margin-bottom: 10px;
+  padding: 7px 10px;
+  font-size: 0.82rem;
+  line-height: 1.3;
+  font-weight: 800;
+}
+
+label,
+.template-edit-field,
+.template-picker label,
+.sender-selector label,
+.email-copy-fields label,
+.customer-search-box,
+.customer-role-edit label,
+.sender-form label,
+.dialog-form label,
+.import-group-picker {
+  gap: 6px;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  font-weight: 700;
+}
+
+input,
+select,
+textarea,
+button,
+.primary-button,
+.secondary-button,
+.ghost-button,
+.mini-button,
+#templateSubject,
+#templateBody,
+.subject-textarea,
+.attachment-grid input,
+.attachment-grid select,
+.sender-selector select,
+.template-toolbar select,
+.email-copy-fields input,
+.load-customer-wrap select,
+.load-customer-wrap #loadCustomerSelect {
+  font-size: 0.8rem;
+  line-height: 1.38;
+}
+
+input,
+select,
+.email-copy-fields input,
+.sender-selector select,
+.load-customer-wrap select,
+.load-customer-wrap #loadCustomerSelect,
+#customersPage .toolbar select,
+#customersPage .toolbar input,
+#customersPage .bulk-box select,
+#customersPage .bulk-box input,
+#sendersPage .sender-form input,
+#sendersPage .sender-form select {
+  min-height: 38px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+textarea,
+#templateBody,
+.subject-textarea {
+  padding: 10px 11px;
+}
+
+#templateBody {
+  min-height: 270px;
+  line-height: 1.62;
+}
+
+#templateSubject,
+.subject-textarea {
+  min-height: 46px;
+  line-height: 1.42;
+}
+
+.field-help,
+.template-help,
+.attachment-head span,
+.attachment-upload-status,
+.group-management p,
+small {
+  font-size: 0.68rem;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.action-row,
+.toolbar,
+.bulk-box,
+.group-actions,
+.template-actions-row,
+.attachment-actions,
+.email-actions,
+.form-actions {
+  gap: 9px;
+}
+
+.primary-button,
+.secondary-button,
+.ghost-button,
+.mini-button,
+.attachment-upload-button,
+.template-action-button,
+#runAnalysisBtn,
+#runAnalysisSideBtn,
+#sendEmailTopBtn,
+#sendersPage #saveSenderBtn,
+#customersPage .action-row button,
+#customersPage .toolbar button,
+#customersPage .bulk-box button {
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-weight: 800;
+}
+
+.mini-button,
+.customer-card footer .mini-button,
+.customer-card footer .danger-button,
+#sendersPage #senderList .mini-button,
+#sendersPage #senderList .danger-button {
+  min-height: 30px;
+  padding: 6px 9px;
+  font-size: 0.7rem;
+}
+
+.template-toolbar {
+  gap: 8px;
+  padding: 8px;
+}
+
+.template-toolbar button {
+  min-width: 34px;
+  min-height: 32px;
+  padding: 6px 9px;
+  font-size: 0.76rem;
+}
+
+.template-tools,
+.variable-list,
+.template-advanced-actions,
+.internal-email-angle,
+.attachment-placeholder,
+.email-copy-fields {
+  border-width: 1px;
+  box-shadow: none;
+}
+
+.template-tools > summary,
+.variable-list > summary,
+.template-advanced-actions > summary {
+  cursor: pointer;
+}
+
+.template-tools:not([open]),
+.variable-list:not([open]),
+.template-advanced-actions:not([open]) {
+  margin-bottom: 8px;
+}
+
+.template-tools:not([open]) > summary,
+.variable-list:not([open]) > summary,
+.template-advanced-actions:not([open]) > summary {
+  margin-bottom: 0;
+}
+
+.email-copy-fields,
+.attachment-placeholder,
+.internal-email-angle,
+#customersPage .group-management,
+#customersPage .bulk-box,
+#customersPage .customer-list,
+#sendersPage .sender-form,
+#sendersPage #senderList.table-wrap {
+  position: relative;
+}
+
+.email-copy-fields::before,
+.attachment-placeholder::before,
+.internal-email-angle::before,
+#customersPage .group-management::before,
+#customersPage .bulk-box::before,
+#sendersPage .sender-form::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 0;
+  height: 1px;
+  background: rgba(120, 156, 190, 0.32);
+}
+
+#customersPage > .card > .toolbar,
+#customersPage .group-management,
+#customersPage .bulk-box,
+#customersPage .customer-list {
+  margin-top: 12px;
+  padding: 12px;
+}
+
+#customersPage .toolbar {
+  align-items: end;
+}
+
+#customersPage .customer-search-box {
+  min-width: min(100%, 300px);
+}
+
+#customersPage .customer-list {
+  gap: 10px;
+}
+
+#customersPage .customer-card {
+  padding: 12px;
+}
+
+#customersPage .customer-card header {
+  align-items: flex-start;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(207, 228, 251, 0.72);
+}
+
+#customersPage .customer-card h4 {
+  margin-bottom: 4px;
+  font-size: 0.86rem;
+  line-height: 1.3;
+}
+
+#customersPage .customer-card p,
+#customersPage .customer-card a,
+#customersPage .customer-card a:visited {
+  font-size: 0.72rem;
+  line-height: 1.48;
+}
+
+#customersPage .customer-card p {
+  margin: 3px 0;
+}
+
+#customersPage .customer-meta {
+  margin: 8px 0;
+}
+
+#customersPage .customer-card .status-pill,
+#customersPage .customer-card .rating-pill,
+#customersPage .customer-meta span {
+  padding: 4px 7px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  line-height: 1.2;
+  font-weight: 800;
+}
+
+#customersPage .customer-card footer {
+  padding-top: 8px;
+  border-top: 1px solid rgba(207, 228, 251, 0.72);
+}
+
+#sendersPage .sender-form {
+  padding: 14px;
+}
+
+#sendersPage .sender-form {
+  row-gap: 12px;
+}
+
+#sendersPage #senderList.table-wrap,
+#productsPage .table-wrap {
+  overflow: auto;
+  max-height: min(66vh, 720px);
+}
+
+#sendersPage #senderList table,
+#productsPage table,
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+#sendersPage #senderList th,
+#productsPage th,
+table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+#sendersPage #senderList td,
+#productsPage td,
+table td {
+  font-size: 0.72rem;
+  line-height: 1.42;
+  vertical-align: middle;
+}
+
+#sendersPage #senderList th,
+#sendersPage #senderList td,
+#productsPage th,
+#productsPage td,
+table th,
+table td {
+  border-bottom: 1px solid rgba(207, 228, 251, 0.74);
+}
+
+#sendersPage #senderList tbody tr:hover,
+#productsPage tbody tr:hover,
+table tbody tr:hover {
+  background: rgba(237, 247, 255, 0.74);
+}
+
+#sendersPage #senderList td,
+#productsPage td {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.product-match-help {
+  padding: 10px 12px;
+  font-size: 0.72rem;
+  line-height: 1.55;
+  border-left-width: 3px;
+}
+
+.product-match-help strong {
+  font-weight: 900;
+}
+
+@media (max-width: 900px) {
+  .card-head,
+  .mail-editor-head,
+  #productsPage .card-head,
+  #customersPage .card-head,
+  #sendersPage .card-head {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .form-section,
+  #customersPage > .card > .toolbar,
+  #customersPage .group-management,
+  #customersPage .bulk-box,
+  #customersPage .customer-list,
+  #sendersPage .sender-form {
+    padding: 11px;
+  }
+
+  .primary-button,
+  .secondary-button,
+  .ghost-button {
+    min-height: 38px;
+  }
+}
