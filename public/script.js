@@ -1,6 +1,9 @@
 (function () {
   "use strict";
 
+  const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost"]);
+  document.documentElement.classList.toggle("local-compact-scale", LOCAL_HOSTS.has(location.hostname));
+
   const API_BASE = location.protocol === "file:" ? "http://127.0.0.1:8787" : location.origin;
   const TODAY = new Date().toISOString().slice(0, 10);
 

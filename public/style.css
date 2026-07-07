@@ -8499,15 +8499,26 @@ table tbody tr:hover {
 
 /* V1.1 Compact Default Scale Test: make local and public views feel like the smaller ngrok UI. */
 html {
-  font-size: 15px;
+  font-size: 14px;
 }
 
 body {
-  font-size: 0.96rem;
+  font-size: 0.98rem;
 }
 
 @media (max-width: 900px) {
   html {
-    font-size: 15px;
+    font-size: 14.5px;
+  }
+}
+
+/* Local-only correction: browser zoom is stored per host, so 127.0.0.1 can look larger than ngrok. */
+html.local-compact-scale {
+  font-size: 13px;
+}
+
+@media (min-width: 901px) {
+  html.local-compact-scale body {
+    zoom: 0.92;
   }
 }
