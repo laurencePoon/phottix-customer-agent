@@ -3,5 +3,6 @@ node_modules/
 backup-before-restore-*/
 .env
 data/
+backups/
 uploads/temp/*
 !uploads/temp/.gitkeep

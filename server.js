@@ -18,6 +18,7 @@ const CONFIG_PATH = path.join(__dirname, "config.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = path.join(__dirname, "data");
 const SQLITE_PATH = path.join(DATA_DIR, "phottix.sqlite");
+const BACKUP_DIR = path.join(__dirname, "backups");
 const UPLOAD_TEMP_DIR = path.join(__dirname, "uploads", "temp");
 const DEFAULT_CONFIG = { import_folder: "./imports/" };
 const DEFAULT_LIVE_SYNC_SOURCE = "https://agent.phottix.cn";
@@ -551,11 +552,16 @@ function handleLogin(req, res) {
     return;
   }
 
+  logAudit({ ...req, appUser: user.username, appUserRecord: user }, "LOGIN", "user", user.username, user.displayName || user.username, { success: true });
   res.setHeader("Set-Cookie", sessionCookie(createSessionToken(user), req));
   res.redirect(returnTo);
 }
 
 function handleLogout(req, res) {
+  const session = getValidSession(req);
+  if (session) {
+    logAudit({ ...req, appUser: session.username || session.user, appUserRecord: session }, "LOGOUT", "user", session.username || session.user, session.displayName || session.user, {});
+  }
   res.setHeader("Set-Cookie", clearSessionCookie());
   res.redirect("/login");
 }
@@ -598,6 +604,30 @@ function getSqliteDb() {
     CREATE TABLE IF NOT EXISTS groups (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      created_at TEXT
+    )
+  `);
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      username TEXT,
+      action TEXT NOT NULL,
+      target_type TEXT,
+      target_id TEXT,
+      target_name TEXT,
+      details TEXT,
+      ip TEXT,
+      user_agent TEXT,
+      created_at TEXT
+    )
+  `);
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS backup_runs (
+      id TEXT PRIMARY KEY,
+      file_name TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      size_bytes INTEGER DEFAULT 0,
       created_at TEXT
     )
   `);
@@ -769,6 +799,131 @@ function writeSharedSnapshot(data, selectedKeys = SHARED_STORAGE_KEYS) {
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+function clientIp(req) {
+  return String(req?.headers?.["x-forwarded-for"] || req?.ip || req?.connection?.remoteAddress || "unknown").split(",")[0].trim();
+}
+
+function auditUser(req) {
+  return {
+    userId: req?.appUserRecord?.username || req?.appUser || "",
+    username: req?.appUserRecord?.username || req?.appUser || "anonymous"
+  };
+}
+
+function logAudit(req, action, targetType, targetId, targetName, details = {}) {
+  const entry = {
+    id: uid("audit"),
+    ...auditUser(req),
+    action: String(action || "").trim().toUpperCase(),
+    targetType: String(targetType || "").trim(),
+    targetId: String(targetId || "").trim(),
+    targetName: String(targetName || "").trim(),
+    details,
+    ip: clientIp(req),
+    userAgent: String(req?.headers?.["user-agent"] || "unknown"),
+    createdAt: new Date().toISOString()
+  };
+  setImmediate(() => {
+    try {
+      getSqliteDb().prepare(`
+        INSERT INTO audit_logs (id, user_id, username, action, target_type, target_id, target_name, details, ip, user_agent, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        entry.id,
+        entry.userId,
+        entry.username,
+        entry.action,
+        entry.targetType,
+        entry.targetId,
+        entry.targetName,
+        JSON.stringify(entry.details || {}),
+        entry.ip,
+        entry.userAgent,
+        entry.createdAt
+      );
+    } catch (error) {
+      console.warn(`Audit log skipped: ${error.message}`);
+    }
+  });
+}
+
+function listBackups() {
+  if (!fs.existsSync(BACKUP_DIR)) return [];
+  return fs.readdirSync(BACKUP_DIR)
+    .filter((file) => /^phottix_backup_\d{4}-\d{2}-\d{2}(?:_\d{6})?\.sqlite$/.test(file))
+    .map((file) => {
+      const filePath = path.join(BACKUP_DIR, file);
+      const stats = fs.statSync(filePath);
+      return {
+        file,
+        path: filePath,
+        sizeBytes: stats.size,
+        createdAt: stats.birthtime?.toISOString?.() || stats.mtime.toISOString(),
+        modifiedAt: stats.mtime.toISOString()
+      };
+    })
+    .sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
+}
+
+function cleanupOldBackups() {
+  if (!fs.existsSync(BACKUP_DIR)) return;
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  for (const backup of listBackups()) {
+    if (new Date(backup.modifiedAt).getTime() < cutoff) {
+      fs.unlinkSync(backup.path);
+    }
+  }
+}
+
+function localDateStamp(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `${year}-${month}-${day}_${hours}${minutes}${seconds}`;
+}
+
+function createBackup(reason = "scheduled", req = null) {
+  if (!fs.existsSync(SQLITE_PATH)) throw new Error("SQLite database file does not exist yet.");
+  if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  getSqliteDb().exec("PRAGMA wal_checkpoint(FULL)");
+  const dateStr = localDateStamp();
+  const backupPath = path.join(BACKUP_DIR, `phottix_backup_${dateStr}.sqlite`);
+  fs.copyFileSync(SQLITE_PATH, backupPath);
+  cleanupOldBackups();
+  const stats = fs.statSync(backupPath);
+  const createdAt = new Date().toISOString();
+  getSqliteDb().prepare(`
+    INSERT INTO backup_runs (id, file_name, file_path, size_bytes, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(uid("backup"), path.basename(backupPath), backupPath, stats.size, createdAt);
+  logAudit(req, "BACKUP", "system", "sqlite", path.basename(backupPath), { reason, sizeBytes: stats.size });
+  console.log(`SQLite backup completed: ${backupPath}`);
+  return { file: path.basename(backupPath), path: backupPath, sizeBytes: stats.size, createdAt };
+}
+
+function msUntilNextBackup(hour = 2) {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(hour, 0, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  return next.getTime() - now.getTime();
+}
+
+function scheduleDailyBackup() {
+  setTimeout(() => {
+    try {
+      createBackup("scheduled");
+    } catch (error) {
+      console.warn(`Scheduled backup failed: ${error.message}`);
+    } finally {
+      scheduleDailyBackup();
+    }
+  }, msUntilNextBackup(2)).unref?.();
 }
 
 function normalizeLiveSyncSectionKey(value) {
@@ -1427,6 +1582,83 @@ app.get("/api/db/status", (req, res) => {
   }
 });
 
+app.get("/api/backup/status", (req, res) => {
+  if (rejectRemoteAdmin(req, res)) return;
+  try {
+    const backups = listBackups();
+    res.json({
+      success: true,
+      backupDir: BACKUP_DIR,
+      retentionDays: 7,
+      lastBackup: backups[0] || null,
+      backups
+    });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Backup status failed." });
+  }
+});
+
+app.post("/api/backup/now", (req, res) => {
+  if (rejectRemoteAdmin(req, res)) return;
+  try {
+    const backup = createBackup("manual", req);
+    res.json({ success: true, backup, backups: listBackups() });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Manual backup failed." });
+  }
+});
+
+app.get("/api/audit-logs", (req, res) => {
+  if (rejectRemoteAdmin(req, res)) return;
+  try {
+    const params = [];
+    const where = [];
+    const username = String(req.query.username || "").trim();
+    const action = String(req.query.action || "").trim().toUpperCase();
+    const target = String(req.query.target || "").trim();
+    const from = String(req.query.from || "").trim();
+    const to = String(req.query.to || "").trim();
+    if (username) {
+      where.push("username = ?");
+      params.push(username);
+    }
+    if (action) {
+      where.push("action = ?");
+      params.push(action);
+    }
+    if (target) {
+      where.push("(target_name LIKE ? OR target_id LIKE ? OR target_type LIKE ?)");
+      params.push(`%${target}%`, `%${target}%`, `%${target}%`);
+    }
+    if (from) {
+      where.push("created_at >= ?");
+      params.push(from);
+    }
+    if (to) {
+      where.push("created_at <= ?");
+      params.push(to);
+    }
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit || 100)));
+    params.push(limit);
+    const rows = getSqliteDb().prepare(`
+      SELECT id, user_id, username, action, target_type, target_id, target_name, details, ip, user_agent, created_at
+      FROM audit_logs
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(...params).map((row) => {
+      try {
+        return { ...row, details: JSON.parse(row.details || "{}") };
+      } catch {
+        return { ...row, details: {} };
+      }
+    });
+    res.json({ success: true, logs: rows });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to load audit logs." });
+  }
+});
+
 app.get("/api/db/snapshot", (req, res) => {
   try {
     const snapshot = readSharedStore();
@@ -1438,8 +1670,13 @@ app.get("/api/db/snapshot", (req, res) => {
 
 app.post("/api/db/snapshot", (req, res) => {
   try {
+    const beforeCounts = countSnapshotData(readSharedStore().data);
     writeSharedSnapshot(req.body?.data || {});
     const snapshot = readSharedStore();
+    logAudit(req, "UPDATE", "snapshot", "all", "SQLite snapshot", {
+      before: beforeCounts,
+      after: countSnapshotData(snapshot.data)
+    });
     res.json({ success: true, ...snapshot });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "SQLite snapshot save failed." });
@@ -1453,7 +1690,13 @@ app.put("/api/db/key/:key", (req, res) => {
       res.status(400).json({ success: false, error: `Unsupported shared storage key: ${key}` });
       return;
     }
+    const before = readSharedStore().data[key];
     writeSharedKey(key, req.body?.value);
+    const value = req.body?.value;
+    logAudit(req, "UPDATE", "shared_key", key, key, {
+      beforeCount: Array.isArray(before) ? before.length : before && typeof before === "object" ? Object.keys(before).length : 0,
+      afterCount: Array.isArray(value) ? value.length : value && typeof value === "object" ? Object.keys(value).length : 0
+    });
     res.json({ success: true, key });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "SQLite key save failed." });
@@ -1540,8 +1783,13 @@ app.put("/api/customers/:id", (req, res) => {
       group_id: normalizeGroupId(req.body?.group_id ?? req.body?.groupId ?? customers[index].group_id ?? customers[index].groupId),
       emailContacts: normalizeCustomerEmailContacts(req.body?.emailContacts ?? customers[index].emailContacts)
     };
+    const previousCustomer = customers[index];
     customers[index] = nextCustomer;
     writeSharedKey("phottix_customers", customers);
+    logAudit(req, "UPDATE", "customer", id, nextCustomer.companyName || nextCustomer.name || id, {
+      before: previousCustomer,
+      after: nextCustomer
+    });
     res.json({ success: true, customer: nextCustomer });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to update customer." });
@@ -1572,6 +1820,7 @@ app.post("/api/groups", (req, res) => {
     getSqliteDb().prepare("INSERT INTO groups (id, name, created_at) VALUES (?, ?, ?)")
       .run(id, name, createdAt);
     const group = getSqliteDb().prepare("SELECT id, name, created_at FROM groups WHERE id = ?").get(id);
+    logAudit(req, "CREATE", "group", id, name, {});
     res.json({ success: true, group: publicGroup(group) });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to create group." });
@@ -1593,6 +1842,7 @@ app.put("/api/groups/:id", (req, res) => {
       return;
     }
     const group = getSqliteDb().prepare("SELECT id, name, created_at FROM groups WHERE id = ?").get(id);
+    logAudit(req, "UPDATE", "group", id, name, {});
     res.json({ success: true, group: publicGroup(group) });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to update group." });
@@ -1616,6 +1866,9 @@ app.delete("/api/groups/:id", (req, res) => {
       return { ...customer, groupId: "", group_id: "" };
     });
     writeSharedKey("phottix_customers", updatedCustomers);
+    logAudit(req, "DELETE", "group", id, id, {
+      movedToUngrouped: customers.filter((customer) => normalizeGroupId(customer.groupId || customer.group_id) === id).length
+    });
     res.json({ success: true, movedToUngrouped: customers.filter((customer) => normalizeGroupId(customer.groupId || customer.group_id) === id).length });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to delete group." });
@@ -1640,8 +1893,13 @@ app.put("/api/customers/:id/group", (req, res) => {
         return;
       }
     }
+    const previousGroupId = normalizeGroupId(customers[index].groupId || customers[index].group_id);
     customers[index] = { ...customers[index], groupId, group_id: groupId };
     writeSharedKey("phottix_customers", customers);
+    logAudit(req, "UPDATE", "customer_group", id, customers[index].companyName || customers[index].name || id, {
+      beforeGroupId: previousGroupId,
+      afterGroupId: groupId
+    });
     res.json({ success: true, customer: customers[index] });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to move customer group." });
@@ -1673,6 +1931,11 @@ app.post("/api/customers/batch-group", (req, res) => {
       return { ...customer, groupId, group_id: groupId };
     });
     writeSharedKey("phottix_customers", updatedCustomers);
+    logAudit(req, "UPDATE", "customer_group", "batch", `Batch move ${updated} customers`, {
+      customerIds,
+      groupId,
+      updated
+    });
     res.json({ success: true, updated });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to batch move customers." });
@@ -1711,6 +1974,7 @@ app.post("/api/senders", (req, res) => {
       VALUES (?, ?, ?, ?, 1, ?, ?)
     `).run(id, name, email, encrypt(appPassword), now, now);
     const sender = getSqliteDb().prepare("SELECT id, name, email, isActive, createdAt, updatedAt FROM senders WHERE id = ?").get(id);
+    logAudit(req, "CREATE", "sender", id, email, { name, email });
     res.json({ success: true, sender: publicSender(sender) });
   } catch (error) {
     const message = String(error.message || "");
@@ -1744,6 +2008,11 @@ app.put("/api/senders/:id", (req, res) => {
         .run(name, email, now, id);
     }
     const sender = getSqliteDb().prepare("SELECT id, name, email, isActive, createdAt, updatedAt FROM senders WHERE id = ?").get(id);
+    logAudit(req, "UPDATE", "sender", id, email, {
+      before: { name: existing.name, email: existing.email, isActive: Boolean(existing.isActive) },
+      after: { name, email, isActive: Boolean(sender.isActive) },
+      passwordChanged: Boolean(appPassword)
+    });
     res.json({ success: true, sender: publicSender(sender) });
   } catch (error) {
     const message = String(error.message || "");
@@ -1755,11 +2024,14 @@ app.put("/api/senders/:id", (req, res) => {
 app.delete("/api/senders/:id", (req, res) => {
   if (rejectRemoteAdmin(req, res)) return;
   try {
-    const result = getSqliteDb().prepare("DELETE FROM senders WHERE id = ?").run(String(req.params.id || ""));
+    const id = String(req.params.id || "");
+    const existing = getSqliteDb().prepare("SELECT * FROM senders WHERE id = ?").get(id);
+    const result = getSqliteDb().prepare("DELETE FROM senders WHERE id = ?").run(id);
     if (!result.changes) {
       res.status(404).json({ success: false, error: "Sender not found." });
       return;
     }
+    logAudit(req, "DELETE", "sender", id, existing?.email || id, { email: existing?.email || "" });
     res.json({ success: true });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to delete sender." });
@@ -1779,6 +2051,7 @@ app.patch("/api/senders/:id/toggle", (req, res) => {
     getSqliteDb().prepare("UPDATE senders SET isActive = ?, updatedAt = ? WHERE id = ?")
       .run(nextActive, new Date().toISOString(), id);
     const sender = getSqliteDb().prepare("SELECT id, name, email, isActive, createdAt, updatedAt FROM senders WHERE id = ?").get(id);
+    logAudit(req, "UPDATE", "sender", id, sender.email, { isActive: Boolean(nextActive) });
     res.json({ success: true, sender: publicSender(sender) });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to toggle sender." });
@@ -1821,6 +2094,7 @@ app.post("/api/custom-templates", (req, res) => {
       const updated = getSqliteDb()
         .prepare("SELECT id, name, subject, body, purpose, createdAt, updatedAt FROM custom_templates WHERE id = ?")
         .get(existing.id);
+      logAudit(req, "UPDATE", "template", existing.id, name, { subject, purpose });
       res.json({ success: true, updated: true, template: publicCustomTemplate(updated) });
       return;
     }
@@ -1832,6 +2106,7 @@ app.post("/api/custom-templates", (req, res) => {
     const template = getSqliteDb()
       .prepare("SELECT id, name, subject, body, purpose, createdAt, updatedAt FROM custom_templates WHERE id = ?")
       .get(id);
+    logAudit(req, "CREATE", "template", id, name, { subject, purpose });
     res.json({ success: true, updated: false, template: publicCustomTemplate(template) });
   } catch (error) {
     const message = String(error.message || "");
@@ -1875,6 +2150,7 @@ app.put("/api/custom-templates/:id", (req, res) => {
     const template = getSqliteDb()
       .prepare("SELECT id, name, subject, body, purpose, createdAt, updatedAt FROM custom_templates WHERE id = ?")
       .get(id);
+    logAudit(req, "UPDATE", "template", id, name, { subject, purpose });
     res.json({ success: true, template: publicCustomTemplate(template) });
   } catch (error) {
     const message = String(error.message || "");
@@ -1885,11 +2161,14 @@ app.put("/api/custom-templates/:id", (req, res) => {
 
 app.delete("/api/custom-templates/:id", (req, res) => {
   try {
-    const result = getSqliteDb().prepare("DELETE FROM custom_templates WHERE id = ?").run(String(req.params.id || ""));
+    const id = String(req.params.id || "");
+    const existing = getSqliteDb().prepare("SELECT id, name FROM custom_templates WHERE id = ?").get(id);
+    const result = getSqliteDb().prepare("DELETE FROM custom_templates WHERE id = ?").run(id);
     if (!result.changes) {
       res.status(404).json({ success: false, error: "Custom template not found." });
       return;
     }
+    logAudit(req, "DELETE", "template", id, existing?.name || id, {});
     res.json({ success: true });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to delete custom template." });
@@ -2093,6 +2372,15 @@ app.post("/api/send-email", async (req, res) => {
       attachments: mailAttachments
     });
     cleanupUploadedFiles(attachments);
+    logAudit(req, "SEND_EMAIL", "email", info.messageId || "", subject, {
+      to,
+      cc,
+      bcc,
+      subject,
+      senderId,
+      from,
+      attachmentCount: mailAttachments.length
+    });
     res.json({ success: true, messageId: info.messageId });
   } catch (error) {
     console.error(`Send email failed: ${error.message}`);
@@ -2195,6 +2483,9 @@ app.post("/api/sync-inbox", async (req, res) => {
 app.use((req, res) => {
   res.status(404).send("Not Found");
 });
+
+getSqliteDb();
+scheduleDailyBackup();
 
 const server = app.listen(PORT, HOST, () => {
   console.log(`Phottix Customer Agent listening on http://${HOST}:${PORT}`);
