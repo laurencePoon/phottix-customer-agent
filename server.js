@@ -1,4 +1,4 @@
-require("dotenv").config({ quiet: true });
+require("dotenv").config({ quiet: true, override: true });
 const express = require("express");
 const axios = require("axios");
 const nodemailer = require("nodemailer");
