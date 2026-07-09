@@ -810,6 +810,11 @@ function isHostImportRequest(req) {
   return host.startsWith("127.0.0.1") || host.startsWith("localhost") || host.startsWith("[::1]");
 }
 
+function isAdminRequest(req) {
+  if (isHostImportRequest(req)) return true;
+  return Boolean(APP_AUTH_USER && APP_AUTH_PASS && req.appUser === APP_AUTH_USER);
+}
+
 function rejectRemoteImport(req, res) {
   if (isHostImportRequest(req)) return false;
   res.status(403).json({
@@ -821,11 +826,11 @@ function rejectRemoteImport(req, res) {
 }
 
 function rejectRemoteAdmin(req, res) {
-  if (isHostImportRequest(req)) return false;
+  if (isAdminRequest(req)) return false;
   res.status(403).json({
     success: false,
     hostOnly: true,
-    error: "Sender management is available only on the host computer."
+    error: "Admin management requires app login on the deployed site or localhost access on the host computer."
   });
   return true;
 }
@@ -1246,7 +1251,7 @@ app.get("/api/groups", (req, res) => {
     const rows = getSqliteDb()
       .prepare("SELECT id, name, created_at FROM groups ORDER BY name COLLATE NOCASE")
       .all();
-    res.json({ success: true, hostOnly: isHostImportRequest(req), groups: rows.map(publicGroup) });
+    res.json({ success: true, hostOnly: isAdminRequest(req), groups: rows.map(publicGroup) });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to load groups." });
   }
@@ -1377,7 +1382,7 @@ app.get("/api/senders", (req, res) => {
     const rows = getSqliteDb()
       .prepare("SELECT id, name, email, isActive, createdAt, updatedAt FROM senders ORDER BY name COLLATE NOCASE, email COLLATE NOCASE")
       .all();
-    res.json({ success: true, hostOnly: isHostImportRequest(req), senders: rows.map(publicSender) });
+    res.json({ success: true, hostOnly: isAdminRequest(req), senders: rows.map(publicSender) });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to load senders." });
   }
