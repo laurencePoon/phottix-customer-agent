@@ -20,6 +20,7 @@ const DATA_DIR = path.join(__dirname, "data");
 const SQLITE_PATH = path.join(DATA_DIR, "phottix.sqlite");
 const UPLOAD_TEMP_DIR = path.join(__dirname, "uploads", "temp");
 const DEFAULT_CONFIG = { import_folder: "./imports/" };
+const DEFAULT_LIVE_SYNC_SOURCE = "https://agent.phottix.cn";
 const IV_LENGTH = 16;
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 const MAX_ATTACHMENT_COUNT = 10;
@@ -60,6 +61,34 @@ const SHARED_STORAGE_KEYS = [
   "phottix_analysis_history",
   "phottix_error_logs"
 ];
+const LIVE_SYNC_KEY_MAP = {
+  customers: "phottix_customers",
+  products: "phottix_products",
+  logs: "phottix_followup_logs",
+  templates: "phottix_email_templates",
+  settings: "phottix_settings",
+  analysisHistory: "phottix_analysis_history",
+  errorLogs: "phottix_error_logs"
+};
+const LIVE_SYNC_ALIAS_MAP = {
+  all: "all",
+  customers: "customers",
+  phottixcustomers: "customers",
+  products: "products",
+  phottixproducts: "products",
+  logs: "logs",
+  followuplogs: "logs",
+  phottixfollowuplogs: "logs",
+  templates: "templates",
+  emailtemplates: "templates",
+  phottixemailtemplates: "templates",
+  settings: "settings",
+  phottixsettings: "settings",
+  analysishistory: "analysisHistory",
+  phottixanalysishistory: "analysisHistory",
+  errorlogs: "errorLogs",
+  phottixerrorlogs: "errorLogs"
+};
 
 const APP_AUTH_USER = String(process.env.APP_AUTH_USER || "").trim();
 const APP_AUTH_PASS = String(process.env.APP_AUTH_PASS || "").trim();
@@ -616,7 +645,7 @@ function writeSharedKey(key, value) {
   `).run(key, JSON.stringify(value ?? null), new Date().toISOString());
 }
 
-function writeSharedSnapshot(data) {
+function writeSharedSnapshot(data, selectedKeys = SHARED_STORAGE_KEYS) {
   if (!data || typeof data !== "object") throw new Error("Invalid shared data snapshot.");
   const db = getSqliteDb();
   const stmt = db.prepare(`
@@ -627,9 +656,10 @@ function writeSharedSnapshot(data) {
       updated_at = excluded.updated_at
   `);
   const now = new Date().toISOString();
+  const keysToWrite = Array.isArray(selectedKeys) && selectedKeys.length ? selectedKeys : SHARED_STORAGE_KEYS;
   db.exec("BEGIN");
   try {
-    SHARED_STORAGE_KEYS.forEach((key) => {
+    keysToWrite.forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(data, key)) {
         stmt.run(key, JSON.stringify(data[key] ?? null), now);
       }
@@ -639,6 +669,44 @@ function writeSharedSnapshot(data) {
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+function normalizeLiveSyncSectionKey(value) {
+  const text = String(value || "").trim().toLowerCase().replace(/[^a-z]/g, "");
+  return LIVE_SYNC_ALIAS_MAP[text] || "";
+}
+
+function normalizeLiveSyncSections(values) {
+  const input = Array.isArray(values) ? values : [];
+  const normalized = input.map((value) => normalizeLiveSyncSectionKey(value)).filter(Boolean);
+  if (!normalized.length || normalized.includes("all")) {
+    return Object.keys(LIVE_SYNC_KEY_MAP);
+  }
+  return [...new Set(normalized.filter((value) => Object.prototype.hasOwnProperty.call(LIVE_SYNC_KEY_MAP, value)))];
+}
+
+function countSnapshotData(data = {}) {
+  return {
+    customers: Array.isArray(data.phottix_customers) ? data.phottix_customers.length : 0,
+    products: Array.isArray(data.phottix_products) ? data.phottix_products.length : 0,
+    logs: data.phottix_followup_logs && typeof data.phottix_followup_logs === "object" ? Object.keys(data.phottix_followup_logs).length : 0,
+    templates: data.phottix_email_templates && typeof data.phottix_email_templates === "object" ? Object.keys(data.phottix_email_templates).length : 0,
+    settings: data.phottix_settings && typeof data.phottix_settings === "object" ? 1 : 0,
+    analysisHistory: data.phottix_analysis_history && typeof data.phottix_analysis_history === "object" ? Object.keys(data.phottix_analysis_history).length : 0,
+    errorLogs: Array.isArray(data.phottix_error_logs) ? data.phottix_error_logs.length : 0
+  };
+}
+
+function pickSnapshotData(data = {}, sections = []) {
+  const selectedSections = normalizeLiveSyncSections(sections);
+  const next = {};
+  selectedSections.forEach((section) => {
+    const key = LIVE_SYNC_KEY_MAP[section];
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      next[key] = data[key];
+    }
+  });
+  return next;
 }
 
 function normalizeCustomerEmailContacts(items) {
@@ -833,6 +901,100 @@ function rejectRemoteAdmin(req, res) {
     error: "Admin management requires app login on the deployed site or localhost access on the host computer."
   });
   return true;
+}
+
+function rejectRemoteLiveSync(req, res) {
+  if (isHostImportRequest(req)) return false;
+  res.status(403).json({
+    success: false,
+    hostOnly: true,
+    error: "Live sync is available only on the host computer."
+  });
+  return true;
+}
+
+function normalizeLiveSyncSource(value) {
+  const raw = String(value || DEFAULT_LIVE_SYNC_SOURCE).trim();
+  const normalized = normalizeUrl(raw || DEFAULT_LIVE_SYNC_SOURCE);
+  const url = new URL(normalized);
+  const host = url.hostname.toLowerCase();
+  if (!["agent.phottix.cn", "www.agent.phottix.cn"].includes(host)) {
+    throw new Error("Live sync source must be agent.phottix.cn.");
+  }
+  url.protocol = "https:";
+  url.pathname = "/";
+  url.search = "";
+  url.hash = "";
+  return url.origin;
+}
+
+function sharedSnapshotResponse(payload = {}) {
+  return {
+    success: true,
+    sourceUrl: payload.sourceUrl || DEFAULT_LIVE_SYNC_SOURCE,
+    updatedAt: payload.updatedAt || {},
+    counts: payload.counts || countSnapshotData(payload.data || {}),
+    data: payload.data || {}
+  };
+}
+
+async function fetchLiveSnapshotFromSource(sourceUrl, credentials = {}) {
+  const baseUrl = normalizeLiveSyncSource(sourceUrl);
+  const snapshotUrl = new URL("/api/db/snapshot", baseUrl).toString();
+  const loginUrl = new URL("/login", baseUrl).toString();
+  const username = String(credentials.username || process.env.LIVE_SYNC_USER || APP_AUTH_USER || "").trim();
+  const password = String(credentials.password || process.env.LIVE_SYNC_PASS || APP_AUTH_PASS || "").trim();
+  const client = axios.create({
+    timeout: 20000,
+    maxRedirects: 0,
+    validateStatus: (status) => status >= 200 && status < 500,
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Phottix Customer Agent Sync)",
+      Accept: "application/json,text/plain,*/*"
+    }
+  });
+
+  const directResponse = await client.get(snapshotUrl);
+  if (directResponse.status === 200 && directResponse.data?.success) {
+    return sharedSnapshotResponse({ ...directResponse.data, sourceUrl: baseUrl });
+  }
+
+  if (!username || !password) {
+    throw new Error("Live sync credentials are missing. Set LIVE_SYNC_USER/LIVE_SYNC_PASS or APP_AUTH_USER/APP_AUTH_PASS.");
+  }
+
+  const loginBody = new URLSearchParams({
+    username,
+    password,
+    returnTo: "/"
+  }).toString();
+
+  const loginResponse = await client.post(loginUrl, loginBody, {
+    headers: { "Content-Type": "application/x-www-form-urlencoded" }
+  });
+
+  const cookieHeader = (Array.isArray(loginResponse.headers["set-cookie"]) ? loginResponse.headers["set-cookie"] : [])
+    .map((value) => String(value || "").split(";")[0].trim())
+    .filter(Boolean)
+    .join("; ");
+
+  if (!cookieHeader) {
+    throw new Error("Unable to authenticate to the live site. Check the live login credentials.");
+  }
+
+  if (String(loginResponse.headers.location || "").includes("/login")) {
+    throw new Error("Unable to authenticate to the live site. Check the live login credentials.");
+  }
+
+  const authedResponse = await client.get(snapshotUrl, {
+    headers: { Cookie: cookieHeader }
+  });
+
+  if (authedResponse.status !== 200 || !authedResponse.data?.success) {
+    throw new Error(authedResponse.data?.error || "Failed to fetch live snapshot.");
+  }
+
+  return sharedSnapshotResponse({ ...authedResponse.data, sourceUrl: baseUrl });
 }
 
 function stripHtml(html) {
@@ -1195,6 +1357,46 @@ app.put("/api/db/key/:key", (req, res) => {
     res.json({ success: true, key });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "SQLite key save failed." });
+  }
+});
+
+app.post("/api/sync-live-snapshot", async (req, res) => {
+  if (rejectRemoteLiveSync(req, res)) return;
+  try {
+    const sourceUrl = normalizeLiveSyncSource(req.body?.sourceUrl || DEFAULT_LIVE_SYNC_SOURCE);
+    const snapshot = await fetchLiveSnapshotFromSource(sourceUrl, {
+      username: req.body?.username,
+      password: req.body?.password
+    });
+    const sections = normalizeLiveSyncSections(req.body?.sections);
+    const previewOnly = Boolean(req.body?.previewOnly);
+    const selectedData = pickSnapshotData(snapshot.data || {}, sections);
+    const liveCounts = countSnapshotData(snapshot.data || {});
+    const currentBefore = readSharedStore();
+    if (!previewOnly) {
+      writeSharedSnapshot(selectedData, sections.map((section) => LIVE_SYNC_KEY_MAP[section]));
+    }
+    const restored = readSharedStore();
+    res.json({
+      success: true,
+      sourceUrl,
+      previewOnly,
+      sections,
+      previewCounts: liveCounts,
+      beforeCounts: countSnapshotData(currentBefore.data || {}),
+      afterCounts: {
+        customers: Array.isArray(restored.data.phottix_customers) ? restored.data.phottix_customers.length : 0,
+        products: Array.isArray(restored.data.phottix_products) ? restored.data.phottix_products.length : 0,
+        logs: restored.data.phottix_followup_logs && typeof restored.data.phottix_followup_logs === "object"
+          ? Object.keys(restored.data.phottix_followup_logs).length
+          : 0,
+        templates: restored.data.phottix_email_templates ? 1 : 0,
+        settings: restored.data.phottix_settings ? 1 : 0
+      },
+      updatedAt: restored.updatedAt || {}
+    });
+  } catch (error) {
+    res.status(502).json({ success: false, error: error.message || "Failed to sync live snapshot." });
   }
 });
 

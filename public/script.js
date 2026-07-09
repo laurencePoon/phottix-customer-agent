@@ -1,10 +1,17 @@
 (function () {
   "use strict";
 
-  const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost"]);
-  document.documentElement.classList.toggle("local-compact-scale", LOCAL_HOSTS.has(location.hostname));
+  const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+
+  function isLocalEnvironment() {
+    const host = String(location.hostname || "").toLowerCase();
+    return location.protocol === "file:" || LOCAL_HOSTS.has(host);
+  }
+
+  document.documentElement.classList.toggle("local-compact-scale", isLocalEnvironment());
 
   const API_BASE = location.protocol === "file:" ? "http://127.0.0.1:8787" : location.origin;
+  const LIVE_SYNC_SOURCE = "https://agent.phottix.cn";
   const TODAY = new Date().toISOString().slice(0, 10);
 
   const STORAGE = {
@@ -41,6 +48,18 @@
     "Reseller - Online": ["online store", "e-commerce", "ecommerce", "shopify", "add to cart", "buy now", "shipping", "delivery", "checkout"],
     "End User - Studio": ["studio", "photography", "service", "booking", "gallery", "portfolio", "hire us", "creative", "production"]
   };
+  const LIVE_SYNC_SECTION_DEFS = [
+    { key: "customers", label: "客戶 Customers", short: "客戶", defaultChecked: true },
+    { key: "products", label: "產品 Products", short: "產品", defaultChecked: true },
+    { key: "logs", label: "跟進紀錄 Logs", short: "紀錄", defaultChecked: false },
+    { key: "templates", label: "Email 模板", short: "模板", defaultChecked: false },
+    { key: "settings", label: "設定 Settings", short: "設定", defaultChecked: false },
+    { key: "analysisHistory", label: "分析歷史", short: "歷史", defaultChecked: false },
+    { key: "errorLogs", label: "錯誤日誌", short: "錯誤", defaultChecked: false }
+  ];
+  const LIVE_SYNC_SECTION_LABELS = Object.fromEntries(
+    LIVE_SYNC_SECTION_DEFS.map((section) => [section.key, section.short || section.label || section.key])
+  );
 
   const DEFAULT_PRODUCTS = [
     { name: "Phottix Kali50Ra RGB LED Light", category: "Lighting", recommendedFor: "All", inRecommendationPool: true, isPriority: true },
@@ -1542,6 +1561,24 @@
       dom.toast.textContent = message;
       dom.toast.className = `toast ${tone}`.trim();
     },
+    renderEnvironmentBanner() {
+      if (!dom.environmentBanner) return;
+      const isLocal = isLocalEnvironment();
+      const label = isLocal ? "本機工作版 / Local Working Copy" : "正式線上版 / Live Site";
+      const detail = isLocal
+        ? "僅供開發與測試，客戶與產品主資料以 agent.phottix.cn 為準"
+        : "正式資料已部署於線上站點";
+      dom.environmentBanner.textContent = `${label} · ${detail}`;
+      dom.environmentBanner.className = `environment-banner ${isLocal ? "local" : "live"}`.trim();
+      dom.environmentBanner.hidden = false;
+      const backupBox = document.querySelector(".backup-box");
+      if (backupBox) backupBox.hidden = !isLocal;
+      [dom.backupExportBtn, dom.backupImportBtn, dom.pullLiveSnapshotBtn].forEach((item) => {
+        if (item) item.hidden = !isLocal;
+      });
+      if (dom.backupFileInput) dom.backupFileInput.hidden = true;
+      if (dom.pullLiveSnapshotBtn) dom.pullLiveSnapshotBtn.hidden = !isLocal;
+    },
     showPage(pageId) {
       document.querySelectorAll(".page").forEach((page) => page.classList.toggle("active", page.id === pageId));
       document.querySelectorAll(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.page === pageId));
@@ -1555,6 +1592,7 @@
       dom.pageSubtitle.textContent = titles[pageId]?.[1] || "";
     },
     refreshAll() {
+      this.renderEnvironmentBanner();
       this.renderTodayFollowUps();
       this.renderStats();
       this.renderErrorLogs();
@@ -3163,6 +3201,10 @@
   }
 
   function exportBackup() {
+    if (!isLocalEnvironment()) {
+      UI.toast("JSON backup is local-only. Please use it on 127.0.0.1.", "bad");
+      return;
+    }
     const snapshot = DB.backup("manual_export");
     const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
     downloadBlob(new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" }), `phottix_backup_${stamp}.json`);
@@ -3170,6 +3212,10 @@
   }
 
   async function importBackup(file) {
+    if (!isLocalEnvironment()) {
+      UI.toast("JSON restore is local-only. Please use it on 127.0.0.1.", "bad");
+      return;
+    }
     const text = await file.text();
     const snapshot = JSON.parse(text);
     const summary = [
@@ -3184,6 +3230,214 @@
     DB.restore(snapshot);
     UI.refreshAll();
     UI.toast("Backup restored.", "good");
+  }
+
+  async function syncLiveSnapshot() {
+    if (!isLocalEnvironment()) {
+      UI.toast("Live sync is local-only. Please use it on 127.0.0.1.", "bad");
+      return;
+    }
+    const originalText = dom.pullLiveSnapshotBtn?.textContent || "從線上同步";
+    if (dom.pullLiveSnapshotBtn) {
+      dom.pullLiveSnapshotBtn.disabled = true;
+      dom.pullLiveSnapshotBtn.textContent = "同步中... / Syncing...";
+    }
+    try {
+      const confirmed = confirm(
+        "這會把 agent.phottix.cn 的共享資料同步到本機工作版。\n\n" +
+        "會先備份目前本機資料，然後用線上 snapshot 覆蓋本機共享資料。\n" +
+        "這不會影響線上站點本身。\n\n" +
+        "要繼續嗎？"
+      );
+      if (!confirmed) return;
+      DB.backup("before_live_sync");
+      const response = await fetch(`${API_BASE}/api/sync-live-snapshot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceUrl: LIVE_SYNC_SOURCE })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Live sync failed.");
+      await DB.initSharedStore();
+      UI.refreshAll();
+      UI.toast(
+        `Synced from live site. Customers: ${payload.counts?.customers || 0}, Products: ${payload.counts?.products || 0}.`,
+        "good"
+      );
+    } finally {
+      if (dom.pullLiveSnapshotBtn) {
+        dom.pullLiveSnapshotBtn.disabled = false;
+        dom.pullLiveSnapshotBtn.textContent = originalText;
+      }
+    }
+  }
+
+  function getLiveSyncCheckboxMap() {
+    return {
+      customers: dom.syncCustomersSection,
+      products: dom.syncProductsSection,
+      logs: dom.syncLogsSection,
+      templates: dom.syncTemplatesSection,
+      settings: dom.syncSettingsSection,
+      analysisHistory: dom.syncAnalysisHistorySection,
+      errorLogs: dom.syncErrorLogsSection
+    };
+  }
+
+  function getLocalSyncSummary() {
+    return {
+      customers: DB.getCustomers().length,
+      products: DB.getProducts().length,
+      logs: Object.keys(DB.getLogs() || {}).length,
+      templates: Object.keys(DB.getTemplates() || {}).length,
+      settings: DB.getSettings() ? 1 : 0,
+      analysisHistory: Object.keys(DB.getAnalysisHistory() || {}).length,
+      errorLogs: DB.getErrorLogs().length
+    };
+  }
+
+  function formatSyncSummary(counts = {}) {
+    return LIVE_SYNC_SECTION_DEFS
+      .map((section) => `${section.short}: ${Number(counts[section.key] || 0)}`)
+      .join("\n");
+  }
+
+  function formatSelectedSyncSummary(counts = {}, sections = []) {
+    return sections
+      .map((key) => `${LIVE_SYNC_SECTION_LABELS[key] || key}: ${Number(counts[key] || 0)}`)
+      .join(" / ");
+  }
+
+  function getSelectedLiveSyncSections() {
+    const checkboxes = getLiveSyncCheckboxMap();
+    const selected = LIVE_SYNC_SECTION_DEFS
+      .filter((section) => dom.syncAllSections?.checked || checkboxes[section.key]?.checked)
+      .map((section) => section.key);
+    return selected.length ? selected : LIVE_SYNC_SECTION_DEFS.filter((section) => section.defaultChecked).map((section) => section.key);
+  }
+
+  function updateLiveSyncScopeSummary() {
+    if (!dom.liveSyncScopeSummary) return;
+    const selected = getSelectedLiveSyncSections();
+    dom.liveSyncScopeSummary.textContent = dom.syncAllSections?.checked
+      ? "目前將同步：全部共享資料"
+      : `目前將同步：${selected.map((key) => LIVE_SYNC_SECTION_LABELS[key] || key).join("、")}`;
+  }
+
+  function renderLiveSyncLocalSummary() {
+    if (!dom.liveSyncLocalSummary) return;
+    dom.liveSyncLocalSummary.textContent = formatSyncSummary(getLocalSyncSummary());
+  }
+
+  function renderLiveSyncPreview(counts = {}, sourceUrl = "") {
+    if (!dom.liveSyncLiveSummary) return;
+    const summary = formatSyncSummary(counts);
+    dom.liveSyncLiveSummary.textContent = sourceUrl ? `${summary}\nSource: ${sourceUrl}` : summary;
+  }
+
+  function resetLiveSyncSelection() {
+    const checkboxes = getLiveSyncCheckboxMap();
+    if (dom.syncAllSections) dom.syncAllSections.checked = false;
+    LIVE_SYNC_SECTION_DEFS.forEach((section) => {
+      const checkbox = checkboxes[section.key];
+      if (checkbox) checkbox.checked = section.defaultChecked;
+    });
+    updateLiveSyncScopeSummary();
+  }
+
+  function handleLiveSyncSelectionChange() {
+    const checkboxes = getLiveSyncCheckboxMap();
+    if (dom.syncAllSections?.checked) {
+      LIVE_SYNC_SECTION_DEFS.forEach((section) => {
+        if (checkboxes[section.key]) checkboxes[section.key].checked = true;
+      });
+    } else {
+      const anyChecked = LIVE_SYNC_SECTION_DEFS.some((section) => checkboxes[section.key]?.checked);
+      if (!anyChecked) {
+        LIVE_SYNC_SECTION_DEFS.forEach((section) => {
+          if (checkboxes[section.key]) checkboxes[section.key].checked = section.defaultChecked;
+        });
+      }
+    }
+    const allChecked = LIVE_SYNC_SECTION_DEFS.every((section) => Boolean(checkboxes[section.key]?.checked));
+    if (dom.syncAllSections) dom.syncAllSections.checked = allChecked;
+    updateLiveSyncScopeSummary();
+  }
+
+  function openLiveSyncDialog() {
+    if (!isLocalEnvironment()) {
+      UI.toast("Live sync is local-only. Please use it on 127.0.0.1.", "bad");
+      return;
+    }
+    if (!dom.liveSyncDialog) return;
+    resetLiveSyncSelection();
+    renderLiveSyncLocalSummary();
+    renderLiveSyncPreview({}, "");
+    dom.liveSyncDialog.showModal();
+  }
+
+  async function previewLiveSync() {
+    const originalText = dom.previewLiveSyncBtn?.textContent || "預覽線上摘要";
+    if (dom.previewLiveSyncBtn) {
+      dom.previewLiveSyncBtn.disabled = true;
+      dom.previewLiveSyncBtn.textContent = "預覽中...";
+    }
+    try {
+      const response = await fetch(`${API_BASE}/api/sync-live-snapshot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceUrl: LIVE_SYNC_SOURCE,
+          sections: getSelectedLiveSyncSections(),
+          previewOnly: true
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Live preview failed.");
+      renderLiveSyncPreview(payload.previewCounts || {}, payload.sourceUrl || LIVE_SYNC_SOURCE);
+      UI.toast("Live preview loaded.", "good");
+    } finally {
+      if (dom.previewLiveSyncBtn) {
+        dom.previewLiveSyncBtn.disabled = false;
+        dom.previewLiveSyncBtn.textContent = originalText;
+      }
+    }
+  }
+
+  async function runLiveSync() {
+    const sections = getSelectedLiveSyncSections();
+    const sectionLabels = sections.map((key) => LIVE_SYNC_SECTION_LABELS[key] || key);
+    const originalText = dom.syncLiveSnapshotBtn?.textContent || "開始同步";
+    if (dom.syncLiveSnapshotBtn) {
+      dom.syncLiveSnapshotBtn.disabled = true;
+      dom.syncLiveSnapshotBtn.textContent = "同步中...";
+    }
+    try {
+      DB.backup("before_live_sync");
+      const response = await fetch(`${API_BASE}/api/sync-live-snapshot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceUrl: LIVE_SYNC_SOURCE,
+          sections
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Live sync failed.");
+      await DB.initSharedStore();
+      UI.refreshAll();
+      renderLiveSyncLocalSummary();
+      if (payload.previewCounts) renderLiveSyncPreview(payload.previewCounts, payload.sourceUrl || LIVE_SYNC_SOURCE);
+      const beforeText = formatSelectedSyncSummary(payload.beforeCounts || {}, sections);
+      const afterText = formatSelectedSyncSummary(payload.afterCounts || {}, sections);
+      UI.toast(`Synced: ${sectionLabels.join("、")}. ${beforeText} -> ${afterText}`, "good");
+      if (dom.liveSyncDialog?.open) dom.liveSyncDialog.close();
+    } finally {
+      if (dom.syncLiveSnapshotBtn) {
+        dom.syncLiveSnapshotBtn.disabled = false;
+        dom.syncLiveSnapshotBtn.textContent = originalText;
+      }
+    }
   }
 
     function renderExcelFileOptions(files = [], target = "customer") {
@@ -3287,7 +3541,7 @@
 
   function bindDom() {
     [
-      "todayFollowCount", "todayFollowList", "toast", "pageTitle", "pageSubtitle",
+      "todayFollowCount", "todayFollowList", "toast", "pageTitle", "pageSubtitle", "environmentBanner",
       "overdueFollowCount", "dueTodayFollowCount", "statsSummary", "errorLogList", "clearErrorLogsBtn",
       "loadCustomerSelect", "companyName", "website", "contactName", "contactEmail", "country", "city", "industry",
       "buyingRole", "buyingRoleManualStatus", "instagram", "facebook", "emailPurpose", "businessNotes", "manualWebsiteSummary", "websiteExtract",
@@ -3303,7 +3557,7 @@
       "exportCustomersBtn", "customerImportFileSelect", "customerImportIndex", "importCustomersConfigBtn", "uploadCustomerExcelBtn", "customerExcelFileInput", "customerImportGroupSelect", "excelFileList", "addGroupBtn", "groupList", "customerTypeFilter", "ratingFilter",
       "followStatusFilter", "groupFilter", "customerSearch", "selectAllCustomers", "bulkAnalyzeSelectedBtn",
       "bulkAnalyzeAllBtn", "bulkDeleteBtn", "bulkConvertBtn", "bulkGroupSelect", "bulkMoveGroupBtn", "bulkFollowStatus", "bulkNextFollowDate", "bulkProgressBar", "bulkProgressText", "customerList", "backupExportBtn",
-      "backupImportBtn", "backupFileInput", "productDialog", "productForm", "productDialogTitle",
+      "backupImportBtn", "pullLiveSnapshotBtn", "backupFileInput", "liveSyncDialog", "liveSyncForm", "liveSyncLocalSummary", "liveSyncLiveSummary", "liveSyncScopeSummary", "syncAllSections", "syncCustomersSection", "syncProductsSection", "syncLogsSection", "syncTemplatesSection", "syncSettingsSection", "syncAnalysisHistorySection", "syncErrorLogsSection", "previewLiveSyncBtn", "syncLiveSnapshotBtn", "productDialog", "productForm", "productDialogTitle",
       "productId", "productName", "productCategory", "productInPool", "productPriority",
       "productPriorityNumber", "productRecommendedFor", "productSku", "productDescription", "productPrice", "productUrl", "productLaunchDate",
       "saveProductDialogBtn", "customerDialog", "customerForm", "customerDialogTitle", "customerId",
@@ -3580,6 +3834,12 @@
     dom.bulkNextFollowDate.addEventListener("change", bulkUpdateFollowUpSelected);
     dom.backupExportBtn.addEventListener("click", exportBackup);
     dom.backupImportBtn.addEventListener("click", () => dom.backupFileInput.click());
+    dom.pullLiveSnapshotBtn?.addEventListener("click", () => openLiveSyncDialog());
+    dom.previewLiveSyncBtn?.addEventListener("click", () => previewLiveSync().catch((error) => UI.toast(error.message, "bad")));
+    dom.syncLiveSnapshotBtn?.addEventListener("click", () => runLiveSync().catch((error) => UI.toast(error.message, "bad")));
+    dom.syncAllSections?.addEventListener("change", handleLiveSyncSelectionChange);
+    [dom.syncCustomersSection, dom.syncProductsSection, dom.syncLogsSection, dom.syncTemplatesSection, dom.syncSettingsSection, dom.syncAnalysisHistorySection, dom.syncErrorLogsSection]
+      .forEach((checkbox) => checkbox?.addEventListener("change", handleLiveSyncSelectionChange));
     dom.backupFileInput.addEventListener("change", () => dom.backupFileInput.files[0] && importBackup(dom.backupFileInput.files[0]).catch((error) => UI.toast(error.message, "bad")));
     dom.clearErrorLogsBtn.addEventListener("click", () => {
       DB.clearErrorLogs();

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Phottix Customer Agent</title>
-  <link rel="stylesheet" href="style.css?v=20260707-customer-list-view">
+  <link rel="stylesheet" href="style.css?v=20260709-sync-dialog-fix">
 </head>
 <body>
   <div class="app-shell">
@@ -52,12 +52,95 @@
           <div id="errorLogList" class="today-list"></div>
         </section>
 
-        <div class="backup-box">
+        <div class="backup-box" hidden>
           <strong class="backup-title">備份工具 / Backup</strong>
           <button id="backupExportBtn" class="ghost-button" type="button">導出 JSON 備份</button>
           <button id="backupImportBtn" class="ghost-button" type="button">還原 JSON 備份</button>
+          <button id="pullLiveSnapshotBtn" class="ghost-button" type="button" hidden title="只同步到本機工作版，不影響 agent.phottix.cn">同步線上資料 / Sync Live Data</button>
           <input id="backupFileInput" type="file" accept=".json" hidden>
         </div>
+        <dialog id="liveSyncDialog">
+          <form method="dialog" id="liveSyncForm" class="dialog-form live-sync-form">
+            <h3>從線上同步 / Pull Live Data</h3>
+            <p class="live-sync-intro">先看本機與線上摘要，再選擇只同步客戶 / 產品，或同步全部共享資料。同步前會先自動備份本機資料。</p>
+            <div class="live-sync-summary-grid">
+              <section class="live-sync-summary-card">
+                <strong>本機目前 / Local</strong>
+                <div id="liveSyncLocalSummary" class="live-sync-summary-text"></div>
+              </section>
+              <section class="live-sync-summary-card">
+                <strong>線上預覽 / Live Preview</strong>
+                <div id="liveSyncLiveSummary" class="live-sync-summary-text">按「預覽線上摘要」載入線上摘要。</div>
+              </section>
+            </div>
+            <div class="live-sync-controls">
+              <label class="live-sync-option live-sync-option-all">
+                <input id="syncAllSections" type="checkbox">
+                <span>
+                  <strong>同步全部共享資料</strong>
+                  <small>客戶、產品、紀錄、模板、設定、歷史、錯誤</small>
+                </span>
+              </label>
+              <label class="live-sync-option">
+                <input id="syncCustomersSection" type="checkbox" checked>
+                <span>
+                  <strong>客戶 Customers</strong>
+                  <small>本機看錯資料時，最常先同步這項</small>
+                </span>
+              </label>
+              <label class="live-sync-option">
+                <input id="syncProductsSection" type="checkbox" checked>
+                <span>
+                  <strong>產品 Products</strong>
+                  <small>主資料與推薦邏輯相關</small>
+                </span>
+              </label>
+              <label class="live-sync-option">
+                <input id="syncLogsSection" type="checkbox">
+                <span>
+                  <strong>跟進紀錄 Logs</strong>
+                  <small>客戶跟進時間軸</small>
+                </span>
+              </label>
+              <label class="live-sync-option">
+                <input id="syncTemplatesSection" type="checkbox">
+                <span>
+                  <strong>Email 模板</strong>
+                  <small>寄信內容與範本</small>
+                </span>
+              </label>
+              <label class="live-sync-option">
+                <input id="syncSettingsSection" type="checkbox">
+                <span>
+                  <strong>設定 Settings</strong>
+                  <small>分析與系統設定</small>
+                </span>
+              </label>
+              <label class="live-sync-option">
+                <input id="syncAnalysisHistorySection" type="checkbox">
+                <span>
+                  <strong>分析歷史</strong>
+                  <small>已產生的分析紀錄</small>
+                </span>
+              </label>
+              <label class="live-sync-option">
+                <input id="syncErrorLogsSection" type="checkbox">
+                <span>
+                  <strong>錯誤日誌</strong>
+                  <small>方便排查問題</small>
+                </span>
+              </label>
+            </div>
+            <div id="liveSyncScopeSummary" class="live-sync-preview">目前將同步：客戶、產品</div>
+            <div class="live-sync-actions">
+              <button id="previewLiveSyncBtn" class="secondary-button" type="button">預覽線上摘要</button>
+              <button id="syncLiveSnapshotBtn" class="primary-button" type="button">開始同步</button>
+            </div>
+            <menu>
+              <button value="cancel" class="ghost-button">關閉</button>
+            </menu>
+          </form>
+        </dialog>
       </details>
       <button id="themeToggle" class="theme-toggle" title="切換主題" aria-label="切換主題" type="button">🌙</button>
       <form class="logout-form" method="post" action="/logout">
@@ -71,6 +154,7 @@
           <h2 id="pageTitle">客戶分析 / Customer Analysis</h2>
           <p id="pageSubtitle">抓取官網、提取業務信號、評分、推薦產品並生成英文開發信。</p>
           <div class="import-hint"><span aria-hidden="true">ⓘ</span><strong>提示 / Note:</strong> 從客戶池載入共享資料；選擇客戶後才會填入目前表單。</div>
+          <div id="environmentBanner" class="environment-banner" role="status" aria-live="polite"></div>
           <div class="workflow-strip" aria-label="Main workflow">
             <span><strong>1</strong> 客戶資料 / Client</span>
             <span><strong>2</strong> 生成分析 / Analyze</span>
@@ -759,6 +843,6 @@
     </form>
   </dialog>
 
-  <script src="script.js?v=20260707-customer-list-view"></script>
+  <script src="script.js?v=20260709-env-banner"></script>
 </body>
 </html>
