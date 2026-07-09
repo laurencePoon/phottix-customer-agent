@@ -1713,6 +1713,98 @@
       ` : `<div class="empty">沒有產品。</div>`;
     },
     renderCustomerList() {
+      const visibleCustomers = filterCustomers(DB.getCustomers());
+      const selectedCount = state.selectedCustomerIds.size;
+      const rowCountLabel = visibleCustomers.length === 1 ? "1 customer" : `${visibleCustomers.length} customers`;
+      const selectedLabel = selectedCount ? ` / ${selectedCount} selected` : "";
+      dom.customerList.innerHTML = visibleCustomers.length ? `
+        <div class="customer-list-summary">
+          <strong>Customer list</strong>
+          <span>Showing ${rowCountLabel}${selectedLabel}. Use Search and filters above to narrow the list.</span>
+        </div>
+        <div class="customer-list-table" role="table" aria-label="Customer list">
+          <div class="customer-list-head" role="row">
+            <span>Select</span>
+            <span>Company / Website</span>
+            <span>Contact / Email</span>
+            <span>Status</span>
+            <span>Next</span>
+            <span>Actions</span>
+          </div>
+          ${visibleCustomers.map((customer) => {
+            const staleDays = daysSince(customer.lastAnalyzedAt);
+            const manualIcon = customer.isManuallyReviewed ? " *" : "";
+            const contacts = normalizeEmailContacts(customer.emailContacts);
+            const primaryEmail = customer.contactEmail || contacts[0]?.email || "";
+            const extraEmails = contacts
+              .map((contact) => contact.email)
+              .filter((email) => email && email !== primaryEmail)
+              .slice(0, 2);
+            const contactLine = [customer.contactName || "No contact", primaryEmail || "No email"].filter(Boolean).join(" / ");
+            const locationLine = [customer.country, customer.city, customer.industry].filter(Boolean).join(" / ") || "No location";
+            const websiteHtml = customer.website
+              ? `<a href="${escapeHtml(customer.website)}" target="_blank" rel="noreferrer">${escapeHtml(customer.website)}</a>`
+              : `<span class="muted-text">No website</span>`;
+            const lastAnalyzed = customer.lastAnalyzedAt ? formatDateTime(customer.lastAnalyzedAt) : "Never";
+            return `
+              <article class="customer-card customer-list-row" role="row">
+                <div class="customer-select-cell">
+                  <input type="checkbox" data-action="select-customer" data-id="${escapeHtml(customer.id)}" ${state.selectedCustomerIds.has(customer.id) ? "checked" : ""} aria-label="Select ${escapeHtml(customer.companyName || "customer")}">
+                </div>
+                <div class="customer-main-cell">
+                  <h4>${escapeHtml(customer.companyName || "Untitled")}${manualIcon}</h4>
+                  ${websiteHtml}
+                </div>
+                <div class="customer-contact-cell">
+                  <strong>${escapeHtml(contactLine)}</strong>
+                  <span>${escapeHtml(extraEmails.length ? extraEmails.join(", ") : locationLine)}</span>
+                </div>
+                <div class="customer-status-cell">
+                  <span class="status-pill rating-pill ${escapeHtml(ratingClass(customer.rating))}">${escapeHtml(customer.rating || "NR")} / ${escapeHtml(String(customer.scores?.priority || 0))}</span>
+                  <span class="status-pill">${escapeHtml(customer.customerType || "prospect")}</span>
+                  <span class="status-pill">${escapeHtml(customer.followUpStatus || "open")}</span>
+                  <span class="status-pill">Group: ${escapeHtml(groupName(customer.groupId || customer.group_id))}</span>
+                </div>
+                <div class="customer-next-cell">
+                  <strong>${escapeHtml(customer.nextFollowUpDate || "-")}</strong>
+                  <span>Last: ${escapeHtml(lastAnalyzed)}${staleDays !== null && staleDays > 30 ? " / 30d+" : ""}</span>
+                </div>
+                <footer class="customer-actions-cell">
+                  <button class="mini-button" data-action="load-customer" data-id="${escapeHtml(customer.id)}">Load</button>
+                  <button class="mini-button" data-action="edit-customer" data-id="${escapeHtml(customer.id)}">Edit</button>
+                  <button class="mini-button" data-action="manage-email-contacts" data-id="${escapeHtml(customer.id)}">Contacts</button>
+                  <button class="mini-button" data-action="add-log" data-id="${escapeHtml(customer.id)}">Log</button>
+                  <button class="danger-button" data-action="delete-customer" data-id="${escapeHtml(customer.id)}">Delete</button>
+                </footer>
+                <details class="customer-row-details">
+                  <summary>More / Edit fields</summary>
+                  <div class="customer-detail-grid">
+                    <p><strong>Suggested Action:</strong> ${escapeHtml(suggestAction(customer))}</p>
+                    <p><strong>Buying Role:</strong> ${escapeHtml(normalizeBuyingRole(customer.buyingRole))}${customer.isBuyingRoleManuallyReviewed ? " / Manual" : ""}</p>
+                    <p><strong>Customer Score:</strong> ${escapeHtml(customer.customerScore ?? "-")}</p>
+                  </div>
+                  <div class="customer-role-edit">
+                    <label>Buying Role
+                      <select data-action="change-buying-role" data-id="${escapeHtml(customer.id)}">
+                        ${buyingRoleOptionsHtml(customer.buyingRole)}
+                      </select>
+                    </label>
+                    <label>Customer Score
+                      <input data-action="change-customer-score" data-id="${escapeHtml(customer.id)}" type="number" min="1" max="100" step="1" value="${escapeHtml(customer.customerScore ?? "")}" placeholder="1-100">
+                    </label>
+                    <label>Group
+                      <select data-action="change-customer-group" data-id="${escapeHtml(customer.id)}">
+                        ${groupOptionsHtml(customer.groupId || customer.group_id)}
+                      </select>
+                    </label>
+                  </div>
+                </details>
+              </article>
+            `;
+          }).join("")}
+        </div>
+      ` : `<div class="empty">No customers found. Try clearing Search or filters.</div>`;
+      return;
       const customers = filterCustomers(DB.getCustomers());
       dom.customerList.innerHTML = customers.length ? customers.map((customer) => {
         const stale = daysSince(customer.lastAnalyzedAt);

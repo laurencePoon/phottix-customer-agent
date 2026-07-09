@@ -13,6 +13,7 @@ const { DatabaseSync } = require("node:sqlite");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
+const HOST = String(process.env.HOST || process.env.APP_HOST || "127.0.0.1").trim();
 const CONFIG_PATH = path.join(__dirname, "config.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = path.join(__dirname, "data");
@@ -60,6 +61,9 @@ const SHARED_STORAGE_KEYS = [
   "phottix_error_logs"
 ];
 
+const APP_AUTH_USER = String(process.env.APP_AUTH_USER || "").trim();
+const APP_AUTH_PASS = String(process.env.APP_AUTH_PASS || "").trim();
+
 ensureImportFolder();
 ensureUploadTempDir();
 
@@ -97,6 +101,7 @@ const uploadCustomerExcel = multer({
   }
 });
 
+app.use(appAuthMiddleware);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(PUBLIC_DIR, {
   etag: false,
@@ -107,6 +112,45 @@ app.use(express.static(PUBLIC_DIR, {
 }));
 
 let sqliteDb = null;
+
+function safeEqualText(actual, expected) {
+  const actualBuffer = Buffer.from(String(actual || ""), "utf8");
+  const expectedBuffer = Buffer.from(String(expected || ""), "utf8");
+  if (actualBuffer.length !== expectedBuffer.length) return false;
+  return crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function appAuthMiddleware(req, res, next) {
+  // Optional production guard: set APP_AUTH_USER and APP_AUTH_PASS in .env to protect the whole V1.1 app.
+  // /health stays public so the host can monitor whether the Node.js process is alive.
+  if (!APP_AUTH_USER || !APP_AUTH_PASS || req.path === "/health") {
+    next();
+    return;
+  }
+
+  const authHeader = String(req.headers.authorization || "");
+  if (!authHeader.startsWith("Basic ")) {
+    requestAppAuth(res);
+    return;
+  }
+
+  const decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf8");
+  const separatorIndex = decoded.indexOf(":");
+  const username = separatorIndex >= 0 ? decoded.slice(0, separatorIndex) : "";
+  const password = separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : "";
+
+  if (safeEqualText(username, APP_AUTH_USER) && safeEqualText(password, APP_AUTH_PASS)) {
+    next();
+    return;
+  }
+
+  requestAppAuth(res);
+}
+
+function requestAppAuth(res) {
+  res.setHeader("WWW-Authenticate", 'Basic realm="Phottix Customer Agent", charset="UTF-8"');
+  res.status(401).send("Authentication required.");
+}
 
 function getSqliteDb() {
   if (sqliteDb) return sqliteDb;
@@ -1551,8 +1595,8 @@ app.use((req, res) => {
   res.status(404).send("Not Found");
 });
 
-const server = app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Phottix Customer Agent listening on http://0.0.0.0:${PORT}`);
+const server = app.listen(PORT, HOST, () => {
+  console.log(`Phottix Customer Agent listening on http://${HOST}:${PORT}`);
   console.log(`Local host URL: http://127.0.0.1:${PORT}/`);
   console.log(`Running file: ${__filename}`);
   console.log("Keep this window open. Press Ctrl+C to stop the server.");
