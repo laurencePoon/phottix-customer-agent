@@ -8735,3 +8735,28 @@ html.local-compact-scale {
     grid-template-columns: 1fr;
   }
 }
+
+.logout-form {
+  margin-top: 10px;
+}
+
+.logout-button {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid rgba(89, 142, 199, 0.28);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.58);
+  color: #44607a;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 760;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.logout-button:hover,
+.logout-button:focus-visible {
+  border-color: rgba(61, 143, 218, 0.5);
+  background: #ffffff;
+  color: #1d6fbf;
+  outline: none;
+}

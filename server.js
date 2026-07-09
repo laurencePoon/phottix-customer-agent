@@ -63,6 +63,9 @@ const SHARED_STORAGE_KEYS = [
 
 const APP_AUTH_USER = String(process.env.APP_AUTH_USER || "").trim();
 const APP_AUTH_PASS = String(process.env.APP_AUTH_PASS || "").trim();
+const SESSION_COOKIE_NAME = "phottix_v11_session";
+const SESSION_TTL_MS = Math.max(1, Number(process.env.APP_SESSION_TTL_HOURS || 12)) * 60 * 60 * 1000;
+const APP_SESSION_SECRET = String(process.env.APP_SESSION_SECRET || process.env.ENCRYPTION_KEY || APP_AUTH_PASS || "phottix-local-session-secret").trim();
 
 ensureImportFolder();
 ensureUploadTempDir();
@@ -101,6 +104,11 @@ const uploadCustomerExcel = multer({
   }
 });
 
+app.use(express.urlencoded({ extended: false, limit: "20kb" }));
+app.get("/login", renderLoginPage);
+app.post("/login", handleLogin);
+app.get("/logout", handleLogout);
+app.post("/logout", handleLogout);
 app.use(appAuthMiddleware);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(PUBLIC_DIR, {
@@ -128,28 +136,306 @@ function appAuthMiddleware(req, res, next) {
     return;
   }
 
-  const authHeader = String(req.headers.authorization || "");
-  if (!authHeader.startsWith("Basic ")) {
-    requestAppAuth(res);
-    return;
-  }
-
-  const decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf8");
-  const separatorIndex = decoded.indexOf(":");
-  const username = separatorIndex >= 0 ? decoded.slice(0, separatorIndex) : "";
-  const password = separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : "";
-
-  if (safeEqualText(username, APP_AUTH_USER) && safeEqualText(password, APP_AUTH_PASS)) {
+  const session = getValidSession(req);
+  if (session) {
+    req.appUser = session.user;
     next();
     return;
   }
 
-  requestAppAuth(res);
+  if (wantsJson(req)) {
+    res.status(401).json({ success: false, error: "Authentication required.", loginUrl: "/login" });
+    return;
+  }
+
+  const returnTo = encodeURIComponent(safeReturnTo(req.originalUrl || "/"));
+  res.redirect(`/login?returnTo=${returnTo}`);
 }
 
-function requestAppAuth(res) {
-  res.setHeader("WWW-Authenticate", 'Basic realm="Phottix Customer Agent", charset="UTF-8"');
-  res.status(401).send("Authentication required.");
+function wantsJson(req) {
+  return req.path.startsWith("/api/")
+    || req.path === "/list-excel"
+    || req.xhr
+    || String(req.headers.accept || "").includes("application/json");
+}
+
+function parseCookies(req) {
+  const header = String(req.headers.cookie || "");
+  return header.split(";").reduce((cookies, part) => {
+    const index = part.indexOf("=");
+    if (index < 0) return cookies;
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    if (key) {
+      try {
+        cookies[key] = decodeURIComponent(value);
+      } catch {
+        cookies[key] = value;
+      }
+    }
+    return cookies;
+  }, {});
+}
+
+function base64UrlEncode(value) {
+  return Buffer.from(value, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function base64UrlDecode(value) {
+  const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  return Buffer.from(padded, "base64").toString("utf8");
+}
+
+function signSessionPayload(encodedPayload) {
+  return crypto
+    .createHmac("sha256", APP_SESSION_SECRET)
+    .update(encodedPayload)
+    .digest("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function createSessionToken(username) {
+  const payload = base64UrlEncode(JSON.stringify({
+    user: username,
+    exp: Date.now() + SESSION_TTL_MS
+  }));
+  return `${payload}.${signSessionPayload(payload)}`;
+}
+
+function getValidSession(req) {
+  const token = parseCookies(req)[SESSION_COOKIE_NAME];
+  if (!token || !token.includes(".")) return null;
+
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature || !safeEqualText(signature, signSessionPayload(payload))) return null;
+
+  try {
+    const session = JSON.parse(base64UrlDecode(payload));
+    if (!session?.user || session.user !== APP_AUTH_USER || Number(session.exp || 0) < Date.now()) return null;
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+function isSecureRequest(req) {
+  return req.secure || String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim() === "https";
+}
+
+function sessionCookie(token, req) {
+  const secure = isSecureRequest(req) ? "; Secure" : "";
+  return `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure}`;
+}
+
+function clearSessionCookie() {
+  return `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`;
+}
+
+function safeReturnTo(value) {
+  const fallback = "/";
+  const target = String(value || fallback).trim();
+  if (!target.startsWith("/") || target.startsWith("//") || target.startsWith("/login")) return fallback;
+  return target;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderLoginPage(req, res) {
+  if (APP_AUTH_USER && APP_AUTH_PASS && getValidSession(req)) {
+    res.redirect(safeReturnTo(req.query?.returnTo || "/"));
+    return;
+  }
+
+  const error = req.query?.error ? "帳號或密碼不正確 / Invalid username or password." : "";
+  const returnTo = safeReturnTo(req.query?.returnTo || "/");
+  res.type("html").send(`<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login - Phottix Customer Agent</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7fbff;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #64748b;
+      --line: #dbeafe;
+      --blue: #3d8fda;
+      --blue-dark: #1d6fbf;
+      --soft-blue: #ebf6ff;
+      --danger: #d55b5b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 18% 12%, rgba(91, 176, 230, 0.22), transparent 28%),
+        radial-gradient(circle at 82% 82%, rgba(116, 208, 160, 0.2), transparent 30%),
+        var(--bg);
+      color: var(--text);
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+    }
+    .login-card {
+      width: min(92vw, 420px);
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 24px 70px rgba(45, 89, 140, 0.16);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .brand-mark {
+      width: 46px;
+      height: 46px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #dff3ff, #c9f3df);
+      color: #1b74b7;
+      font-weight: 800;
+      box-shadow: inset 0 0 0 1px rgba(61, 143, 218, 0.16);
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      line-height: 1.2;
+    }
+    p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+    label {
+      display: grid;
+      gap: 8px;
+      margin-top: 16px;
+      color: #334155;
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+    input {
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 12px;
+      border: 1px solid #d7e6f7;
+      border-radius: 12px;
+      background: #fbfdff;
+      color: var(--text);
+      font: inherit;
+      outline: none;
+    }
+    input:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 4px rgba(61, 143, 218, 0.14);
+    }
+    button {
+      width: 100%;
+      min-height: 46px;
+      margin-top: 20px;
+      border: 0;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--blue), var(--blue-dark));
+      color: #fff;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      box-shadow: 0 14px 28px rgba(61, 143, 218, 0.24);
+    }
+    button:hover { filter: brightness(1.03); }
+    .error {
+      margin-top: 14px;
+      padding: 10px 12px;
+      border: 1px solid rgba(213, 91, 91, 0.22);
+      border-radius: 12px;
+      background: #fff5f5;
+      color: var(--danger);
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+    .note {
+      margin-top: 16px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: var(--soft-blue);
+      color: #496179;
+      font-size: 0.78rem;
+    }
+  </style>
+</head>
+<body>
+  <main class="login-card">
+    <div class="brand">
+      <span class="brand-mark">P</span>
+      <div>
+        <h1>Phottix Customer Agent</h1>
+        <p>V1.1 secure workspace login</p>
+      </div>
+    </div>
+    <form method="post" action="/login" autocomplete="on">
+      <input type="hidden" name="returnTo" value="${escapeHtml(returnTo)}">
+      <label>帳號 / Username
+        <input name="username" autocomplete="username" required autofocus>
+      </label>
+      <label>密碼 / Password
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+      ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
+      <button type="submit">登入 / Login</button>
+    </form>
+    <div class="note">For internal Phottix team use only. Please logout after using a shared computer.</div>
+  </main>
+</body>
+</html>`);
+}
+
+function handleLogin(req, res) {
+  if (!APP_AUTH_USER || !APP_AUTH_PASS) {
+    res.redirect(safeReturnTo(req.body?.returnTo || "/"));
+    return;
+  }
+
+  const username = String(req.body?.username || "").trim();
+  const password = String(req.body?.password || "");
+  const returnTo = safeReturnTo(req.body?.returnTo || "/");
+
+  if (!safeEqualText(username, APP_AUTH_USER) || !safeEqualText(password, APP_AUTH_PASS)) {
+    res.redirect(`/login?error=1&returnTo=${encodeURIComponent(returnTo)}`);
+    return;
+  }
+
+  res.setHeader("Set-Cookie", sessionCookie(createSessionToken(username), req));
+  res.redirect(returnTo);
+}
+
+function handleLogout(req, res) {
+  res.setHeader("Set-Cookie", clearSessionCookie());
+  res.redirect("/login");
 }
 
 function getSqliteDb() {
