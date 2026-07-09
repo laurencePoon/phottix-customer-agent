@@ -1607,7 +1607,7 @@
     renderSenderSelector() {
       if (!dom.senderSelect) return;
       const previous = dom.senderSelect.value;
-      const activeSenders = state.senders.filter((sender) => sender.isActive);
+      const activeSenders = state.senders.filter((sender) => sender.isActive && sender.canUse !== false);
       dom.senderSelect.innerHTML = `<option value="">請選擇寄件者</option>${activeSenders.map((sender) => (
         `<option value="${escapeHtml(sender.id)}">${escapeHtml(sender.name)} &lt;${escapeHtml(sender.email)}&gt;</option>`
       )).join("")}`;

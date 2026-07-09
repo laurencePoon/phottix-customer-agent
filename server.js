@@ -92,6 +92,7 @@ const LIVE_SYNC_ALIAS_MAP = {
 
 const APP_AUTH_USER = String(process.env.APP_AUTH_USER || "").trim();
 const APP_AUTH_PASS = String(process.env.APP_AUTH_PASS || "").trim();
+const APP_AUTH_SENDERS = String(process.env.APP_AUTH_SENDERS || "").trim();
 const SESSION_COOKIE_NAME = "phottix_v11_session";
 const SESSION_TTL_MS = Math.max(1, Number(process.env.APP_SESSION_TTL_HOURS || 12)) * 60 * 60 * 1000;
 const APP_SESSION_SECRET = String(process.env.APP_SESSION_SECRET || process.env.ENCRYPTION_KEY || APP_AUTH_PASS || "phottix-local-session-secret").trim();
@@ -157,10 +158,90 @@ function safeEqualText(actual, expected) {
   return crypto.timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
+function parseEmailList(value) {
+  return String(value || "")
+    .split(/[,\n;]/)
+    .map((item) => normalizeEmail(item))
+    .filter(Boolean);
+}
+
+function normalizeRole(value) {
+  return String(value || "").trim().toLowerCase() === "admin" ? "admin" : "user";
+}
+
+function configuredUsers() {
+  const users = [];
+  if (APP_AUTH_USER && APP_AUTH_PASS) {
+    users.push({
+      username: APP_AUTH_USER,
+      password: APP_AUTH_PASS,
+      displayName: APP_AUTH_USER,
+      email: normalizeEmail(process.env.APP_AUTH_EMAIL),
+      role: "admin",
+      senderEmails: parseEmailList(APP_AUTH_SENDERS || process.env.APP_AUTH_EMAIL)
+    });
+  }
+
+  const rawUsers = String(process.env.APP_USERS_JSON || "").trim();
+  if (rawUsers) {
+    try {
+      const parsed = JSON.parse(rawUsers);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((item) => {
+          const username = String(item?.username || "").trim();
+          const password = String(item?.password || "");
+          if (!username || !password) return;
+          const email = normalizeEmail(item.email);
+          const senderEmails = Array.isArray(item.senderEmails)
+            ? item.senderEmails.map((value) => normalizeEmail(value)).filter(Boolean)
+            : parseEmailList(item.senderEmails || item.senderEmail || email);
+          users.push({
+            username,
+            password,
+            displayName: String(item.displayName || username).trim(),
+            email,
+            role: normalizeRole(item.role),
+            senderEmails
+          });
+        });
+      }
+    } catch (error) {
+      console.warn(`APP_USERS_JSON ignored: ${error.message}`);
+    }
+  }
+
+  const seen = new Set();
+  return users.filter((user) => {
+    const key = user.username.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function findConfiguredUser(username) {
+  const target = String(username || "").trim().toLowerCase();
+  return configuredUsers().find((user) => user.username.toLowerCase() === target) || null;
+}
+
+function isAppAuthEnabled() {
+  return configuredUsers().length > 0;
+}
+
+function senderAllowedForUser(user, sender) {
+  if (!user) return false;
+  const senderEmail = normalizeEmail(sender?.email);
+  if (!senderEmail) return false;
+  const allowedEmails = Array.isArray(user.senderEmails) ? user.senderEmails.map((email) => normalizeEmail(email)).filter(Boolean) : [];
+  if (allowedEmails.length) return allowedEmails.includes(senderEmail);
+  if (user.email) return normalizeEmail(user.email) === senderEmail;
+  return user.role === "admin";
+}
+
 function appAuthMiddleware(req, res, next) {
-  // Optional production guard: set APP_AUTH_USER and APP_AUTH_PASS in .env to protect the whole V1.1 app.
+  // Optional production guard: set APP_AUTH_USER/APP_AUTH_PASS or APP_USERS_JSON in .env.
   // /health stays public so the host can monitor whether the Node.js process is alive.
-  if (!APP_AUTH_USER || !APP_AUTH_PASS || req.path === "/health") {
+  if (!isAppAuthEnabled() || req.path === "/health") {
     next();
     return;
   }
@@ -168,6 +249,7 @@ function appAuthMiddleware(req, res, next) {
   const session = getValidSession(req);
   if (session) {
     req.appUser = session.user;
+    req.appUserRecord = session;
     next();
     return;
   }
@@ -230,9 +312,13 @@ function signSessionPayload(encodedPayload) {
     .replace(/=+$/g, "");
 }
 
-function createSessionToken(username) {
+function createSessionToken(user) {
   const payload = base64UrlEncode(JSON.stringify({
-    user: username,
+    user: user.username,
+    displayName: user.displayName || user.username,
+    email: user.email || "",
+    role: user.role || "user",
+    senderEmails: user.senderEmails || [],
     exp: Date.now() + SESSION_TTL_MS
   }));
   return `${payload}.${signSessionPayload(payload)}`;
@@ -247,8 +333,14 @@ function getValidSession(req) {
 
   try {
     const session = JSON.parse(base64UrlDecode(payload));
-    if (!session?.user || session.user !== APP_AUTH_USER || Number(session.exp || 0) < Date.now()) return null;
-    return session;
+    if (!session?.user || Number(session.exp || 0) < Date.now()) return null;
+    const currentUser = findConfiguredUser(session.user);
+    if (!currentUser) return null;
+    return {
+      ...currentUser,
+      user: currentUser.username,
+      exp: Number(session.exp || 0)
+    };
   } catch {
     return null;
   }
@@ -284,7 +376,7 @@ function escapeHtml(value) {
 }
 
 function renderLoginPage(req, res) {
-  if (APP_AUTH_USER && APP_AUTH_PASS && getValidSession(req)) {
+  if (isAppAuthEnabled() && getValidSession(req)) {
     res.redirect(safeReturnTo(req.query?.returnTo || "/"));
     return;
   }
@@ -444,7 +536,7 @@ function renderLoginPage(req, res) {
 }
 
 function handleLogin(req, res) {
-  if (!APP_AUTH_USER || !APP_AUTH_PASS) {
+  if (!isAppAuthEnabled()) {
     res.redirect(safeReturnTo(req.body?.returnTo || "/"));
     return;
   }
@@ -452,13 +544,14 @@ function handleLogin(req, res) {
   const username = String(req.body?.username || "").trim();
   const password = String(req.body?.password || "");
   const returnTo = safeReturnTo(req.body?.returnTo || "/");
+  const user = findConfiguredUser(username);
 
-  if (!safeEqualText(username, APP_AUTH_USER) || !safeEqualText(password, APP_AUTH_PASS)) {
+  if (!user || !safeEqualText(password, user.password)) {
     res.redirect(`/login?error=1&returnTo=${encodeURIComponent(returnTo)}`);
     return;
   }
 
-  res.setHeader("Set-Cookie", sessionCookie(createSessionToken(username), req));
+  res.setHeader("Set-Cookie", sessionCookie(createSessionToken(user), req));
   res.redirect(returnTo);
 }
 
@@ -563,6 +656,13 @@ function publicSender(row) {
     isActive: Boolean(row.isActive),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
+  };
+}
+
+function publicSenderForRequest(row, req) {
+  return {
+    ...publicSender(row),
+    canUse: !isAppAuthEnabled() || isHostImportRequest(req) || senderAllowedForUser(req.appUserRecord, row)
   };
 }
 
@@ -880,7 +980,7 @@ function isHostImportRequest(req) {
 
 function isAdminRequest(req) {
   if (isHostImportRequest(req)) return true;
-  return Boolean(APP_AUTH_USER && APP_AUTH_PASS && req.appUser === APP_AUTH_USER);
+  return Boolean(req.appUserRecord && req.appUserRecord.role === "admin");
 }
 
 function rejectRemoteImport(req, res) {
@@ -1584,7 +1684,11 @@ app.get("/api/senders", (req, res) => {
     const rows = getSqliteDb()
       .prepare("SELECT id, name, email, isActive, createdAt, updatedAt FROM senders ORDER BY name COLLATE NOCASE, email COLLATE NOCASE")
       .all();
-    res.json({ success: true, hostOnly: isAdminRequest(req), senders: rows.map(publicSender) });
+    const canManage = isAdminRequest(req);
+    const senders = rows
+      .filter((sender) => canManage || senderAllowedForUser(req.appUserRecord, sender))
+      .map((sender) => publicSenderForRequest(sender, req));
+    res.json({ success: true, hostOnly: canManage, senders });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to load senders." });
   }
@@ -1950,6 +2054,10 @@ app.post("/api/send-email", async (req, res) => {
       const sender = getSqliteDb().prepare("SELECT * FROM senders WHERE id = ? AND isActive = 1").get(senderId);
       if (!sender) {
         res.status(400).json({ success: false, error: "寄件者不存在或已停用" });
+        return;
+      }
+      if (isAppAuthEnabled() && !senderAllowedForUser(req.appUserRecord, sender) && !isHostImportRequest(req)) {
+        res.status(403).json({ success: false, error: "This sender is not assigned to your login." });
         return;
       }
       transporter = nodemailer.createTransport({
