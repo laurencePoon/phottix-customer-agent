@@ -159,6 +159,21 @@ function safeEqualText(actual, expected) {
   return crypto.timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(String(password || ""), salt, 64).toString("hex");
+  return `scrypt:${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  const text = String(stored || "");
+  if (!text.startsWith("scrypt:")) return safeEqualText(password, text);
+  const [, salt, hash] = text.split(":");
+  if (!salt || !hash) return false;
+  const actual = crypto.scryptSync(String(password || ""), salt, 64).toString("hex");
+  return safeEqualText(actual, hash);
+}
+
 function parseEmailList(value) {
   return String(value || "")
     .split(/[,\n;]/)
@@ -167,7 +182,22 @@ function parseEmailList(value) {
 }
 
 function normalizeRole(value) {
-  return String(value || "").trim().toLowerCase() === "admin" ? "admin" : "user";
+  const role = String(value || "").trim().toLowerCase();
+  if (role === "admin") return "admin";
+  if (role === "product_manager" || role === "product-manager" || role === "product manager") return "product_manager";
+  if (role === "finance_manager" || role === "finance-manager" || role === "finance manager") return "finance_manager";
+  if (role === "shipping_manager" || role === "shipping-manager" || role === "shipping manager") return "shipping_manager";
+  return "user";
+}
+
+function roleLabel(role) {
+  return {
+    admin: "Admin",
+    product_manager: "Product Manager",
+    finance_manager: "Finance Manager",
+    shipping_manager: "Shipping Manager",
+    user: "User"
+  }[normalizeRole(role)] || "User";
 }
 
 function configuredUsers() {
@@ -211,6 +241,12 @@ function configuredUsers() {
     }
   }
 
+  try {
+    readDbUsers().forEach((item) => users.push(item));
+  } catch (error) {
+    console.warn(`SQLite users ignored: ${error.message}`);
+  }
+
   const seen = new Set();
   return users.filter((user) => {
     const key = user.username.toLowerCase();
@@ -218,6 +254,46 @@ function configuredUsers() {
     seen.add(key);
     return true;
   });
+}
+
+function readDbUsers() {
+  const rows = getSqliteDb().prepare(`
+    SELECT id, username, password_hash, display_name, email, role, sender_emails, is_active, created_at, updated_at, last_login
+    FROM users
+    WHERE is_active = 1
+    ORDER BY username COLLATE NOCASE
+  `).all();
+  return rows.map((row) => ({
+    id: row.id,
+    username: row.username,
+    passwordHash: row.password_hash,
+    displayName: row.display_name || row.username,
+    email: normalizeEmail(row.email),
+    role: normalizeRole(row.role),
+    senderEmails: parseEmailList(row.sender_emails || row.email),
+    isActive: Boolean(row.is_active),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lastLogin: row.last_login,
+    source: "sqlite"
+  }));
+}
+
+function publicUser(row) {
+  return {
+    id: row.id,
+    username: row.username,
+    displayName: row.display_name || row.displayName || row.username,
+    email: row.email || "",
+    role: normalizeRole(row.role),
+    roleLabel: roleLabel(row.role),
+    senderEmails: parseEmailList(row.sender_emails || row.senderEmails || ""),
+    isActive: row.is_active === undefined ? Boolean(row.isActive ?? true) : Boolean(row.is_active),
+    createdAt: row.created_at || row.createdAt || "",
+    updatedAt: row.updated_at || row.updatedAt || "",
+    lastLogin: row.last_login || row.lastLogin || "",
+    source: row.source || "sqlite"
+  };
 }
 
 function findConfiguredUser(username) {
@@ -243,6 +319,20 @@ function appAuthMiddleware(req, res, next) {
   // Optional production guard: set APP_AUTH_USER/APP_AUTH_PASS or APP_USERS_JSON in .env.
   // /health stays public so the host can monitor whether the Node.js process is alive.
   if (!isAppAuthEnabled() || req.path === "/health") {
+    next();
+    return;
+  }
+
+  if (isHostImportRequest(req)) {
+    req.appUser = "localhost";
+    req.appUserRecord = {
+      username: "localhost",
+      user: "localhost",
+      displayName: "Local Admin",
+      email: "",
+      role: "admin",
+      senderEmails: []
+    };
     next();
     return;
   }
@@ -547,12 +637,20 @@ function handleLogin(req, res) {
   const returnTo = safeReturnTo(req.body?.returnTo || "/");
   const user = findConfiguredUser(username);
 
-  if (!user || !safeEqualText(password, user.password)) {
+  if (!user || !verifyPassword(password, user.passwordHash || user.password)) {
     res.redirect(`/login?error=1&returnTo=${encodeURIComponent(returnTo)}`);
     return;
   }
 
   logAudit({ ...req, appUser: user.username, appUserRecord: user }, "LOGIN", "user", user.username, user.displayName || user.username, { success: true });
+  if (user.source === "sqlite") {
+    try {
+      getSqliteDb().prepare("UPDATE users SET last_login = ?, updated_at = ? WHERE username = ?")
+        .run(new Date().toISOString(), new Date().toISOString(), user.username);
+    } catch (error) {
+      console.warn(`User last_login update skipped: ${error.message}`);
+    }
+  }
   res.setHeader("Set-Cookie", sessionCookie(createSessionToken(user), req));
   res.redirect(returnTo);
 }
@@ -629,6 +727,21 @@ function getSqliteDb() {
       file_path TEXT NOT NULL,
       size_bytes INTEGER DEFAULT 0,
       created_at TEXT
+    )
+  `);
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      display_name TEXT,
+      email TEXT,
+      role TEXT DEFAULT 'user',
+      sender_emails TEXT,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT,
+      updated_at TEXT,
+      last_login TEXT
     )
   `);
   ensureOptionalCustomerGroupColumn(sqliteDb);
@@ -952,6 +1065,14 @@ function countSnapshotData(data = {}) {
   };
 }
 
+function customerSnapshotRemovesRecords(beforeValue, afterValue) {
+  if (!Array.isArray(beforeValue) || !Array.isArray(afterValue)) return false;
+  const beforeIds = new Set(beforeValue.map((item) => String(item?.id || "")).filter(Boolean));
+  if (!beforeIds.size) return false;
+  const afterIds = new Set(afterValue.map((item) => String(item?.id || "")).filter(Boolean));
+  return [...beforeIds].some((id) => !afterIds.has(id));
+}
+
 function pickSnapshotData(data = {}, sections = []) {
   const selectedSections = normalizeLiveSyncSections(sections);
   const next = {};
@@ -1133,9 +1254,29 @@ function isHostImportRequest(req) {
   return host.startsWith("127.0.0.1") || host.startsWith("localhost") || host.startsWith("[::1]");
 }
 
+function currentRole(req) {
+  if (isHostImportRequest(req)) return "admin";
+  return normalizeRole(req.appUserRecord?.role);
+}
+
+function hasRole(req, allowedRoles = []) {
+  const allowed = new Set((Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles]).map((role) => normalizeRole(role)));
+  return allowed.has(currentRole(req));
+}
+
 function isAdminRequest(req) {
-  if (isHostImportRequest(req)) return true;
-  return Boolean(req.appUserRecord && req.appUserRecord.role === "admin");
+  return hasRole(req, ["admin"]);
+}
+
+function rejectRole(req, res, allowedRoles, message = "Permission denied.") {
+  if (hasRole(req, allowedRoles)) return false;
+  res.status(403).json({
+    success: false,
+    error: message,
+    requiredRoles: (Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles]).map((role) => normalizeRole(role)),
+    role: currentRole(req)
+  });
+  return true;
 }
 
 function rejectRemoteImport(req, res) {
@@ -1515,7 +1656,151 @@ app.get("/health", (req, res) => {
   res.json({ success: true, status: "ok" });
 });
 
+app.get("/api/auth/me", (req, res) => {
+  const role = currentRole(req);
+  res.json({
+    success: true,
+    user: req.appUserRecord ? {
+      username: req.appUserRecord.username || req.appUserRecord.user,
+      displayName: req.appUserRecord.displayName || req.appUserRecord.username || req.appUserRecord.user,
+      email: req.appUserRecord.email || "",
+      role,
+      roleLabel: roleLabel(role),
+      senderEmails: req.appUserRecord.senderEmails || []
+    } : {
+      username: isHostImportRequest(req) ? "localhost" : "anonymous",
+      displayName: isHostImportRequest(req) ? "Local Admin" : "Anonymous",
+      email: "",
+      role,
+      roleLabel: roleLabel(role),
+      senderEmails: []
+    },
+    permissions: {
+      isAdmin: role === "admin",
+      canManageProducts: ["admin", "product_manager"].includes(role),
+      canManageCustomers: ["admin", "user", "shipping_manager"].includes(role),
+      canDeleteCustomers: role === "admin",
+      canImportCustomers: ["admin", "user"].includes(role),
+      canExportCustomers: ["admin", "product_manager", "finance_manager"].includes(role),
+      canManageSenders: role === "admin",
+      canViewSenders: ["admin", "product_manager", "finance_manager", "shipping_manager", "user"].includes(role),
+      canUseSenders: ["admin", "product_manager", "finance_manager", "shipping_manager", "user"].includes(role),
+      canViewSystemLogs: role === "admin"
+    }
+  });
+});
+
+app.get("/api/users", (req, res) => {
+  if (rejectRole(req, res, ["admin"], "User management is admin-only.")) return;
+  try {
+    const dbUsers = getSqliteDb().prepare(`
+      SELECT id, username, display_name, email, role, sender_emails, is_active, created_at, updated_at, last_login
+      FROM users
+      ORDER BY username COLLATE NOCASE
+    `).all().map((row) => publicUser(row));
+    const envUsers = configuredUsers()
+      .filter((user) => user.source !== "sqlite")
+      .map((user) => publicUser({ ...user, source: "env", isActive: true }));
+    res.json({ success: true, users: [...envUsers, ...dbUsers] });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to load users." });
+  }
+});
+
+app.post("/api/users", (req, res) => {
+  if (rejectRole(req, res, ["admin"], "User management is admin-only.")) return;
+  try {
+    const username = String(req.body?.username || "").trim();
+    const password = String(req.body?.password || "");
+    const displayName = String(req.body?.displayName || req.body?.display_name || username).trim();
+    const email = normalizeEmail(req.body?.email);
+    const role = normalizeRole(req.body?.role);
+    const senderEmails = Array.isArray(req.body?.senderEmails)
+      ? req.body.senderEmails.map((value) => normalizeEmail(value)).filter(Boolean)
+      : parseEmailList(req.body?.senderEmails || req.body?.sender_emails || email);
+    if (!username || !password) {
+      res.status(400).json({ success: false, error: "Username and password are required." });
+      return;
+    }
+    if (findConfiguredUser(username)) {
+      res.status(409).json({ success: false, error: "Username already exists." });
+      return;
+    }
+    const now = new Date().toISOString();
+    const id = uid("user");
+    getSqliteDb().prepare(`
+      INSERT INTO users (id, username, password_hash, display_name, email, role, sender_emails, is_active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    `).run(id, username, hashPassword(password), displayName, email, role, senderEmails.join(","), now, now);
+    const row = getSqliteDb().prepare("SELECT id, username, display_name, email, role, sender_emails, is_active, created_at, updated_at, last_login FROM users WHERE id = ?").get(id);
+    logAudit(req, "CREATE", "user", id, username, { role, email });
+    res.json({ success: true, user: publicUser(row) });
+  } catch (error) {
+    const duplicate = /UNIQUE constraint failed/i.test(String(error.message || ""));
+    res.status(duplicate ? 409 : 503).json({ success: false, error: duplicate ? "Username already exists." : error.message || "Failed to create user." });
+  }
+});
+
+app.put("/api/users/:id", (req, res) => {
+  if (rejectRole(req, res, ["admin"], "User management is admin-only.")) return;
+  try {
+    const id = String(req.params.id || "").trim();
+    const existing = getSqliteDb().prepare("SELECT * FROM users WHERE id = ?").get(id);
+    if (!existing) {
+      res.status(404).json({ success: false, error: "User not found or is managed by .env." });
+      return;
+    }
+    const displayName = String(req.body?.displayName || req.body?.display_name || existing.display_name || existing.username).trim();
+    const email = normalizeEmail(req.body?.email);
+    const role = normalizeRole(req.body?.role || existing.role);
+    const senderEmails = Array.isArray(req.body?.senderEmails)
+      ? req.body.senderEmails.map((value) => normalizeEmail(value)).filter(Boolean)
+      : parseEmailList(req.body?.senderEmails || req.body?.sender_emails || email);
+    const isActive = req.body?.isActive === undefined ? Boolean(existing.is_active) : Boolean(req.body.isActive);
+    const password = String(req.body?.password || "");
+    const now = new Date().toISOString();
+    if (password) {
+      getSqliteDb().prepare(`
+        UPDATE users SET password_hash = ?, display_name = ?, email = ?, role = ?, sender_emails = ?, is_active = ?, updated_at = ?
+        WHERE id = ?
+      `).run(hashPassword(password), displayName, email, role, senderEmails.join(","), isActive ? 1 : 0, now, id);
+    } else {
+      getSqliteDb().prepare(`
+        UPDATE users SET display_name = ?, email = ?, role = ?, sender_emails = ?, is_active = ?, updated_at = ?
+        WHERE id = ?
+      `).run(displayName, email, role, senderEmails.join(","), isActive ? 1 : 0, now, id);
+    }
+    const row = getSqliteDb().prepare("SELECT id, username, display_name, email, role, sender_emails, is_active, created_at, updated_at, last_login FROM users WHERE id = ?").get(id);
+    logAudit(req, "UPDATE", "user", id, existing.username, { role, email, isActive, passwordChanged: Boolean(password) });
+    res.json({ success: true, user: publicUser(row) });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to update user." });
+  }
+});
+
+app.delete("/api/users/:id", (req, res) => {
+  if (rejectRole(req, res, ["admin"], "User management is admin-only.")) return;
+  try {
+    const id = String(req.params.id || "").trim();
+    const existing = getSqliteDb().prepare("SELECT * FROM users WHERE id = ?").get(id);
+    if (!existing) {
+      res.status(404).json({ success: false, error: "User not found or is managed by .env." });
+      return;
+    }
+    if (String(existing.username || "").toLowerCase() === String(req.appUserRecord?.username || req.appUser || "").toLowerCase()) {
+      res.status(400).json({ success: false, error: "You cannot delete your own login." });
+      return;
+    }
+    getSqliteDb().prepare("DELETE FROM users WHERE id = ?").run(id);
+    logAudit(req, "DELETE", "user", id, existing.username, {});
+    res.json({ success: true });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to delete user." });
+  }
+});
+
 app.get("/api/import-files", (req, res) => {
+  if (rejectRole(req, res, ["admin", "user"], "Customer Excel import is not allowed for this role.")) return;
   if (rejectRemoteImport(req, res)) return;
   try {
     res.json({ success: true, files: listExcelFiles() });
@@ -1525,6 +1810,7 @@ app.get("/api/import-files", (req, res) => {
 });
 
 app.get("/list-excel", (req, res) => {
+  if (rejectRole(req, res, ["admin", "user"], "Customer Excel import is not allowed for this role.")) return;
   if (rejectRemoteImport(req, res)) return;
   try {
     res.json({ success: true, files: listExcelFiles() });
@@ -1669,6 +1955,7 @@ app.get("/api/db/snapshot", (req, res) => {
 });
 
 app.post("/api/db/snapshot", (req, res) => {
+  if (rejectRole(req, res, ["admin"], "Full database restore is admin-only.")) return;
   try {
     const beforeCounts = countSnapshotData(readSharedStore().data);
     writeSharedSnapshot(req.body?.data || {});
@@ -1691,8 +1978,21 @@ app.put("/api/db/key/:key", (req, res) => {
       return;
     }
     const before = readSharedStore().data[key];
-    writeSharedKey(key, req.body?.value);
-    const value = req.body?.value;
+    const nextValue = req.body?.value;
+    const role = currentRole(req);
+    if (key === "phottix_customers") {
+      if (rejectRole(req, res, ["admin", "user", "shipping_manager"], "Customer changes are not allowed for this role.")) return;
+      if (["user", "shipping_manager"].includes(role) && customerSnapshotRemovesRecords(before, nextValue)) {
+        res.status(403).json({ success: false, error: "This role cannot delete customer records.", role });
+        return;
+      }
+    } else if (key === "phottix_products") {
+      if (rejectRole(req, res, ["admin", "product_manager"], "Product changes are not allowed for this role.")) return;
+    } else if (["phottix_settings", "phottix_auto_backups", "phottix_error_logs"].includes(key)) {
+      if (rejectRole(req, res, ["admin"], "System setting changes are admin-only.")) return;
+    }
+    writeSharedKey(key, nextValue);
+    const value = nextValue;
     logAudit(req, "UPDATE", "shared_key", key, key, {
       beforeCount: Array.isArray(before) ? before.length : before && typeof before === "object" ? Object.keys(before).length : 0,
       afterCount: Array.isArray(value) ? value.length : value && typeof value === "object" ? Object.keys(value).length : 0
@@ -1762,6 +2062,7 @@ app.get("/api/customers", (req, res) => {
 });
 
 app.put("/api/customers/:id", (req, res) => {
+  if (rejectRole(req, res, ["admin", "user", "shipping_manager"], "Customer editing is not allowed for this role.")) return;
   try {
     const id = String(req.params.id || "").trim();
     if (!id) {
@@ -1876,6 +2177,7 @@ app.delete("/api/groups/:id", (req, res) => {
 });
 
 app.put("/api/customers/:id/group", (req, res) => {
+  if (rejectRole(req, res, ["admin"], "Customer group changes are admin-only.")) return;
   try {
     const id = String(req.params.id || "").trim();
     const groupId = normalizeGroupId(req.body?.group_id ?? req.body?.groupId);
@@ -1907,6 +2209,7 @@ app.put("/api/customers/:id/group", (req, res) => {
 });
 
 app.post("/api/customers/batch-group", (req, res) => {
+  if (rejectRole(req, res, ["admin"], "Batch customer group changes are admin-only.")) return;
   try {
     const customerIds = Array.isArray(req.body?.customerIds) ? req.body.customerIds.map((id) => String(id || "")) : [];
     const groupId = normalizeGroupId(req.body?.group_id ?? req.body?.groupId);
@@ -1943,6 +2246,7 @@ app.post("/api/customers/batch-group", (req, res) => {
 });
 
 app.get("/api/senders", (req, res) => {
+  if (rejectRole(req, res, ["admin", "product_manager", "finance_manager", "shipping_manager", "user"], "Sender list is not available for this role.")) return;
   try {
     const rows = getSqliteDb()
       .prepare("SELECT id, name, email, isActive, createdAt, updatedAt FROM senders ORDER BY name COLLATE NOCASE, email COLLATE NOCASE")
@@ -1958,7 +2262,7 @@ app.get("/api/senders", (req, res) => {
 });
 
 app.post("/api/senders", (req, res) => {
-  if (rejectRemoteAdmin(req, res)) return;
+  if (rejectRole(req, res, ["admin"], "Sender management is admin-only.")) return;
   try {
     const name = String(req.body?.name || "").trim();
     const email = normalizeEmail(req.body?.email);
@@ -1984,7 +2288,7 @@ app.post("/api/senders", (req, res) => {
 });
 
 app.put("/api/senders/:id", (req, res) => {
-  if (rejectRemoteAdmin(req, res)) return;
+  if (rejectRole(req, res, ["admin"], "Sender management is admin-only.")) return;
   try {
     const id = String(req.params.id || "").trim();
     const existing = getSqliteDb().prepare("SELECT * FROM senders WHERE id = ?").get(id);
@@ -2022,7 +2326,7 @@ app.put("/api/senders/:id", (req, res) => {
 });
 
 app.delete("/api/senders/:id", (req, res) => {
-  if (rejectRemoteAdmin(req, res)) return;
+  if (rejectRole(req, res, ["admin"], "Sender management is admin-only.")) return;
   try {
     const id = String(req.params.id || "");
     const existing = getSqliteDb().prepare("SELECT * FROM senders WHERE id = ?").get(id);
@@ -2039,7 +2343,7 @@ app.delete("/api/senders/:id", (req, res) => {
 });
 
 app.patch("/api/senders/:id/toggle", (req, res) => {
-  if (rejectRemoteAdmin(req, res)) return;
+  if (rejectRole(req, res, ["admin"], "Sender management is admin-only.")) return;
   try {
     const id = String(req.params.id || "");
     const existing = getSqliteDb().prepare("SELECT * FROM senders WHERE id = ?").get(id);
@@ -2176,6 +2480,7 @@ app.delete("/api/custom-templates/:id", (req, res) => {
 });
 
 app.post("/api/parse-excel-config", (req, res) => {
+  if (rejectRole(req, res, ["admin", "user"], "Customer Excel import is not allowed for this role.")) return;
   if (rejectRemoteImport(req, res)) return;
   try {
     const filename = path.basename(String(req.body?.fileName || req.body?.filename || "").trim().replace(/^["']|["']$/g, ""));
@@ -2205,6 +2510,7 @@ app.post("/api/parse-excel-config", (req, res) => {
 });
 
 app.post("/api/import-excel-upload", (req, res) => {
+  if (rejectRole(req, res, ["admin", "product_manager"], "Product Excel import is not allowed for this role.")) return;
   if (rejectRemoteImport(req, res)) return;
   uploadCustomerExcel.single("excelFile")(req, res, (error) => {
     if (error) {
@@ -2234,6 +2540,7 @@ app.post("/api/import-excel-upload", (req, res) => {
 });
 
 app.post("/api/import-customer-excel-upload", (req, res) => {
+  if (rejectRole(req, res, ["admin", "user"], "Customer Excel import is not allowed for this role.")) return;
   if (rejectRemoteImport(req, res)) return;
   uploadCustomerExcel.single("customerExcel")(req, res, (error) => {
     if (error) {
@@ -2263,6 +2570,9 @@ app.post("/api/import-customer-excel-upload", (req, res) => {
 });
 
 app.post("/api/generate-excel", (req, res) => {
+  const exportType = String(req.body?.exportType || "customer").trim().toLowerCase();
+  if (exportType === "customer" && rejectRole(req, res, ["admin", "product_manager", "finance_manager"], "Customer export is not allowed for this role.")) return;
+  if (exportType === "product" && rejectRole(req, res, ["admin", "product_manager", "finance_manager", "shipping_manager", "user"], "Product export is not allowed for this role.")) return;
   try {
     const data = Array.isArray(req.body?.data) ? req.body.data : [];
     if (!data.length) {

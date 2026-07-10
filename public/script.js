@@ -175,8 +175,11 @@
     selectedTemplateKind: "default",
     selectedCustomTemplateId: "",
     senders: [],
+    users: [],
     groups: [],
-    isHostAdmin: false
+    isHostAdmin: false,
+    userRole: "user",
+    permissions: {}
   };
 
   function $(id) {
@@ -446,6 +449,40 @@
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  function hasPermission(name) {
+    return Boolean(state.permissions?.[name]);
+  }
+
+  function canManageProducts() {
+    return hasPermission("canManageProducts") || state.userRole === "admin" || state.userRole === "product_manager";
+  }
+
+  function canManageCustomers() {
+    return hasPermission("canManageCustomers") || state.userRole === "admin" || state.userRole === "user" || state.userRole === "shipping_manager";
+  }
+
+  function canDeleteCustomers() {
+    return hasPermission("canDeleteCustomers") || state.userRole === "admin";
+  }
+
+  function compactDetails(details = {}) {
+    if (!details || typeof details !== "object") return "";
+    const parts = [];
+    if (details.reason) parts.push(`reason: ${details.reason}`);
+    if (details.sizeBytes) parts.push(`size: ${formatFileSize(details.sizeBytes)}`);
+    if (details.to) parts.push(`to: ${details.to}`);
+    if (details.subject) parts.push(`subject: ${details.subject}`);
+    if (details.senderId) parts.push(`sender: ${details.senderId}`);
+    if (details.attachmentCount) parts.push(`attachments: ${details.attachmentCount}`);
+    if (details.updated) parts.push(`updated: ${details.updated}`);
+    if (details.beforeCount !== undefined || details.afterCount !== undefined) {
+      parts.push(`${details.beforeCount ?? 0} -> ${details.afterCount ?? 0}`);
+    }
+    if (details.passwordChanged !== undefined) parts.push(`password changed: ${details.passwordChanged ? "yes" : "no"}`);
+    if (details.isActive !== undefined) parts.push(`active: ${details.isActive ? "yes" : "no"}`);
+    return parts.length ? parts.join(", ") : JSON.stringify(details).slice(0, 120);
+  }
+
   function normalizeAttachment(item = {}) {
     const isUploadedFile = Boolean(item.isUploadedFile || item.path || item.filename);
     const type = normalizeText(item.type || (isUploadedFile ? inferAttachmentType(item) : "hyperlink")).toLowerCase();
@@ -608,6 +645,9 @@
       }
     },
     async pushSnapshot() {
+      if (!hasPermission("isAdmin")) {
+        throw new Error("Full database restore is admin-only.");
+      }
       const response = await fetch(`${API_BASE}/api/db/snapshot`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -676,6 +716,16 @@
       }));
     },
     setCustomers(customers) {
+      const previous = this.getCustomers();
+      const next = Array.isArray(customers) ? customers : [];
+      if (!canManageCustomers()) throw new Error("Customer changes are not allowed for this role.");
+      if (!canDeleteCustomers()) {
+        const previousIds = new Set(previous.map((item) => String(item.id || "")).filter(Boolean));
+        const nextIds = new Set(next.map((item) => String(item.id || "")).filter(Boolean));
+        if ([...previousIds].some((id) => !nextIds.has(id))) {
+          throw new Error("Users cannot delete customer records.");
+        }
+      }
       this.write(STORAGE.customers, customers);
     },
     normalizeProduct(product = {}) {
@@ -704,10 +754,12 @@
         createdAt: new Date().toISOString(),
         ...item
       }));
-      this.setProducts(seeded);
+      if (canManageProducts()) this.setProducts(seeded);
+      else this.writeLocal(STORAGE.products, seeded);
       return seeded;
     },
     setProducts(products) {
+      if (!canManageProducts()) throw new Error("Product changes are not allowed for this role.");
       this.write(STORAGE.products, (products || []).map((product) => this.normalizeProduct(product)));
     },
     getLogs() {
@@ -1330,7 +1382,7 @@
       const response = await fetch(`${API_BASE}/api/generate-excel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: customers })
+        body: JSON.stringify({ exportType: "customer", data: customers })
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
@@ -1431,13 +1483,25 @@
     }
   };
 
+  const AuthApi = {
+    async me() {
+      const response = await fetch(`${API_BASE}/api/auth/me`, { cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to load current user.");
+      state.userRole = payload.user?.role || "user";
+      state.permissions = payload.permissions || {};
+      state.isHostAdmin = Boolean(payload.permissions?.isAdmin || state.userRole === "admin");
+      return payload.user;
+    }
+  };
+
   const SenderApi = {
     async list() {
       const response = await fetch(`${API_BASE}/api/senders`, { cache: "no-store" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to load senders.");
       state.senders = Array.isArray(payload.senders) ? payload.senders : [];
-      state.isHostAdmin = Boolean(payload.hostOnly);
+      state.isHostAdmin = Boolean(payload.hostOnly || state.isHostAdmin);
       return state.senders;
     },
     async save() {
@@ -1473,6 +1537,69 @@
       if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to delete sender.");
       await refreshSenders();
       UI.toast("Sender deleted.", "good");
+    }
+  };
+
+  const SystemApi = {
+    async status() {
+      const [backupResponse, auditResponse] = await Promise.all([
+        fetch(`${API_BASE}/api/backup/status`, { cache: "no-store" }),
+        fetch(`${API_BASE}/api/audit-logs?limit=50`, { cache: "no-store" })
+      ]);
+      const backup = await backupResponse.json().catch(() => ({}));
+      const audit = await auditResponse.json().catch(() => ({}));
+      if (!backupResponse.ok || !backup.success) throw new Error(backup.error || "Failed to load backup status.");
+      if (!auditResponse.ok || !audit.success) throw new Error(audit.error || "Failed to load audit logs.");
+      return { backup, audit };
+    },
+    async backupNow() {
+      const response = await fetch(`${API_BASE}/api/backup/now`, { method: "POST" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Backup failed.");
+      return payload;
+    }
+  };
+
+  const UserApi = {
+    async list() {
+      const response = await fetch(`${API_BASE}/api/users`, { cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to load users.");
+      state.users = Array.isArray(payload.users) ? payload.users : [];
+      return state.users;
+    },
+    async save() {
+      const id = normalizeText(dom.managedUserId?.value);
+      const body = {
+        username: normalizeText(dom.managedUsername?.value),
+        password: String(dom.managedPassword?.value || ""),
+        displayName: normalizeText(dom.managedDisplayName?.value),
+        email: normalizeText(dom.managedEmail?.value),
+        role: normalizeText(dom.managedRole?.value || "user"),
+        senderEmails: normalizeText(dom.managedSenderEmails?.value),
+        isActive: Boolean(dom.managedIsActive?.checked)
+      };
+      if (!body.username) throw new Error("Username is required.");
+      if (!id && !body.password) throw new Error("Password is required for new users.");
+      const response = await fetch(`${API_BASE}/api/users${id ? `/${encodeURIComponent(id)}` : ""}`, {
+        method: id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to save user.");
+      clearUserForm();
+      await this.list();
+      UI.renderUserList();
+      UI.toast("User saved.", "good");
+    },
+    async remove(id) {
+      const response = await fetch(`${API_BASE}/api/users/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to delete user.");
+      await this.list();
+      UI.renderUserList();
+      UI.toast("User deleted.", "good");
     }
   };
 
@@ -1580,6 +1707,18 @@
       if (dom.pullLiveSnapshotBtn) dom.pullLiveSnapshotBtn.hidden = !isLocal;
     },
     showPage(pageId) {
+      if (pageId === "systemPage" && !state.isHostAdmin) {
+        this.toast("System Logs is admin-only.", "warn");
+        pageId = "analysisPage";
+      }
+      if (pageId === "usersPage" && !state.isHostAdmin) {
+        this.toast("User Management is admin-only.", "warn");
+        pageId = "analysisPage";
+      }
+      if (pageId === "sendersPage" && !hasPermission("canViewSenders")) {
+        this.toast("Sender Management is not available for this role.", "warn");
+        pageId = "analysisPage";
+      }
       document.querySelectorAll(".page").forEach((page) => page.classList.toggle("active", page.id === pageId));
       document.querySelectorAll(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.page === pageId));
       const titles = {
@@ -1590,9 +1729,143 @@
       };
       dom.pageTitle.textContent = titles[pageId]?.[0] || "Phottix Customer Agent";
       dom.pageSubtitle.textContent = titles[pageId]?.[1] || "";
+      if (pageId === "systemPage") {
+        dom.pageTitle.textContent = "System Backup & Audit Logs";
+        dom.pageSubtitle.textContent = "Readable backup status and operation history.";
+        this.loadSystemPage().catch((error) => this.toast(error.message, "bad"));
+      }
+      if (pageId === "usersPage") {
+        dom.pageTitle.textContent = "User Management";
+        dom.pageSubtitle.textContent = "Admin-only login, role, and sender access settings.";
+        UserApi.list().then(() => this.renderUserList()).catch((error) => this.toast(error.message, "bad"));
+      }
+    },
+    renderAdminNavigation() {
+      document.body.classList.remove("role-admin", "role-product-manager", "role-finance-manager", "role-shipping-manager", "role-user");
+      document.body.classList.add(`role-${String(state.userRole || "user").replace(/_/g, "-")}`);
+      const canImportCustomers = hasPermission("canImportCustomers");
+      const canExportCustomers = hasPermission("canExportCustomers");
+      const canManageSenders = hasPermission("canManageSenders");
+      if (dom.sendersNavBtn) dom.sendersNavBtn.classList.toggle("hidden", !hasPermission("canViewSenders"));
+      if (dom.usersNavBtn) dom.usersNavBtn.classList.toggle("hidden", !state.isHostAdmin);
+      if (dom.systemNavBtn) dom.systemNavBtn.classList.toggle("hidden", !hasPermission("canViewSystemLogs"));
+      [
+        dom.addProductBtn,
+        dom.importProductsBtn
+      ].forEach((button) => {
+        if (button) button.classList.toggle("hidden", !hasPermission("canManageProducts"));
+      });
+      [
+        dom.addCustomerBtn,
+        dom.saveCustomerBtn,
+        dom.importCustomersBtn,
+        dom.uploadCustomerExcelBtn,
+        dom.importCustomersConfigBtn,
+        dom.importUpdateBtn
+      ].forEach((button) => {
+        if (!button) return;
+        const isSaveButton = button === dom.saveCustomerBtn;
+        button.classList.toggle("hidden", isSaveButton ? !canManageCustomers() : !canImportCustomers);
+      });
+      [dom.bulkAnalyzeSelectedBtn, dom.bulkAnalyzeAllBtn].forEach((button) => {
+        if (button) button.classList.toggle("hidden", !canManageCustomers());
+      });
+      if (dom.exportCustomersBtn) dom.exportCustomersBtn.classList.toggle("hidden", !canExportCustomers);
+      [dom.bulkDeleteBtn, dom.bulkConvertBtn, dom.bulkMoveGroupBtn, dom.addGroupBtn].forEach((button) => {
+        if (button) button.classList.toggle("hidden", !state.isHostAdmin);
+      });
+      if (dom.senderForm) dom.senderForm.classList.toggle("hidden", !canManageSenders);
+    },
+    renderUserList() {
+      if (!dom.userList) return;
+      if (!state.isHostAdmin) {
+        dom.userList.innerHTML = `<div class="empty">User management is admin-only.</div>`;
+        return;
+      }
+      dom.userList.innerHTML = state.users.length ? `
+        <table>
+          <thead><tr><th>Username</th><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${state.users.map((user) => `
+              <tr>
+                <td>${escapeHtml(user.username)}${user.source === "env" ? ` <small class="muted-text">.env</small>` : ""}</td>
+                <td>${escapeHtml(user.displayName || "")}</td>
+                <td>${escapeHtml(user.email || "")}</td>
+                <td><span class="audit-action">${escapeHtml(user.roleLabel || user.role || "User")}</span></td>
+                <td><span class="status-pill ${user.isActive ? "positive" : "negative"}">${user.isActive ? "Active" : "Inactive"}</span></td>
+                <td>${escapeHtml(formatDateTime(user.lastLogin) || "-")}</td>
+                <td>${user.source === "env" ? `<span class="muted-text">Managed by .env</span>` : `
+                  <button class="mini-button" data-action="edit-user" data-id="${escapeHtml(user.id)}" type="button">Edit</button>
+                  <button class="danger-button" data-action="delete-user" data-id="${escapeHtml(user.id)}" type="button">Delete</button>
+                `}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : `<div class="empty">No SQLite users yet. .env users may still be active.</div>`;
+    },
+    renderSystemPage(payload = {}) {
+      const backup = payload.backup || {};
+      const audit = payload.audit || {};
+      const backups = Array.isArray(backup.backups) ? backup.backups : [];
+      const logs = Array.isArray(audit.logs) ? audit.logs : [];
+      const lastBackup = backup.lastBackup || backups[0] || null;
+
+      if (dom.systemLastBackup) dom.systemLastBackup.textContent = lastBackup ? `${lastBackup.file} (${formatFileSize(lastBackup.sizeBytes)})` : "No backup yet";
+      if (dom.systemBackupDir) dom.systemBackupDir.textContent = `Backup folder: ${backup.backupDir || "-"}`;
+      if (dom.systemRetentionDays) dom.systemRetentionDays.textContent = `${backup.retentionDays || 7} days`;
+      if (dom.systemAuditCount) dom.systemAuditCount.textContent = String(logs.length);
+      if (dom.systemBackupStatus) dom.systemBackupStatus.textContent = backups.length ? `${backups.length} files` : "No files";
+
+      if (dom.backupFileList) {
+        dom.backupFileList.innerHTML = backups.length ? backups.map((item) => `
+          <div class="system-list-item">
+            <strong>${escapeHtml(item.file)}</strong>
+            <span>${escapeHtml(formatDateTime(item.modifiedAt || item.createdAt))} · ${escapeHtml(formatFileSize(item.sizeBytes))}</span>
+          </div>
+        `).join("") : `<div class="empty-state">No SQLite backup files yet.</div>`;
+      }
+
+      if (dom.auditLogTableBody) {
+        dom.auditLogTableBody.innerHTML = logs.length ? logs.map((log) => `
+          <tr>
+            <td>${escapeHtml(formatDateTime(log.created_at))}</td>
+            <td>${escapeHtml(log.username || "anonymous")}</td>
+            <td><span class="audit-action">${escapeHtml(log.action || "")}</span></td>
+            <td>
+              <strong>${escapeHtml(log.target_name || log.target_id || "-")}</strong>
+              <small>${escapeHtml(log.target_type || "")}</small>
+            </td>
+            <td>${escapeHtml(compactDetails(log.details || {}))}</td>
+          </tr>
+        `).join("") : `<tr><td colspan="5">No audit logs yet.</td></tr>`;
+      }
+    },
+    async loadSystemPage() {
+      if (dom.systemBackupStatus) dom.systemBackupStatus.textContent = "Loading...";
+      const payload = await SystemApi.status();
+      this.renderSystemPage(payload);
+      return payload;
+    },
+    async runManualSqliteBackup() {
+      if (dom.manualSqliteBackupBtn) {
+        dom.manualSqliteBackupBtn.disabled = true;
+        dom.manualSqliteBackupBtn.textContent = "Backing up...";
+      }
+      try {
+        await SystemApi.backupNow();
+        await this.loadSystemPage();
+        this.toast("SQLite backup created.", "good");
+      } finally {
+        if (dom.manualSqliteBackupBtn) {
+          dom.manualSqliteBackupBtn.disabled = false;
+          dom.manualSqliteBackupBtn.textContent = "Backup Now";
+        }
+      }
     },
     refreshAll() {
       this.renderEnvironmentBanner();
+      this.renderAdminNavigation();
       this.renderTodayFollowUps();
       this.renderStats();
       this.renderErrorLogs();
@@ -1600,6 +1873,7 @@
       this.renderLoadCustomerSelect();
       this.renderSenderSelector();
       this.renderSenderList();
+      this.renderUserList();
       this.renderProductList();
       this.renderCustomerList();
       this.renderTemplateEditor();
@@ -2581,6 +2855,10 @@
   }
 
   function openProductDialog(product = null) {
+    if (!canManageProducts()) {
+      UI.toast("Product editing is not allowed for this role.", "warn");
+      return;
+    }
     dom.productDialogTitle.textContent = product ? "編輯產品" : "新增產品";
     dom.productId.value = product?.id || "";
     dom.productName.value = product?.name || "";
@@ -2598,6 +2876,10 @@
   }
 
   function saveProductFromDialog() {
+    if (!canManageProducts()) {
+      UI.toast("Product editing is not allowed for this role.", "warn");
+      return;
+    }
     const products = DB.getProducts();
     const product = {
       id: dom.productId.value || uid("prod"),
@@ -2624,6 +2906,10 @@
   }
 
   function openCustomerDialog(customer = null) {
+    if (!canManageCustomers()) {
+      UI.toast("Customer editing is not allowed for this role.", "warn");
+      return;
+    }
     dom.customerDialogTitle.textContent = customer ? "編輯客戶" : "新增客戶";
     dom.customerId.value = customer?.id || "";
     dom.dialogCompanyName.value = customer?.companyName || "";
@@ -2644,6 +2930,10 @@
   }
 
   function saveCustomerFromDialog() {
+    if (!canManageCustomers()) {
+      UI.toast("Customer editing is not allowed for this role.", "warn");
+      return;
+    }
     const existing = DB.getCustomers().find((item) => item.id === dom.customerId.value);
     const selectedBuyingRole = normalizeBuyingRole(dom.dialogBuyingRole.value);
     const buyingRoleWasChanged = selectedBuyingRole !== normalizeBuyingRole(existing?.buyingRole);
@@ -2987,6 +3277,10 @@
   }
 
   async function bulkAnalyze(customers) {
+    if (!canManageCustomers()) {
+      UI.toast("Bulk customer analysis is not allowed for this role.", "warn");
+      return;
+    }
     DB.backup("before_bulk_analyze");
     const list = customers.filter((customer) => !customer.isManuallyReviewed);
     if (!list.length) {
@@ -3024,6 +3318,10 @@
   }
 
   function bulkDeleteSelected() {
+    if (!canDeleteCustomers()) {
+      UI.toast("Customer deletion is admin-only.", "warn");
+      return;
+    }
     const selected = selectedCustomers();
     if (!selected.length) {
       UI.toast("Please select customers first.", "warn");
@@ -3039,6 +3337,10 @@
   }
 
   function bulkConvertSelected() {
+    if (!state.isHostAdmin) {
+      UI.toast("Batch customer conversion is admin-only.", "warn");
+      return;
+    }
     const selected = selectedCustomers();
     if (!selected.length) {
       UI.toast("Please select customers first.", "warn");
@@ -3072,6 +3374,10 @@
   }
 
   function bulkMoveSelectedToGroup() {
+    if (!state.isHostAdmin) {
+      UI.toast("Batch customer group changes are admin-only.", "warn");
+      return;
+    }
     const selected = selectedCustomers();
     if (!selected.length) {
       UI.toast("Please select customers first.", "warn");
@@ -3524,6 +3830,41 @@
     UI.showPage("sendersPage");
   }
 
+  function clearUserForm() {
+    if (!dom.managedUserId) return;
+    dom.managedUserId.value = "";
+    dom.managedUsername.value = "";
+    dom.managedUsername.disabled = false;
+    dom.managedPassword.value = "";
+    dom.managedPassword.placeholder = "Required for new users";
+    dom.managedDisplayName.value = "";
+    dom.managedEmail.value = "";
+    dom.managedRole.value = "user";
+    dom.managedSenderEmails.value = "";
+    dom.managedIsActive.checked = true;
+    if (dom.saveUserBtn) dom.saveUserBtn.textContent = "Save User";
+  }
+
+  function editUser(id) {
+    const user = state.users.find((item) => item.id === id);
+    if (!user || user.source === "env") {
+      UI.toast("This login is managed by .env and cannot be edited here.", "warn");
+      return;
+    }
+    dom.managedUserId.value = user.id;
+    dom.managedUsername.value = user.username || "";
+    dom.managedUsername.disabled = true;
+    dom.managedPassword.value = "";
+    dom.managedPassword.placeholder = "Leave blank to keep current password";
+    dom.managedDisplayName.value = user.displayName || "";
+    dom.managedEmail.value = user.email || "";
+    dom.managedRole.value = user.role || "user";
+    dom.managedSenderEmails.value = Array.isArray(user.senderEmails) ? user.senderEmails.join(", ") : "";
+    dom.managedIsActive.checked = user.isActive !== false;
+    if (dom.saveUserBtn) dom.saveUserBtn.textContent = "Update User";
+    UI.showPage("usersPage");
+  }
+
   function applyThemePreference() {
     const preferredTheme = localStorage.getItem("theme") === "light" ? "light" : "dark";
     document.body.classList.toggle("light-mode", preferredTheme === "light");
@@ -3566,12 +3907,16 @@
       "overrideDialog", "overrideForm", "overrideRating", "overrideReason", "saveOverrideBtn",
       "logDialog", "logForm", "logCustomerId", "logDate", "logChannel", "logContactPerson", "logSubject",
       "logSummary", "logResponse", "logNextAction", "logNextFollowDate", "saveLogBtn",
-      "sendersNavBtn", "themeToggle", "refreshSendersBtn", "senderForm", "senderId", "senderName", "senderEmail",
+      "sendersNavBtn", "usersNavBtn", "systemNavBtn", "themeToggle", "refreshSendersBtn", "senderForm", "senderId", "senderName", "senderEmail",
       "senderAppPassword", "saveSenderBtn", "resetSenderFormBtn", "senderList",
+      "refreshUsersBtn", "userForm", "managedUserId", "managedUsername", "managedPassword", "managedDisplayName",
+      "managedEmail", "managedRole", "managedSenderEmails", "managedIsActive", "saveUserBtn", "resetUserFormBtn", "userList",
       "emailContactsDialog", "emailContactsForm", "emailContactsCustomerId", "emailContactsList",
       "emailContactAddress", "emailContactRole", "addEmailContactBtn", "saveEmailContactsBtn",
       "customTemplateDialog", "customTemplateForm", "customTemplateName", "saveCustomTemplateDialogBtn",
-      "blankTemplateDialog", "blankTemplateForm", "blankTemplateName", "blankTemplateSubject", "blankTemplateBody", "saveBlankTemplateBtn"
+      "blankTemplateDialog", "blankTemplateForm", "blankTemplateName", "blankTemplateSubject", "blankTemplateBody", "saveBlankTemplateBtn",
+      "manualSqliteBackupBtn", "refreshSystemLogsBtn", "systemLastBackup", "systemBackupDir", "systemRetentionDays",
+      "systemAuditCount", "systemBackupStatus", "backupFileList", "auditLogTableBody"
     ].forEach((id) => { dom[id] = $(id); });
   }
 
@@ -3716,6 +4061,9 @@
     dom.refreshSendersBtn?.addEventListener("click", () => refreshSenders().catch((error) => UI.toast(error.message, "bad")));
     dom.saveSenderBtn?.addEventListener("click", () => SenderApi.save().catch((error) => UI.toast(error.message, "bad")));
     dom.resetSenderFormBtn?.addEventListener("click", clearSenderForm);
+    dom.refreshUsersBtn?.addEventListener("click", () => UserApi.list().then(() => UI.renderUserList()).catch((error) => UI.toast(error.message, "bad")));
+    dom.saveUserBtn?.addEventListener("click", () => UserApi.save().catch((error) => UI.toast(error.message, "bad")));
+    dom.resetUserFormBtn?.addEventListener("click", clearUserForm);
     [dom.attachmentName, dom.attachmentUrl].forEach((input) => input?.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
       event.preventDefault();
@@ -3724,6 +4072,10 @@
     dom.addProductBtn.addEventListener("click", () => openProductDialog());
     dom.saveProductDialogBtn.addEventListener("click", saveProductFromDialog);
     dom.importProductsBtn.addEventListener("click", () => {
+      if (!canManageProducts()) {
+        UI.toast("Product import is not allowed for this role.", "warn");
+        return;
+      }
       dom.productExcelFileInput?.click();
     });
     dom.productExcelFileInput?.addEventListener("change", async (event) => {
@@ -3834,6 +4186,8 @@
     dom.bulkNextFollowDate.addEventListener("change", bulkUpdateFollowUpSelected);
     dom.backupExportBtn.addEventListener("click", exportBackup);
     dom.backupImportBtn.addEventListener("click", () => dom.backupFileInput.click());
+    dom.manualSqliteBackupBtn?.addEventListener("click", () => UI.runManualSqliteBackup().catch((error) => UI.toast(error.message, "bad")));
+    dom.refreshSystemLogsBtn?.addEventListener("click", () => UI.loadSystemPage().catch((error) => UI.toast(error.message, "bad")));
     dom.pullLiveSnapshotBtn?.addEventListener("click", () => openLiveSyncDialog());
     dom.previewLiveSyncBtn?.addEventListener("click", () => previewLiveSync().catch((error) => UI.toast(error.message, "bad")));
     dom.syncLiveSnapshotBtn?.addEventListener("click", () => runLiveSync().catch((error) => UI.toast(error.message, "bad")));
@@ -3852,6 +4206,38 @@
       if (!target) return;
       const action = target.dataset.action;
       const id = target.dataset.id;
+      if (["edit-product", "delete-product"].includes(action) && !canManageProducts()) {
+        UI.toast("Product editing is not allowed for this role.", "warn");
+        return;
+      }
+      if (["edit-customer"].includes(action) && !canManageCustomers()) {
+        UI.toast("Customer editing is not allowed for this role.", "warn");
+        return;
+      }
+      if (["delete-customer"].includes(action) && !canDeleteCustomers()) {
+        UI.toast("Customer deletion is admin-only.", "warn");
+        return;
+      }
+      if (["edit-sender", "toggle-sender", "delete-sender"].includes(action) && !hasPermission("canManageSenders")) {
+        UI.toast("Sender management is admin-only.", "warn");
+        return;
+      }
+      if (["edit-user", "delete-user"].includes(action) && !state.isHostAdmin) {
+        UI.toast("User management is admin-only.", "warn");
+        return;
+      }
+      if (["edit-group", "delete-group"].includes(action) && !state.isHostAdmin) {
+        UI.toast("Customer group management is admin-only.", "warn");
+        return;
+      }
+      if (["change-buying-role", "change-customer-score", "change-customer-group"].includes(action) && !canManageCustomers()) {
+        UI.toast("Customer editing is not allowed for this role.", "warn");
+        return;
+      }
+      if (action === "change-customer-group" && !state.isHostAdmin) {
+        UI.toast("Customer group changes are admin-only.", "warn");
+        return;
+      }
       if (action === "edit-product") openProductDialog(DB.getProducts().find((item) => item.id === id));
       if (action === "delete-product" && confirm("Delete this product?")) {
         DB.setProducts(DB.getProducts().filter((item) => item.id !== id));
@@ -3891,6 +4277,10 @@
       if (action === "delete-sender" && confirm("Delete this sender?")) {
         SenderApi.remove(id).catch((error) => UI.toast(error.message, "bad"));
       }
+      if (action === "edit-user") editUser(id);
+      if (action === "delete-user" && confirm("Delete this user?")) {
+        UserApi.remove(id).catch((error) => UI.toast(error.message, "bad"));
+      }
       if (action === "edit-group") {
         const group = state.groups.find((item) => item.id === id);
         if (!group) return;
@@ -3915,6 +4305,22 @@
       const action = target.dataset?.action;
       const id = target.dataset?.id;
       if (!action || !id) return;
+      if (["toggle-product-pool", "toggle-product-priority", "change-product-recommended-for"].includes(action) && !canManageProducts()) {
+        UI.toast("Product editing is not allowed for this role.", "warn");
+        target.checked = !target.checked;
+        UI.renderProductList();
+        return;
+      }
+      if (["change-buying-role", "change-customer-score"].includes(action) && !canManageCustomers()) {
+        UI.toast("Customer editing is not allowed for this role.", "warn");
+        UI.renderCustomerList();
+        return;
+      }
+      if (action === "change-customer-group" && !state.isHostAdmin) {
+        UI.toast("Customer group changes are admin-only.", "warn");
+        UI.renderCustomerList();
+        return;
+      }
       if (action === "toggle-product-pool" || action === "toggle-product-priority") {
         const products = DB.getProducts().map((item) => {
           if (item.id !== id) return item;
@@ -4007,6 +4413,12 @@
     bindDom();
     applyThemePreference();
     UI.toast("Loading shared database...", "warn");
+    await AuthApi.me().catch((error) => {
+      DB.addErrorLog("Load current user", error);
+      state.userRole = isLocalEnvironment() ? "admin" : "user";
+      state.permissions = { isAdmin: isLocalEnvironment() };
+      state.isHostAdmin = isLocalEnvironment();
+    });
     await DB.initSharedStore();
     purgeDeprecatedProductStatus();
     DB.getProducts();
@@ -4024,6 +4436,12 @@
       UI.renderSenderSelector();
       UI.renderSenderList();
     });
+    if (state.isHostAdmin) {
+      await UserApi.list().catch((error) => {
+        DB.addErrorLog("Load users", error);
+        state.users = [];
+      });
+    }
     bindEvents();
     UI.refreshAll();
     refreshImportFiles({ silent: true }).catch((error) => {

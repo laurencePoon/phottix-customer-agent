@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Phottix Customer Agent</title>
-  <link rel="stylesheet" href="style.css?v=20260709-sync-dialog-fix">
+  <link rel="stylesheet" href="style.css?v=20260710-system-logs-ui">
 </head>
 <body>
   <div class="app-shell">
@@ -22,6 +22,8 @@
         <button class="nav-button" data-icon="▦" data-page="productsPage" type="button">產品資料庫 / Products</button>
         <button class="nav-button" data-icon="◫" data-page="customersPage" type="button">客戶池 / Customers</button>
         <button id="sendersNavBtn" class="nav-button hidden" data-icon="✉" data-page="sendersPage" type="button">寄件者管理 / Senders</button>
+        <button id="usersNavBtn" class="nav-button hidden" data-icon="u" data-page="usersPage" type="button">Users</button>
+        <button id="systemNavBtn" class="nav-button hidden" data-icon="i" data-page="systemPage" type="button">System Logs</button>
       </nav>
 
       <section class="today-widget">
@@ -654,6 +656,119 @@
           <div id="senderList" class="table-wrap"></div>
         </section>
       </section>
+
+      <section id="systemPage" class="page">
+        <section class="card system-card">
+          <div class="card-head">
+            <div>
+              <h3>System Backup & Audit Logs</h3>
+              <p>Readable view for SQLite backups and important operation history.</p>
+            </div>
+            <div class="action-row">
+              <button id="manualSqliteBackupBtn" class="primary-button" type="button">Backup Now</button>
+              <button id="refreshSystemLogsBtn" class="secondary-button" type="button">Refresh</button>
+            </div>
+          </div>
+
+          <div class="system-summary-grid">
+            <section class="system-summary-card">
+              <span>Last Backup</span>
+              <strong id="systemLastBackup">-</strong>
+              <small id="systemBackupDir">Backup folder: -</small>
+            </section>
+            <section class="system-summary-card">
+              <span>Retention</span>
+              <strong id="systemRetentionDays">7 days</strong>
+              <small>Old SQLite backup files are removed automatically.</small>
+            </section>
+            <section class="system-summary-card">
+              <span>Audit Logs</span>
+              <strong id="systemAuditCount">0</strong>
+              <small>Latest important operations shown below.</small>
+            </section>
+          </div>
+
+          <div class="system-two-column">
+            <section class="system-panel">
+              <div class="system-panel-head">
+                <h4>SQLite Backups</h4>
+                <span id="systemBackupStatus" class="status-pill">Ready</span>
+              </div>
+              <div id="backupFileList" class="system-list"></div>
+            </section>
+
+            <section class="system-panel">
+              <div class="system-panel-head">
+                <h4>Operation Logs</h4>
+                <span class="status-pill">Latest 50</span>
+              </div>
+              <div class="audit-table-wrap">
+                <table class="audit-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>User</th>
+                      <th>Action</th>
+                      <th>Target</th>
+                      <th>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody id="auditLogTableBody">
+                    <tr><td colspan="5">Click Refresh to load logs.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+      </section>
+
+      <section id="usersPage" class="page">
+        <section class="card system-card">
+          <div class="card-head">
+            <div>
+              <h3>User Management</h3>
+              <p>Admin-only role and login management.</p>
+            </div>
+            <button id="refreshUsersBtn" class="secondary-button" type="button">Refresh</button>
+          </div>
+
+          <form id="userForm" class="sender-form">
+            <input id="managedUserId" type="hidden">
+            <label>Username
+              <input id="managedUsername" type="text" placeholder="gina">
+            </label>
+            <label>Password
+              <input id="managedPassword" type="password" placeholder="Leave blank when editing">
+            </label>
+            <label>Display Name
+              <input id="managedDisplayName" type="text" placeholder="Gina">
+            </label>
+            <label>Email
+              <input id="managedEmail" type="email" placeholder="gina@phottix.com">
+            </label>
+            <label>Role
+              <select id="managedRole">
+                <option value="user">User</option>
+                <option value="product_manager">Product Manager</option>
+                <option value="finance_manager">Finance Manager</option>
+                <option value="shipping_manager">Shipping Manager</option>
+                <option value="admin">Admin</option>
+              </select>
+            </label>
+            <label>Sender Emails
+              <input id="managedSenderEmails" type="text" placeholder="gina@phottix.com, sales@phottix.com">
+            </label>
+            <label class="inline-check"><input id="managedIsActive" type="checkbox" checked> Active</label>
+            <div class="action-row">
+              <button id="saveUserBtn" class="primary-button" type="button">Save User</button>
+              <button id="resetUserFormBtn" class="ghost-button" type="button">Clear</button>
+            </div>
+          </form>
+
+          <div id="userList" class="table-wrap"></div>
+        </section>
+      </section>
     </main>
   </div>
 
@@ -843,6 +958,6 @@
     </form>
   </dialog>
 
-  <script src="script.js?v=20260709-env-banner"></script>
+  <script src="script.js?v=20260710-system-logs-ui"></script>
 </body>
 </html>
