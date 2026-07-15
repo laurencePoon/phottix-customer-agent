@@ -46,26 +46,30 @@
     {
       code: "A",
       label: "批發商 / Wholesaler",
+      directKeywords: ["wholesale", "distributor", "distribution", "b2b", "批發", "分銷", "代理"],
       strongKeywords: ["wholesale", "distributor", "distribution", "b2b", "bulk", "批發", "分銷", "代理"],
       keywords: ["dealer", "trade account", "trade pricing", "volume pricing", "importer", "exporter", "批量"]
     },
     {
       code: "B",
       label: "實體零售商 / Physical Reseller",
-      strongKeywords: ["showroom", "retail store", "physical store", "brick and mortar", "store hours", "visit us", "實體店", "實體零售", "門店"],
+      directKeywords: ["camera store", "camera shop", "photo store", "camera center", "camera centre", "camera retailer", "photo retailer", "photography equipment retailer", "retail store", "physical store", "brick and mortar", "showroom", "實體店", "實體零售", "門店", "相機店", "攝影器材店"],
+      strongKeywords: ["camera store", "camera shop", "photo store", "camera center", "camera centre", "camera retailer", "photo retailer", "retail store", "physical store", "brick and mortar", "showroom", "store hours", "visit us", "實體店", "實體零售", "門店", "相機店", "攝影器材店"],
       keywords: ["location", "locations", "in-store", "branch", "branches", "展廳"]
     },
     {
       code: "C",
       label: "網店零售商 / Online Reseller",
+      directKeywords: ["online store", "e-commerce", "ecommerce", "webshop", "shopify", "woocommerce", "add to cart", "checkout", "buy online", "網店", "電商", "線上零售"],
       strongKeywords: ["online store", "e-commerce", "ecommerce", "webshop", "shopify", "woocommerce", "add to cart", "checkout", "buy online", "網店", "電商", "線上零售"],
       keywords: ["shipping", "delivery", "cart", "marketplace", "order online"]
     },
     {
       code: "D",
       label: "工作室 / Studio or End User",
-      strongKeywords: ["studio", "photo studio", "video studio", "production company", "photographer", "videographer", "content creator", "攝影棚", "工作室", "攝影師", "攝像師", "內容創作者", "最終用戶"],
-      keywords: ["portfolio", "booking", "commercial shoot", "filmmaker", "creator", "gallery", "製作公司"]
+      directKeywords: ["photo studio", "video studio", "production company", "studio", "攝影棚", "工作室"],
+      strongKeywords: ["studio", "photo studio", "video studio", "production company", "攝影棚", "工作室"],
+      keywords: ["photographer", "videographer", "content creator", "portfolio", "booking", "commercial shoot", "filmmaker", "creator", "gallery", "製作公司", "攝影師", "攝像師", "內容創作者", "最終用戶"]
     }
   ];
   const BUYING_ROLES = ["Unknown", ...BUYING_ROLE_DEFINITIONS.map((item) => item.code)];
@@ -173,7 +177,7 @@
   const SCORING_RULES = [
     { key: "wholesale", label: "Wholesale", weight: 30, terms: [/wholesale|distributor|distribution|dealer|reseller|b2b|trade account|trade pricing|bulk|importer|代表品牌|代理|經銷|批發/i] },
     { key: "retail", label: "Retail", weight: 20, terms: [/retail|shop|store|sales|product catalog|products|buy|order|購買|零售|商店|商城/i] },
-    { key: "cameraStore", label: "Camera Store", weight: 25, terms: [/camera store|camera shop|photo store|camera center|camera centre|camera|lens|lenses|photography equipment|相機店|攝影器材/i] },
+    { key: "cameraStore", label: "Camera Store", weight: 25, terms: [/camera store|camera shop|photo store|camera center|camera centre|camera retailer|photo retailer|photography equipment|camera equipment|相機店|攝影器材店/i] },
     { key: "onlineShop", label: "Online Shop", weight: 15, terms: [/add to cart|cart|checkout|online store|shop online|buy online|shipping|e-commerce|網店|線上商店|購物車/i] },
     { key: "physicalStore", label: "Physical Store", weight: 20, terms: [/address|phone|visit us|store hours|opening hours|showroom|location|directions|門店|地址|電話|營業時間/i] },
     { key: "studio", label: "Studio", weight: 20, terms: [/studio|photo studio|video studio|portrait|commercial shoot|影棚|工作室|拍攝/i] },
@@ -460,9 +464,25 @@
     return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(text);
   }
 
+  function directKeywordHit(text, keyword) {
+    if (keywordHit(text, keyword)) return true;
+    const compactText = String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const compactKeyword = String(keyword || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    return compactKeyword.length >= 6 && compactText.includes(compactKeyword);
+  }
+
   function determineBuyingRole(websiteText) {
     const text = normalizeText(websiteText);
     if (!text) return "Unknown";
+
+    // Exact business-model signals take precedence over general photography words.
+    // This prevents a camera retailer mentioning studios or photographers from being classified as D.
+    const directMatches = BUYING_ROLE_DEFINITIONS.filter((definition) =>
+      definition.directKeywords.some((keyword) => directKeywordHit(text, keyword))
+    ).map((definition) => definition.code);
+    for (const preferredRole of ["A", "B", "C", "D"]) {
+      if (directMatches.includes(preferredRole)) return preferredRole;
+    }
 
     const scores = BUYING_ROLE_DEFINITIONS.map((definition) => ({
       role: definition.code,
@@ -2990,7 +3010,8 @@
       customer.websiteExtract,
       customer.manualWebsiteSummary,
       customer.notes,
-      customer.industry
+      customer.industry,
+      customer.website
     ].filter(Boolean).join("\n");
     if (!customer.isBuyingRoleManuallyReviewed) {
       customer.buyingRole = determineBuyingRole(roleEvidence);
