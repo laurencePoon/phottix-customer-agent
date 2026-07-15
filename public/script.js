@@ -28,6 +28,7 @@
   const SQLITE_SYNC_KEY = "phottix_sqlite_shared_sync";
 
   const RECOMMENDED_FOR_OPTIONS = ["All", "A", "B", "C", "D"];
+  const TARGET_PRIORITY_DISPLAY_ORDER = ["A", "B", "C", "D", "All"];
   const CUSTOMER_TYPES = ["prospect", "existing"];
   const INDUSTRY_TYPES = ["", "Wholesale", "Retail", "Studio", "Events", "Creator", "Camera Store", "Online Shop", "Physical Store", "Services", "Other"];
   const FOLLOW_STATUSES = ["open", "completed", "pending", "cancelled", "deferred"];
@@ -41,13 +42,33 @@
     "Reactivation",
     "Holiday Greeting"
   ];
-  const BUYING_ROLES = ["Unknown", "Wholesaler", "Reseller - Physical", "Reseller - Online", "End User - Studio"];
-  const BUYING_ROLE_KEYWORDS = {
-    "Wholesaler": ["wholesale", "bulk order", "bulk purchase", "distributor", "volume pricing", "b2b", "bulk discount"],
-    "Reseller - Physical": ["store", "showroom", "retail store", "visit us", "location", "our store", "shop"],
-    "Reseller - Online": ["online store", "e-commerce", "ecommerce", "shopify", "add to cart", "buy now", "shipping", "delivery", "checkout"],
-    "End User - Studio": ["studio", "photography", "service", "booking", "gallery", "portfolio", "hire us", "creative", "production"]
-  };
+  const BUYING_ROLE_DEFINITIONS = [
+    {
+      code: "A",
+      label: "批發商 / Wholesaler",
+      strongKeywords: ["wholesale", "distributor", "distribution", "b2b", "bulk", "批發", "分銷", "代理"],
+      keywords: ["dealer", "trade account", "trade pricing", "volume pricing", "importer", "exporter", "批量"]
+    },
+    {
+      code: "B",
+      label: "實體零售商 / Physical Reseller",
+      strongKeywords: ["showroom", "retail store", "physical store", "brick and mortar", "store hours", "visit us", "實體店", "實體零售", "門店"],
+      keywords: ["location", "locations", "in-store", "branch", "branches", "展廳"]
+    },
+    {
+      code: "C",
+      label: "網店零售商 / Online Reseller",
+      strongKeywords: ["online store", "e-commerce", "ecommerce", "webshop", "shopify", "woocommerce", "add to cart", "checkout", "buy online", "網店", "電商", "線上零售"],
+      keywords: ["shipping", "delivery", "cart", "marketplace", "order online"]
+    },
+    {
+      code: "D",
+      label: "工作室 / Studio or End User",
+      strongKeywords: ["studio", "photo studio", "video studio", "production company", "photographer", "videographer", "content creator", "攝影棚", "工作室", "攝影師", "攝像師", "內容創作者", "最終用戶"],
+      keywords: ["portfolio", "booking", "commercial shoot", "filmmaker", "creator", "gallery", "製作公司"]
+    }
+  ];
+  const BUYING_ROLES = ["Unknown", ...BUYING_ROLE_DEFINITIONS.map((item) => item.code)];
   const LIVE_SYNC_SECTION_DEFS = [
     { key: "customers", label: "客戶 Customers", short: "客戶", defaultChecked: true },
     { key: "products", label: "產品 Products", short: "產品", defaultChecked: true },
@@ -257,19 +278,59 @@
   }
 
   function normalizeBuyingRole(value) {
-    const text = normalizeText(value);
-    const found = BUYING_ROLES.find((role) => role.toLowerCase() === text.toLowerCase());
-    return found || "Unknown";
+    const text = normalizeText(value).toLowerCase();
+    if (!text) return "Unknown";
+    const compact = text.replace(/[\s_./\\-]+/g, "");
+    const aliases = {
+      a: "A",
+      wholesaler: "A",
+      wholesales: "A",
+      wholesale: "A",
+      wholesalerb2b: "A",
+      批發商: "A",
+      批發: "A",
+      b: "B",
+      physicalreseller: "B",
+      resellerphysical: "B",
+      physicalretailer: "B",
+      brickandmortar: "B",
+      實體零售商: "B",
+      實體零售: "B",
+      實體店: "B",
+      門店: "B",
+      c: "C",
+      onlinereseller: "C",
+      reselleronline: "C",
+      onlineretailer: "C",
+      網店零售商: "C",
+      網店零售: "C",
+      網店: "C",
+      電商: "C",
+      d: "D",
+      studio: "D",
+      enduserstudio: "D",
+      enduser: "D",
+      studioorenduser: "D",
+      工作室: "D",
+      工作室或最終用戶: "D",
+      最終用戶: "D",
+      unknown: "Unknown",
+      未分類: "Unknown",
+      未知: "Unknown"
+    };
+    const prefixedCode = text.match(/^(a|b|c|d)(?:\s*[-=:：/]\s*.*)?$/i)?.[1];
+    return prefixedCode?.toUpperCase() || aliases[text] || aliases[compact] || "Unknown";
+  }
+
+  function buyingRoleDisplay(value) {
+    const code = normalizeBuyingRole(value);
+    const definition = BUYING_ROLE_DEFINITIONS.find((item) => item.code === code);
+    return definition ? `${definition.code} - ${definition.label}` : "Unknown / 未分類";
   }
 
   function recommendedForFromBuyingRole(value) {
     const role = normalizeBuyingRole(value);
-    return {
-      "Wholesaler": "A",
-      "Reseller - Physical": "B",
-      "Reseller - Online": "C",
-      "End User - Studio": "D"
-    }[role] || "All";
+    return BUYING_ROLE_DEFINITIONS.some((item) => item.code === role) ? role : "All";
   }
 
   function normalizeRecommendedFor(value) {
@@ -291,6 +352,62 @@
     const compact = text.replace(/[\s_]+/g, "");
     const direct = RECOMMENDED_FOR_OPTIONS.find((option) => option.toLowerCase() === text);
     return direct || aliases[compact] || "All";
+  }
+
+  function parseTargetPriority(value) {
+    const text = normalizeText(value);
+    if (!text) return "";
+    const match = text.match(/\d+/);
+    if (!match) return "";
+    const priority = Number(match[0]);
+    return Number.isFinite(priority) ? Math.max(1, Math.floor(priority)) : "";
+  }
+
+  function normalizeTargetPriorities(value = {}) {
+    const result = {};
+    RECOMMENDED_FOR_OPTIONS.forEach((target) => {
+      const priority = parseTargetPriority(value?.[target]);
+      if (priority !== "") result[target] = priority;
+    });
+    return result;
+  }
+
+  function editableTargetPriorities(product = {}) {
+    const direct = normalizeTargetPriorities(product.targetPriorities);
+    if (Object.keys(direct).length) return direct;
+    const target = normalizeRecommendedFor(product.recommendedFor);
+    const priority = parseTargetPriority(product.priority);
+    return priority === "" ? {} : { [target]: priority };
+  }
+
+  function productTargetPriorities(product = {}) {
+    const direct = normalizeTargetPriorities(product.targetPriorities);
+    if (Object.keys(direct).length) return direct;
+    const target = normalizeRecommendedFor(product.recommendedFor);
+    const priority = parseTargetPriority(product.priority);
+    return priority === "" ? {} : { [target]: priority };
+  }
+
+  function primaryTargetPriority(product = {}) {
+    const priorities = productTargetPriorities(product);
+    const order = new Map(TARGET_PRIORITY_DISPLAY_ORDER.map((target, index) => [target, index]));
+    return Object.entries(priorities).sort((a, b) => Number(a[1]) - Number(b[1]) || order.get(a[0]) - order.get(b[0]))[0] || ["All", 999];
+  }
+
+  function targetPrioritySummary(product = {}) {
+    const priorities = productTargetPriorities(product);
+    return TARGET_PRIORITY_DISPLAY_ORDER
+      .filter((target) => priorities[target] !== undefined)
+      .map((target) => [target, priorities[target]])
+      .map(([target, priority]) => `${target}-${priority}`)
+      .join(" / ");
+  }
+
+  function parseTargetPriorityQuery(value) {
+    const compact = normalizeText(value).toUpperCase().replace(/\s+/g, "");
+    const match = compact.match(/^(ALL|[ABCD])-?(\d+)$/);
+    if (!match) return null;
+    return { target: match[1], priority: Number(match[2]) };
   }
 
   function recommendedForOptionsHtml(selected = "All") {
@@ -347,9 +464,10 @@
     const text = normalizeText(websiteText);
     if (!text) return "Unknown";
 
-    const scores = Object.entries(BUYING_ROLE_KEYWORDS).map(([role, keywords]) => ({
-      role,
-      hits: keywords.filter((keyword) => keywordHit(text, keyword)).length
+    const scores = BUYING_ROLE_DEFINITIONS.map((definition) => ({
+      role: definition.code,
+      hits: definition.strongKeywords.filter((keyword) => keywordHit(text, keyword)).length * 2
+        + definition.keywords.filter((keyword) => keywordHit(text, keyword)).length
     }));
     const highest = Math.max(...scores.map((item) => item.hits));
     if (highest <= 0) return "Unknown";
@@ -360,7 +478,10 @@
 
   function buyingRoleOptionsHtml(selected = "Unknown") {
     const current = normalizeBuyingRole(selected);
-    return BUYING_ROLES.map((role) => `<option value="${escapeHtml(role)}" ${role === current ? "selected" : ""}>${escapeHtml(role)}</option>`).join("");
+    return [
+      `<option value="Unknown" ${current === "Unknown" ? "selected" : ""}>Unknown / 未分類</option>`,
+      ...BUYING_ROLE_DEFINITIONS.map((definition) => `<option value="${definition.code}" ${definition.code === current ? "selected" : ""}>${definition.code} - ${escapeHtml(definition.label)}</option>`)
+    ].join("");
   }
 
   function todayString(date = new Date()) {
@@ -735,15 +856,18 @@
         productStatus: _deprecatedProductStatus,
         ...cleanProduct
       } = product;
+      const targetPriorities = normalizeTargetPriorities(cleanProduct.targetPriorities);
+      const primary = primaryTargetPriority({ ...cleanProduct, targetPriorities });
       return {
         ...cleanProduct,
-        priority: cleanProduct.priority ?? "",
+        targetPriorities,
+        priority: Object.keys(targetPriorities).length ? primary[1] : cleanProduct.priority ?? "",
         sku: cleanProduct.sku || "",
         description: cleanProduct.description || "",
         price: cleanProduct.price ?? "",
         productUrl: cleanProduct.productUrl || "",
         launchDate: cleanProduct.launchDate || "",
-        recommendedFor: normalizeRecommendedFor(cleanProduct.recommendedFor)
+        recommendedFor: Object.keys(targetPriorities).length ? primary[0] : normalizeRecommendedFor(cleanProduct.recommendedFor)
       };
     },
     getProducts() {
@@ -941,22 +1065,26 @@
       const products = DB.getProducts()
         .filter((product) => {
           if (!product.inRecommendationPool) return false;
-          const recommendedFor = normalizeRecommendedFor(product.recommendedFor);
-          if (target === "All") return recommendedFor === "All";
-          return recommendedFor === target || recommendedFor === "All";
+          const priorities = productTargetPriorities(product);
+          if (target === "All") return priorities.All !== undefined;
+          return priorities[target] !== undefined || priorities.All !== undefined;
         });
       const signals = scoring.businessSignals.join(" ").toLowerCase();
       const scored = products.map((product) => {
         const text = `${product.name} ${product.category}`.toLowerCase();
+        const priorities = productTargetPriorities(product);
+        const exactPriority = priorities[target];
+        const matchedTarget = exactPriority !== undefined ? target : "All";
+        const recommendationPriority = exactPriority ?? priorities.All ?? 999;
         let score = product.isPriority ? 20 : 0;
-        if (normalizeRecommendedFor(product.recommendedFor) === target) score += 30;
+        if (exactPriority !== undefined) score += 30;
         if (/wholesale|retail|camera store|online shop/.test(signals) && /lighting|modifier|flash|trigger|accessor/i.test(text)) score += 20;
         if (/studio|creator|events/.test(signals) && /lighting|softbox|panel|stand|modifier/i.test(text)) score += 18;
         if (/services/.test(signals) && /support|accessor|stand|trigger/i.test(text)) score += 10;
         if (/lighting|led|rgb|cob|softbox/i.test(text)) score += 8;
-        return { ...product, matchScore: score };
+        return { ...product, matchScore: score, matchedTarget, recommendationPriority };
       })
-        .sort((a, b) => Number(a.priority || 999) - Number(b.priority || 999) || b.matchScore - a.matchScore || a.name.localeCompare(b.name))
+        .sort((a, b) => Number(a.recommendationPriority || 999) - Number(b.recommendationPriority || 999) || b.matchScore - a.matchScore || a.name.localeCompare(b.name))
         .slice(0, 3);
       return scored.map((product) => ({
         id: product.id,
@@ -965,6 +1093,9 @@
         sku: product.sku || "",
         description: product.description || "",
         productUrl: product.productUrl || "",
+        matchedTarget: product.matchedTarget,
+        targetPriority: product.recommendationPriority,
+        targetPriorityCode: `${product.matchedTarget}-${product.recommendationPriority}`,
         reason: this.reason(product, scoring)
       }));
     },
@@ -999,16 +1130,16 @@
     strategy(customer) {
       const role = normalizeBuyingRole(customer.buyingRole);
       const map = {
-        "Wholesaler": {
+        "A": {
           message: "professional and pricing-oriented, with priority on high-value Priority 1 products"
         },
-        "Reseller - Physical": {
+        "B": {
           message: "friendly and showroom-oriented, with priority on easy-to-display popular products"
         },
-        "Reseller - Online": {
+        "C": {
           message: "concise and logistics-oriented, with priority on lightweight or entry-level products"
         },
-        "End User - Studio": {
+        "D": {
           message: "warm and service-oriented, with priority on bundles and after-sales support"
         }
       };
@@ -1321,17 +1452,41 @@
     importProductRows(rows) {
       DB.backup("before_product_import");
       const products = DB.getProducts();
+      const incomingByKey = new Map();
       let added = 0;
       let overwritten = 0;
       let skipped = 0;
       for (const row of rows) {
         const incoming = normalizeImportedProduct(row);
         if (!incoming.name) continue;
-        const index = products.findIndex((item) => item.name.toLowerCase() === incoming.name.toLowerCase());
+        const key = incoming.sku
+          ? `sku:${incoming.sku.toLowerCase()}`
+          : `name:${incoming.name.toLowerCase()}`;
+        const duplicate = incomingByKey.get(key);
+        if (duplicate) {
+          incomingByKey.set(key, mergeProductTargetData(duplicate, incoming));
+          continue;
+        }
+        incomingByKey.set(key, incoming);
+      }
+      const duplicateCount = [...incomingByKey.values()].filter((incoming) => products.some((item) => {
+        const sameSku = incoming.sku && item.sku && String(item.sku).toLowerCase() === String(incoming.sku).toLowerCase();
+        const sameName = String(item.name || "").toLowerCase() === String(incoming.name || "").toLowerCase();
+        return sameSku || (!incoming.sku && sameName);
+      })).length;
+      const overwriteDuplicates = duplicateCount > 0
+        ? confirm(`发现 ${duplicateCount} 个已存在的产品。确定：批量更新这些产品；取消：保留现有资料，只加入新 SKU。`)
+        : false;
+      for (const incoming of incomingByKey.values()) {
+        const index = products.findIndex((item) => {
+          const sameSku = incoming.sku && item.sku && String(item.sku).toLowerCase() === String(incoming.sku).toLowerCase();
+          const sameName = String(item.name || "").toLowerCase() === String(incoming.name || "").toLowerCase();
+          return sameSku || (!incoming.sku && sameName);
+        });
         if (index >= 0) {
-          const ok = confirm(`Duplicate product found: ${incoming.name}. Overwrite it? Cancel will skip.`);
-          if (ok) {
-            products[index] = { ...products[index], ...incoming, id: products[index].id };
+          if (overwriteDuplicates) {
+            products[index] = mergeProductTargetData(products[index], incoming);
+            products[index].id = products[index].id || incoming.id;
             overwritten += 1;
           } else {
             skipped += 1;
@@ -1991,24 +2146,27 @@
       }).join("")}`;
     },
     renderProductList() {
-      const query = normalizeText(dom.productSearch.value).toLowerCase();
+      const rawQuery = normalizeText(dom.productSearch.value);
+      const query = rawQuery.toLowerCase();
+      const targetQuery = parseTargetPriorityQuery(rawQuery);
       const view = dom.productView.value;
       let products = DB.getProducts();
       if (view === "pool") products = products.filter((item) => item.inRecommendationPool);
-      if (query) products = products.filter((item) => `${item.name} ${item.category} ${item.recommendedFor || ""} ${item.description || ""}`.toLowerCase().includes(query));
+      if (targetQuery) {
+        products = products.filter((item) => productTargetPriorities(item)[targetQuery.target] === targetQuery.priority);
+      } else if (query) {
+        products = products.filter((item) => `${item.name} ${item.sku || ""} ${item.category} ${targetPrioritySummary(item)} ${item.description || ""}`.toLowerCase().includes(query));
+      }
       dom.productTable.innerHTML = products.length ? `
         <table class="product-table">
-          <thead><tr><th>Product Name</th><th>Category</th><th>Priority</th><th>Recommended For</th><th>Description</th></tr></thead>
+          <thead><tr><th>Product Name / SKU</th><th>Category</th><th>Target Priority</th><th>Description</th></tr></thead>
           <tbody>
             ${products.map((item) => `
               <tr>
-                <td>${escapeHtml(item.name)}</td>
+                <td><strong>${escapeHtml(item.name)}</strong><br><small>${escapeHtml(item.sku || "-")}</small></td>
                 <td>${escapeHtml(item.category)}</td>
-                <td><input type="checkbox" data-action="toggle-product-priority" data-id="${escapeHtml(item.id)}" ${item.isPriority ? "checked" : ""}> ${escapeHtml(item.priority !== "" && item.priority !== undefined ? String(item.priority) : "")}</td>
                 <td>
-                  <select class="compact-select" data-action="change-product-recommended-for" data-id="${escapeHtml(item.id)}">
-                    ${recommendedForOptionsHtml(item.recommendedFor)}
-                  </select>
+                  <span class="target-priority-summary">${escapeHtml(targetPrioritySummary(item) || "-")}</span>
                 </td>
                 <td>
                   <div class="product-description-cell">${escapeHtml(item.description || "-")}</div>
@@ -2092,7 +2250,7 @@
                   <summary>More / Edit fields</summary>
                   <div class="customer-detail-grid">
                     <p><strong>Suggested Action:</strong> ${escapeHtml(suggestAction(customer))}</p>
-                    <p><strong>Buying Role:</strong> ${escapeHtml(normalizeBuyingRole(customer.buyingRole))}${customer.isBuyingRoleManuallyReviewed ? " / Manual" : ""}</p>
+                    <p><strong>Buyer Classification:</strong> ${escapeHtml(buyingRoleDisplay(customer.buyingRole))}${customer.isBuyingRoleManuallyReviewed ? " / Manual" : ""}</p>
                     <p><strong>Customer Score:</strong> ${escapeHtml(customer.customerScore ?? "-")}</p>
                   </div>
                   <div class="customer-role-edit">
@@ -2133,7 +2291,7 @@
             <div class="customer-meta">
               <span class="status-pill">${escapeHtml(customer.customerType || "prospect")}</span>
               <span class="status-pill">Group: ${escapeHtml(groupName(customer.groupId || customer.group_id))}</span>
-              <span class="status-pill">Buying Role: ${escapeHtml(normalizeBuyingRole(customer.buyingRole))}${customer.isBuyingRoleManuallyReviewed ? " / Manual" : ""}</span>
+              <span class="status-pill">Buyer: ${escapeHtml(buyingRoleDisplay(customer.buyingRole))}${customer.isBuyingRoleManuallyReviewed ? " / Manual" : ""}</span>
               <span class="status-pill">Customer Score: ${escapeHtml(customer.customerScore ?? "—")}</span>
               <span class="status-pill">${escapeHtml(customer.followUpStatus || "open")}</span>
               <span class="status-pill">Next: ${escapeHtml(customer.nextFollowUpDate || "—")}</span>
@@ -2186,6 +2344,7 @@
         <div class="recommend-card">
           <strong>${escapeHtml(product.name)}</strong>
           <p>${escapeHtml(product.category)}</p>
+          ${product.targetPriorityCode ? `<p><strong>Matched target:</strong> ${escapeHtml(product.targetPriorityCode)}</p>` : ""}
           ${product.description ? `<p>${escapeHtml(product.description)}</p>` : ""}
           ${product.productUrl ? `<p><a href="${escapeHtml(product.productUrl)}" target="_blank" rel="noopener">Product link</a></p>` : ""}
           <p>${escapeHtml(product.reason)}</p>
@@ -2341,7 +2500,7 @@
       ["國家", customer.country],
       ["城市", customer.city],
       ["行業", customer.industry],
-      ["Buying Role / 購買角色", `${normalizeBuyingRole(customer.buyingRole)}${customer.isBuyingRoleManuallyReviewed ? " (Manual)" : ""}`],
+      ["Buyer Classification / 買家分類", `${buyingRoleDisplay(customer.buyingRole)}${customer.isBuyingRoleManuallyReviewed ? " (Manual)" : ""}`],
       ["Customer Score", customer.customerScore ?? ""],
       ["客戶類型", customer.customerType],
       ["Instagram", customer.socialMedia?.instagram],
@@ -2451,7 +2610,7 @@
     const n = normalizeKeys(row);
     const customerTypeText = getAny(n, "Customer Type", "customer_type", "客戶類型", "客户类型");
     const industry = getAny(n, "Industry", "industry", "行業類別", "行业类别", "行業", "行业");
-    const buyingRole = normalizeBuyingRole(getAny(n, "Buying Role", "buying_role", "buyingRole", "購買角色", "购买角色"));
+    const buyingRole = normalizeBuyingRole(getAny(n, "Buying Role", "Buyer Classification", "Customer Category", "buying_role", "buyingRole", "購買角色", "购买角色", "買家分類", "买家分类"));
     const customerScore = normalizeCustomerScore(getAny(n, "Customer Score", "customer_score", "customerScore", "客戶價值分數", "客户价值分数", "客戶分數", "客户分数"));
     const groupId = resolveGroupId(getAny(n, "Group ID", "group_id", "groupId", "Group", "group", "組別", "组别", "客戶組別", "客户组别"));
     const country = getAny(n, "Country", "country", "國家", "国家", "地區", "地区", "國家地區名", "国家地区名", "國家地區名稱", "国家地区名称");
@@ -2503,20 +2662,55 @@
     const n = normalizeKeys(row);
     const priorityValue = getAny(n, "Priority", "isPriority", "priority", "產品優先級", "产品优先级");
     const priorityNumber = parseNumber(priorityValue, "");
+    const targetPriorities = normalizeTargetPriorities({
+      A: getAny(n, "A=批發", "A", "Wholesaler Priority", "批發優先"),
+      B: getAny(n, "B=實體零售", "B", "Physical Reseller Priority", "實體零售優先"),
+      C: getAny(n, "C=網店零售", "C", "Online Reseller Priority", "網店零售優先"),
+      D: getAny(n, "D=工作室", "D", "Studio Priority", "工作室優先"),
+      All: getAny(n, "All= 全部", "All", "All Priority", "全部優先")
+    });
+    const primary = Object.entries(targetPriorities).sort((a, b) => Number(a[1]) - Number(b[1]))[0];
+    const legacyTarget = primary?.[0] || normalizeRecommendedFor(getAny(n, "Recommended For", "recommended_for", "recommendedFor", "適合角色", "适合角色", "推薦對象", "推荐对象"));
+    const legacyPriority = primary?.[1] ?? priorityNumber;
     return {
       id: uid("prod"),
-      name: getAny(n, "Product Name", "product_name", "name", "product", "產品名稱", "产品名称"),
+      name: getAny(n, "Product Name", "product_name", "name", "product", "Items", "Item", "產品名稱", "产品名称", "產品", "产品"),
       category: getAny(n, "Category", "category", "分類", "分类") || "Uncategorized",
-      inRecommendationPool: parseBoolean(getAny(n, "In Recommendation Pool", "in_recommendation_pool", "recommendation pool", "納入推薦池", "纳入推荐池"), false),
-      recommendedFor: normalizeRecommendedFor(getAny(n, "Recommended For", "recommended_for", "recommendedFor", "適合角色", "适合角色", "推薦對象", "推荐对象")),
-      priority: priorityNumber,
-      isPriority: priorityNumber !== "" ? Number(priorityNumber) <= 3 : parseBoolean(priorityValue, false),
-      sku: getAny(n, "SKU", "sku", "產品編號", "产品编号"),
+      inRecommendationPool: Object.keys(targetPriorities).length > 0 || parseBoolean(getAny(n, "In Recommendation Pool", "in_recommendation_pool", "recommendation pool", "納入推薦池", "纳入推荐池"), false),
+      targetPriorities,
+      recommendedFor: legacyTarget,
+      priority: legacyPriority,
+      isPriority: Object.values(targetPriorities).some((value) => Number(value) <= 3) || (priorityNumber !== "" ? Number(priorityNumber) <= 3 : parseBoolean(priorityValue, false)),
+      sku: getAny(n, "SKU", "sku", "No.", "No", "產品編號", "产品编号"),
       description: getAny(n, "Description", "description", "產品描述", "产品描述"),
       price: parseNumber(getAny(n, "Price", "price", "價格", "价格"), ""),
       productUrl: normalizeUrl(getAny(n, "Product URL", "product_url", "url", "產品連結", "产品链接", "產品網址", "产品网址")),
       launchDate: getAny(n, "Launch Date", "launch_date", "上市日期"),
       createdAt: new Date().toISOString()
+    };
+  }
+
+  function mergeProductTargetData(existing = {}, incoming = {}) {
+    const targetPriorities = {};
+    [existing, incoming].forEach((product) => {
+      Object.entries(normalizeTargetPriorities(product.targetPriorities)).forEach(([target, priority]) => {
+        if (targetPriorities[target] === undefined || Number(priority) < Number(targetPriorities[target])) {
+          targetPriorities[target] = priority;
+        }
+      });
+    });
+    const primary = Object.keys(targetPriorities).length ? primaryTargetPriority({ targetPriorities }) : null;
+    return {
+      ...existing,
+      ...incoming,
+      id: existing.id || incoming.id,
+      name: existing.name || incoming.name,
+      sku: existing.sku || incoming.sku || "",
+      targetPriorities,
+      inRecommendationPool: Object.keys(targetPriorities).length > 0 || Boolean(existing.inRecommendationPool) || Boolean(incoming.inRecommendationPool),
+      isPriority: Object.values(targetPriorities).some((value) => Number(value) <= 3) || Boolean(existing.isPriority) || Boolean(incoming.isPriority),
+      priority: primary ? primary[1] : "",
+      recommendedFor: primary ? primary[0] : "All"
     };
   }
 
@@ -2578,6 +2772,8 @@
       customer.contactEmail,
       customer.groupId,
       customer.group_id,
+      normalizeBuyingRole(customer.buyingRole),
+      buyingRoleDisplay(customer.buyingRole),
       groupName(customer.groupId || customer.group_id),
       ...emailContacts
     ].filter(Boolean).join(" ").toLowerCase();
@@ -2800,7 +2996,7 @@
       customer.buyingRole = determineBuyingRole(roleEvidence);
       if (!customerOverride && dom.buyingRole) dom.buyingRole.value = customer.buyingRole;
       if (!customerOverride && dom.buyingRoleManualStatus) {
-        dom.buyingRoleManualStatus.textContent = `Auto detected: ${customer.buyingRole}`;
+        dom.buyingRoleManualStatus.textContent = `Auto detected: ${buyingRoleDisplay(customer.buyingRole)}`;
       }
     } else {
       customer.buyingRole = normalizeBuyingRole(customer.buyingRole);
@@ -2864,9 +3060,14 @@
     dom.productName.value = product?.name || "";
     dom.productCategory.value = product?.category || "";
     dom.productInPool.checked = Boolean(product?.inRecommendationPool);
-    dom.productPriority.checked = Boolean(product?.isPriority);
-    dom.productPriorityNumber.value = product?.priority ?? "";
-    dom.productRecommendedFor.value = normalizeRecommendedFor(product?.recommendedFor);
+    const targetPriorities = editableTargetPriorities(product || {});
+    ["A", "B", "C", "D", "All"].forEach((target) => {
+      const input = dom[`productPriority${target}`];
+      if (input) input.value = targetPriorities[target] ?? "";
+    });
+    dom.productPriority.checked = Object.keys(targetPriorities).length > 0;
+    dom.productPriorityNumber.value = primaryTargetPriority({ targetPriorities })[1] || "";
+    dom.productRecommendedFor.value = Object.keys(targetPriorities).length ? primaryTargetPriority({ targetPriorities })[0] : "All";
     dom.productSku.value = product?.sku || "";
     dom.productDescription.value = product?.description || "";
     dom.productPrice.value = product?.price ?? "";
@@ -2881,14 +3082,21 @@
       return;
     }
     const products = DB.getProducts();
+    const targetPriorities = {};
+    TARGET_PRIORITY_DISPLAY_ORDER.forEach((target) => {
+      const value = parseNumber(dom[`productPriority${target}`]?.value, "");
+      if (value !== "") targetPriorities[target] = value;
+    });
+    const primary = Object.keys(targetPriorities).length ? primaryTargetPriority({ targetPriorities }) : null;
     const product = {
       id: dom.productId.value || uid("prod"),
       name: normalizeText(dom.productName.value),
       category: normalizeText(dom.productCategory.value),
       inRecommendationPool: dom.productInPool.checked,
-      isPriority: dom.productPriority.checked,
-      priority: parseNumber(dom.productPriorityNumber.value, ""),
-      recommendedFor: normalizeRecommendedFor(dom.productRecommendedFor.value),
+      targetPriorities,
+      isPriority: dom.productPriority.checked || Object.values(targetPriorities).some((value) => Number(value) <= 3),
+      priority: primary ? primary[1] : "",
+      recommendedFor: primary ? primary[0] : "All",
       sku: normalizeText(dom.productSku.value),
       description: normalizeText(dom.productDescription.value),
       price: parseNumber(dom.productPrice.value, ""),
@@ -3900,7 +4108,7 @@
       "bulkAnalyzeAllBtn", "bulkDeleteBtn", "bulkConvertBtn", "bulkGroupSelect", "bulkMoveGroupBtn", "bulkFollowStatus", "bulkNextFollowDate", "bulkProgressBar", "bulkProgressText", "customerList", "backupExportBtn",
       "backupImportBtn", "pullLiveSnapshotBtn", "backupFileInput", "liveSyncDialog", "liveSyncForm", "liveSyncLocalSummary", "liveSyncLiveSummary", "liveSyncScopeSummary", "syncAllSections", "syncCustomersSection", "syncProductsSection", "syncLogsSection", "syncTemplatesSection", "syncSettingsSection", "syncAnalysisHistorySection", "syncErrorLogsSection", "previewLiveSyncBtn", "syncLiveSnapshotBtn", "productDialog", "productForm", "productDialogTitle",
       "productId", "productName", "productCategory", "productInPool", "productPriority",
-      "productPriorityNumber", "productRecommendedFor", "productSku", "productDescription", "productPrice", "productUrl", "productLaunchDate",
+      "productPriorityNumber", "productRecommendedFor", "productPriorityA", "productPriorityB", "productPriorityC", "productPriorityD", "productPriorityAll", "productSku", "productDescription", "productPrice", "productUrl", "productLaunchDate",
       "saveProductDialogBtn", "customerDialog", "customerForm", "customerDialogTitle", "customerId",
       "dialogCompanyName", "dialogWebsite", "dialogContactName", "dialogContactEmail", "dialogCountry", "dialogGroup", "dialogCustomerScore",
       "dialogBuyingRole", "dialogCustomerType", "dialogFollowStatus", "dialogNextFollowDate", "saveCustomerDialogBtn",
@@ -4354,7 +4562,7 @@
           if (current) fillAnalysisForm(current);
         }
         UI.renderCustomerList();
-        UI.toast(`Buying Role saved: ${nextRole}`, "good");
+        UI.toast(`Buyer classification saved: ${buyingRoleDisplay(nextRole)}`, "good");
       }
       if (action === "change-customer-score") {
         const nextScore = normalizeCustomerScore(target.value);

@@ -229,13 +229,13 @@
                   <option>Other</option>
                 </select>
               </label>
-              <label>Buying Role / 購買角色
+              <label>Buyer Classification / 買家分類
                 <select id="buyingRole">
-                  <option>Unknown</option>
-                  <option>Wholesaler</option>
-                  <option>Reseller - Physical</option>
-                  <option>Reseller - Online</option>
-                  <option>End User - Studio</option>
+                  <option value="Unknown">Unknown / 未分類</option>
+                  <option value="A">A - 批發商 / Wholesaler</option>
+                  <option value="B">B - 實體零售商 / Physical Reseller</option>
+                  <option value="C">C - 網店零售商 / Online Reseller</option>
+                  <option value="D">D - 工作室 / Studio or End User</option>
                 </select>
                 <small id="buyingRoleManualStatus">Auto detection will update this after analysis.</small>
               </label>
@@ -516,8 +516,12 @@
             3 = 第三優先 / third,
             空白或較大數字 = 排在後面 / blank or larger numbers appear later.
             <br>
+            <strong>快速搜尋 / Quick search：</strong>
+            输入 <code>A1</code>、<code>A-1</code>、<code>B2</code> 或 <code>All1</code>，即可筛选对应客户目标和优先级的全部产品。
+            空白目标不会进入推荐池。
+            <br>
             <strong>設定邏輯 / Setup logic：</strong>
-            Recommended For 決定「這個產品給誰」；Priority 決定「符合的人裡，先推哪個」。
+            A、B、C、D、All 是独立的适用标签，没有总体主推荐；All 的优先级独立生效，并可推荐给 A、B、C、D 客户。
             <br>
             <strong>建議設定 / Suggested setup：</strong>
             高單價 / 批發量大產品 = A + Priority 1；
@@ -779,17 +783,26 @@
       <label>產品名稱 <input id="productName" required></label>
       <label>分類 <input id="productCategory" required></label>
       <label><input id="productInPool" type="checkbox"> 進入推薦池</label>
-      <label><input id="productPriority" type="checkbox"> Priority</label>
-      <label>Priority Number <input id="productPriorityNumber" type="number" min="1" step="1" placeholder="1"></label>
-      <label>Recommended For
-        <select id="productRecommendedFor">
-          <option>All</option>
-          <option>A</option>
-          <option>B</option>
-          <option>C</option>
-          <option>D</option>
-        </select>
-      </label>
+      <fieldset class="product-target-priorities">
+        <legend>Customer Target Priority</legend>
+        <p class="field-help">填写目标对应的优先级；留空表示不推荐给该类客户。数值越小，优先级越高。</p>
+        <div class="target-priority-grid">
+          <label>A / Wholesaler <input id="productPriorityA" type="number" min="1" step="1" placeholder="-"></label>
+          <label>B / Physical Reseller <input id="productPriorityB" type="number" min="1" step="1" placeholder="-"></label>
+          <label>C / Online Reseller <input id="productPriorityC" type="number" min="1" step="1" placeholder="-"></label>
+          <label>D / Studio <input id="productPriorityD" type="number" min="1" step="1" placeholder="-"></label>
+          <label>All / All Buyers <input id="productPriorityAll" type="number" min="1" step="1" placeholder="-"></label>
+        </div>
+      </fieldset>
+      <input id="productPriority" type="checkbox" class="hidden" aria-hidden="true">
+      <input id="productPriorityNumber" type="hidden">
+      <select id="productRecommendedFor" class="hidden" aria-hidden="true">
+        <option>All</option>
+        <option>A</option>
+        <option>B</option>
+        <option>C</option>
+        <option>D</option>
+      </select>
       <label>SKU <input id="productSku" placeholder="SKU-001"></label>
       <label>Description <textarea id="productDescription" rows="3" placeholder="Short product description"></textarea></label>
       <label>Price <input id="productPrice" type="number" min="0" step="0.01" placeholder="0.00"></label>
@@ -815,13 +828,13 @@
         <select id="dialogGroup"></select>
       </label>
       <label>Customer Score <input id="dialogCustomerScore" type="number" min="1" max="100" step="1" placeholder="1-100"></label>
-      <label>Buying Role / 購買角色
+      <label>Buyer Classification / 買家分類
         <select id="dialogBuyingRole">
-          <option>Unknown</option>
-          <option>Wholesaler</option>
-          <option>Reseller - Physical</option>
-          <option>Reseller - Online</option>
-          <option>End User - Studio</option>
+          <option value="Unknown">Unknown / 未分類</option>
+          <option value="A">A - 批發商 / Wholesaler</option>
+          <option value="B">B - 實體零售商 / Physical Reseller</option>
+          <option value="C">C - 網店零售商 / Online Reseller</option>
+          <option value="D">D - 工作室 / Studio or End User</option>
         </select>
       </label>
       <label>客戶類型
