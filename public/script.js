@@ -281,6 +281,12 @@
     return text;
   }
 
+  function isPhottixCompany(companyName = "", website = "") {
+    const company = normalizeText(companyName).toLowerCase();
+    const domain = normalizeDomain(website);
+    return /\bphottix\b/i.test(company) || domain === "phottix.com" || domain.endsWith(".phottix.com");
+  }
+
   function normalizeBuyingRole(value) {
     const text = normalizeText(value).toLowerCase();
     if (!text) return "Unknown";
@@ -471,9 +477,11 @@
     return compactKeyword.length >= 6 && compactText.includes(compactKeyword);
   }
 
-  function determineBuyingRole(websiteText) {
+  function determineBuyingRole(websiteText, company = {}) {
     const text = normalizeText(websiteText);
     if (!text) return "Unknown";
+
+    if (isPhottixCompany(company.companyName, company.website)) return "A";
 
     // Exact business-model signals take precedence over general photography words.
     // This prevents a camera retailer mentioning studios or photographers from being classified as D.
@@ -3014,7 +3022,7 @@
       customer.website
     ].filter(Boolean).join("\n");
     if (!customer.isBuyingRoleManuallyReviewed) {
-      customer.buyingRole = determineBuyingRole(roleEvidence);
+      customer.buyingRole = determineBuyingRole(roleEvidence, customer);
       if (!customerOverride && dom.buyingRole) dom.buyingRole.value = customer.buyingRole;
       if (!customerOverride && dom.buyingRoleManualStatus) {
         dom.buyingRoleManualStatus.textContent = `Auto detected: ${buyingRoleDisplay(customer.buyingRole)}`;
