@@ -11,6 +11,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { DatabaseSync } = require("node:sqlite");
 const { createAssetStorage, safeObjectKey } = require("./asset-storage");
+const { classifyRows } = require("./public/customer-classification");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -80,7 +81,8 @@ const SHARED_STORAGE_KEYS = [
   "phottix_settings",
   "phottix_auto_backups",
   "phottix_analysis_history",
-  "phottix_error_logs"
+  "phottix_error_logs",
+  "phottix_customer_import_reviews"
 ];
 const LIVE_SYNC_KEY_MAP = {
   customers: "phottix_customers",
@@ -2139,6 +2141,8 @@ app.put("/api/db/key/:key", (req, res) => {
       if (rejectRole(req, res, ["admin", "product_manager"], "Product changes are not allowed for this role.")) return;
     } else if (["phottix_settings", "phottix_auto_backups", "phottix_error_logs"].includes(key)) {
       if (rejectRole(req, res, ["admin"], "System setting changes are admin-only.")) return;
+    } else if (key === "phottix_customer_import_reviews") {
+      if (rejectRole(req, res, ["admin", "user"], "Customer import review changes are not allowed for this role.")) return;
     }
     writeSharedKey(key, nextValue);
     const value = nextValue;
@@ -2702,12 +2706,14 @@ app.post("/api/import-customer-excel-upload", (req, res) => {
     }
     try {
       const { sheetName, rows } = readExcelRows(file.path);
+      const classification = classifyRows(rows);
       res.json({
         success: true,
         sheetName,
         fileName: file.originalname,
         rows,
-        data: rows
+        data: rows,
+        classification: classification.counts
       });
     } catch (readError) {
       res.status(502).json({ success: false, error: readError.message || "Failed to parse uploaded Excel." });

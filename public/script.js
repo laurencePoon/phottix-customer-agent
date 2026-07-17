@@ -13,6 +13,7 @@
   const API_BASE = location.protocol === "file:" ? "http://127.0.0.1:8787" : location.origin;
   const LIVE_SYNC_SOURCE = "https://agent.phottix.cn";
   const TODAY = new Date().toISOString().slice(0, 10);
+  const CustomerClassification = window.PhottixCustomerClassification;
 
   const STORAGE = {
     customers: "phottix_customers",
@@ -22,7 +23,8 @@
     settings: "phottix_settings",
     autoBackups: "phottix_auto_backups",
     analysisHistory: "phottix_analysis_history",
-    errorLogs: "phottix_error_logs"
+    errorLogs: "phottix_error_logs",
+    customerImportReviews: "phottix_customer_import_reviews"
   };
   const SHARED_STORAGE_KEYS = Object.values(STORAGE);
   const SQLITE_SYNC_KEY = "phottix_sqlite_shared_sync";
@@ -604,6 +606,31 @@
     URL.revokeObjectURL(url);
   }
 
+  function downloadCustomerImportReview(status) {
+    const review = DB.getCustomerImportReviews();
+    const entries = Array.isArray(review[status]) ? review[status] : [];
+    if (!entries.length) {
+      UI.toast("没有可下载的审核记录。", "warn");
+      return;
+    }
+    const sourceRows = entries.map((entry) => ({
+      ...(entry.row || {}),
+      "Import Status": entry.status || status,
+      "Reason": entry.reason || "",
+      "Buyer Role": entry.buyingRole || "",
+      "Source Row": entry.rowNumber || ""
+    }));
+    const headers = [...new Set(sourceRows.flatMap((row) => Object.keys(row)))];
+    const csvCell = (value) => {
+      const text = String(value ?? "").replace(/\r?\n/g, " ");
+      return /[",]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    };
+    const csv = [headers, ...sourceRows.map((row) => headers.map((header) => row[header] ?? ""))]
+      .map((row) => row.map(csvCell).join(","))
+      .join("\r\n");
+    downloadBlob(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }), `phottix-customer-${status}-review.csv`);
+  }
+
   function purposeKey(purpose) {
     return normalizeText(purpose).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
   }
@@ -811,7 +838,8 @@
         [STORAGE.settings]: this.getSettings(),
         [STORAGE.autoBackups]: this.read(STORAGE.autoBackups, {}),
         [STORAGE.analysisHistory]: this.read(STORAGE.analysisHistory, {}),
-        [STORAGE.errorLogs]: this.read(STORAGE.errorLogs, [])
+        [STORAGE.errorLogs]: this.read(STORAGE.errorLogs, []),
+        [STORAGE.customerImportReviews]: this.getCustomerImportReviews()
       };
     },
     applySharedSnapshot(data = {}) {
@@ -825,12 +853,17 @@
       const customers = this.read(STORAGE.customers, []);
       const products = this.read(STORAGE.products, []);
       const logs = this.read(STORAGE.logs, {});
-      return customers.length > 0 || products.length > 0 || Object.keys(logs || {}).length > 0;
+      const reviews = this.getCustomerImportReviews();
+      return customers.length > 0 || products.length > 0 || Object.keys(logs || {}).length > 0
+        || reviews.pending.length > 0 || reviews.invalid.length > 0;
     },
     snapshotHasBusinessData(data = {}) {
       return Array.isArray(data[STORAGE.customers]) && data[STORAGE.customers].length > 0
         || Array.isArray(data[STORAGE.products]) && data[STORAGE.products].length > 0
-        || data[STORAGE.logs] && typeof data[STORAGE.logs] === "object" && Object.keys(data[STORAGE.logs]).length > 0;
+        || data[STORAGE.logs] && typeof data[STORAGE.logs] === "object" && Object.keys(data[STORAGE.logs]).length > 0
+        || data[STORAGE.customerImportReviews] && (
+          data[STORAGE.customerImportReviews].pending?.length > 0 || data[STORAGE.customerImportReviews].invalid?.length > 0
+        );
     },
     async initSharedStore() {
       try {
@@ -1042,6 +1075,19 @@
     setErrorLogs(logs) {
       this.write(STORAGE.errorLogs, logs);
     },
+    getCustomerImportReviews() {
+      const value = this.read(STORAGE.customerImportReviews, {});
+      return {
+        importedAt: value.importedAt || "",
+        sourceFile: value.sourceFile || "",
+        counts: value.counts || { total: 0, valid: 0, pending: 0, invalid: 0, added: 0 },
+        pending: Array.isArray(value.pending) ? value.pending : [],
+        invalid: Array.isArray(value.invalid) ? value.invalid : []
+      };
+    },
+    setCustomerImportReviews(value) {
+      this.write(STORAGE.customerImportReviews, value || {});
+    },
     addErrorLog(operation, error, customer = {}) {
       const logs = this.getErrorLogs();
       logs.unshift({
@@ -1065,7 +1111,8 @@
         phottix_email_templates: this.getTemplates(),
         phottix_settings: this.getSettings(),
         phottix_analysis_history: this.getAnalysisHistory(),
-        phottix_error_logs: this.getErrorLogs()
+        phottix_error_logs: this.getErrorLogs(),
+        phottix_customer_import_reviews: this.getCustomerImportReviews()
       };
     },
     backup(reason = "manual") {
@@ -1085,6 +1132,7 @@
       if (snapshot.phottix_settings) this.setSettings(snapshot.phottix_settings);
       if (snapshot.phottix_analysis_history) this.setAnalysisHistory(snapshot.phottix_analysis_history);
       if (snapshot.phottix_error_logs) this.setErrorLogs(snapshot.phottix_error_logs);
+      if (snapshot.phottix_customer_import_reviews) this.setCustomerImportReviews(snapshot.phottix_customer_import_reviews);
     }
   };
 
@@ -1462,7 +1510,11 @@
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || "Customer Excel upload failed.");
-      return payload.data || payload.rows || [];
+      return {
+        rows: payload.data || payload.rows || [],
+        classification: payload.classification || null,
+        fileName: payload.fileName || file.name || "customer-import.xlsx"
+      };
     },
     async parseUploadedExcelFile(file) {
       if (!file) throw new Error("Please choose an Excel file first.");
@@ -1487,13 +1539,21 @@
     importCustomerRows(rows, options = {}) {
       DB.backup("before_customer_import");
       const customers = DB.getCustomers();
+      const classification = CustomerClassification.classifyRows(rows);
       const targetGroupId = normalizeGroupId(options.groupId ?? dom.customerImportGroupSelect?.value);
       let added = 0;
       let skipped = 0;
       let forceUpdated = 0;
       let movedGroup = 0;
-      for (const row of rows) {
+      for (const classifiedRow of classification.rows) {
+        if (classifiedRow.status !== CustomerClassification.STATUS.VALID) continue;
+        const row = classifiedRow.row;
         const incoming = normalizeImportedCustomer(row);
+        if (incoming.buyingRole === "Unknown" && classifiedRow.buyingRole) {
+          incoming.buyingRole = classifiedRow.buyingRole;
+          incoming.isBuyingRoleManuallyReviewed = false;
+        }
+        incoming.importClassification = "valid";
         incoming._normalizedDomain = importedRowDomain(row) || normalizeDomain(incoming.website);
         if (targetGroupId || options.forceGroup) {
           incoming.groupId = targetGroupId;
@@ -1529,9 +1589,29 @@
           added += 1;
         }
       }
+      const reviewPayload = {
+        importedAt: new Date().toISOString(),
+        sourceFile: options.fileName || "",
+        counts: { ...classification.counts, added, skipped, forceUpdated, movedGroup },
+        pending: classification.rows.filter((item) => item.status === CustomerClassification.STATUS.PENDING).map((item) => ({
+          rowNumber: item.rowNumber,
+          status: item.status,
+          reason: item.reason,
+          buyingRole: item.buyingRole,
+          row: item.row
+        })),
+        invalid: classification.rows.filter((item) => item.status === CustomerClassification.STATUS.INVALID).map((item) => ({
+          rowNumber: item.rowNumber,
+          status: item.status,
+          reason: item.reason,
+          buyingRole: item.buyingRole,
+          row: item.row
+        }))
+      };
       DB.setCustomers(customers);
+      DB.setCustomerImportReviews(reviewPayload);
       UI.refreshAll();
-      UI.toast(`新增：${added} 筆，跳過：${skipped} 筆（重複客戶），強制更新：${forceUpdated} 筆，更新組別：${movedGroup} 筆。`, "good");
+      UI.toast(`导入完成：总记录 ${classification.counts.total}，有效 ${classification.counts.valid}，待分类 ${classification.counts.pending}，无效 ${classification.counts.invalid}。新增客户池 ${added}。`, "good");
     },
     async importCustomersFromConfig(filename) {
       const cleanName = normalizeText(filename || this.selectedImportFilename()).replace(/^["']|["']$/g, "");
@@ -1539,7 +1619,12 @@
       this.importCustomerRows(await this.parseConfigFile(cleanName), { groupId: dom.customerImportGroupSelect?.value, forceGroup: true });
     },
     async importCustomersFromUpload(file) {
-      this.importCustomerRows(await this.parseUploadedCustomerFile(file), { groupId: dom.customerImportGroupSelect?.value, forceGroup: true });
+      const payload = await this.parseUploadedCustomerFile(file);
+      this.importCustomerRows(payload.rows, {
+        groupId: dom.customerImportGroupSelect?.value,
+        forceGroup: true,
+        fileName: payload.fileName || file.name
+      });
     },
     importProductRows(rows) {
       DB.backup("before_product_import");
@@ -2224,6 +2309,7 @@
       this.renderTodayFollowUps();
       this.renderStats();
       this.renderErrorLogs();
+      this.renderCustomerImportResult();
       this.renderGroupControls();
       this.renderLoadCustomerSelect();
       this.renderSenderSelector();
@@ -2338,6 +2424,21 @@
       dom.errorLogList.innerHTML = logs.length
         ? logs.map((log) => `<div class="today-item"><strong>${escapeHtml(log.operation)}</strong><br>${escapeHtml(log.message)}<br><small>${escapeHtml(formatDateTime(log.timestamp))}</small></div>`).join("")
         : `<div class="empty">沒有錯誤日誌。</div>`;
+    },
+    renderCustomerImportResult() {
+      if (!dom.customerImportResult) return;
+      const review = DB.getCustomerImportReviews();
+      const counts = review.counts || {};
+      if (!review.importedAt || !Number(counts.total)) {
+        dom.customerImportResult.textContent = "";
+        return;
+      }
+      dom.customerImportResult.className = "attachment-upload-status good";
+      dom.customerImportResult.innerHTML = `
+        导入完成 / Import complete：总记录 ${Number(counts.total) || 0}，有效 ${Number(counts.valid) || 0}，待分类 ${Number(counts.pending) || 0}，无效 ${Number(counts.invalid) || 0}；新增客户池 ${Number(counts.added) || 0}。
+        ${counts.pending ? `<button type="button" class="mini-button" data-action="download-customer-review" data-status="pending">下载待分类</button>` : ""}
+        ${counts.invalid ? `<button type="button" class="mini-button" data-action="download-customer-review" data-status="invalid">下载无效存档</button>` : ""}
+      `;
     },
     renderLoadCustomerSelect() {
       const customers = DB.getCustomers();
@@ -4323,7 +4424,7 @@
       "emailStrategyNote",
       "addLogBtn", "timeline", "analysisHistory", "addProductBtn", "importProductsBtn", "productExcelFileInput", "productSearch",
       "productView", "productTable", "addCustomerBtn", "importCustomersBtn", "syncInboxBtn", "importUpdateBtn",
-      "exportCustomersBtn", "customerImportFileSelect", "customerImportIndex", "importCustomersConfigBtn", "uploadCustomerExcelBtn", "customerExcelFileInput", "customerImportGroupSelect", "excelFileList", "addGroupBtn", "groupList", "customerTypeFilter", "ratingFilter",
+      "exportCustomersBtn", "customerImportFileSelect", "customerImportIndex", "importCustomersConfigBtn", "uploadCustomerExcelBtn", "customerExcelFileInput", "customerImportGroupSelect", "customerImportResult", "excelFileList", "addGroupBtn", "groupList", "customerTypeFilter", "ratingFilter",
       "followStatusFilter", "groupFilter", "customerSearch", "selectAllCustomers", "bulkAnalyzeSelectedBtn",
       "bulkAnalyzeAllBtn", "bulkDeleteBtn", "bulkConvertBtn", "bulkGroupSelect", "bulkMoveGroupBtn", "bulkFollowStatus", "bulkNextFollowDate", "bulkProgressBar", "bulkProgressText", "customerList", "backupExportBtn",
       "backupImportBtn", "pullLiveSnapshotBtn", "backupFileInput", "liveSyncDialog", "liveSyncForm", "liveSyncLocalSummary", "liveSyncLiveSummary", "liveSyncScopeSummary", "syncAllSections", "syncCustomersSection", "syncProductsSection", "syncLogsSection", "syncTemplatesSection", "syncSettingsSection", "syncAnalysisHistorySection", "syncErrorLogsSection", "previewLiveSyncBtn", "syncLiveSnapshotBtn", "productDialog", "productForm", "productDialogTitle",
@@ -4713,6 +4814,10 @@
       if (!target) return;
       const action = target.dataset.action;
       const id = target.dataset.id;
+      if (action === "download-customer-review") {
+        downloadCustomerImportReview(target.dataset.status);
+        return;
+      }
       if (action === "download-asset") {
         AssetApi.download(id).catch((error) => UI.toast(error.message, "bad"));
         return;
