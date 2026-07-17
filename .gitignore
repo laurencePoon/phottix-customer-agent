@@ -6,3 +6,5 @@ data/
 backups/
 uploads/temp/*
 !uploads/temp/.gitkeep
+uploads/library/*
+!uploads/library/.gitkeep

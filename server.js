@@ -10,6 +10,7 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { DatabaseSync } = require("node:sqlite");
+const { createAssetStorage, safeObjectKey } = require("./asset-storage");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -20,11 +21,23 @@ const DATA_DIR = path.join(__dirname, "data");
 const SQLITE_PATH = path.join(DATA_DIR, "phottix.sqlite");
 const BACKUP_DIR = path.join(__dirname, "backups");
 const UPLOAD_TEMP_DIR = path.join(__dirname, "uploads", "temp");
+const ASSET_LOCAL_DIR = path.join(__dirname, "uploads", "library");
 const DEFAULT_CONFIG = { import_folder: "./imports/" };
 const DEFAULT_LIVE_SYNC_SOURCE = "https://agent.phottix.cn";
 const IV_LENGTH = 16;
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 const MAX_ATTACHMENT_COUNT = 10;
+const MAX_ASSET_SIZE = 200 * 1024 * 1024;
+const MAX_ASSET_COUNT = 10;
+const ASSET_SIGNED_URL_EXPIRES_SEC = 600;
+const ASSET_CATEGORIES = new Set([
+  "price_lists",
+  "product_images",
+  "product_videos",
+  "product_documents",
+  "email_templates",
+  "shared_files"
+]);
 const ALLOWED_ATTACHMENT_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -33,6 +46,9 @@ const ALLOWED_ATTACHMENT_TYPES = new Set([
   "image/heif",
   "image/heic-sequence",
   "image/heif-sequence",
+  "video/mp4",
+  "video/quicktime",
+  "video/webm",
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -46,6 +62,10 @@ const ALLOWED_ATTACHMENT_EXTENSIONS = new Set([
   ".gif",
   ".heic",
   ".heif",
+  ".mp4",
+  ".mov",
+  ".m4v",
+  ".webm",
   ".pdf",
   ".doc",
   ".docx",
@@ -97,6 +117,7 @@ const APP_AUTH_SENDERS = String(process.env.APP_AUTH_SENDERS || "").trim();
 const SESSION_COOKIE_NAME = "phottix_v11_session";
 const SESSION_TTL_MS = Math.max(1, Number(process.env.APP_SESSION_TTL_HOURS || 12)) * 60 * 60 * 1000;
 const APP_SESSION_SECRET = String(process.env.APP_SESSION_SECRET || process.env.ENCRYPTION_KEY || APP_AUTH_PASS || "phottix-local-session-secret").trim();
+const assetStorage = createAssetStorage({ provider: process.env.STORAGE_PROVIDER || "local", localRoot: ASSET_LOCAL_DIR });
 
 ensureImportFolder();
 ensureUploadTempDir();
@@ -744,6 +765,27 @@ function getSqliteDb() {
       last_login TEXT
     )
   `);
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS asset_library (
+      id TEXT PRIMARY KEY,
+      original_name TEXT NOT NULL,
+      oss_key TEXT NOT NULL UNIQUE,
+      category TEXT NOT NULL,
+      sku TEXT,
+      file_type TEXT,
+      mime_type TEXT,
+      file_size INTEGER DEFAULT 0,
+      uploaded_by TEXT,
+      uploaded_by_name TEXT,
+      uploaded_at TEXT,
+      updated_at TEXT,
+      version INTEGER DEFAULT 1,
+      is_current INTEGER DEFAULT 1,
+      status TEXT DEFAULT 'active',
+      checksum TEXT,
+      created_at TEXT
+    )
+  `);
   ensureOptionalCustomerGroupColumn(sqliteDb);
   seedDefaultSender(sqliteDb);
   return sqliteDb;
@@ -960,6 +1002,76 @@ function logAudit(req, action, targetType, targetId, targetName, details = {}) {
       console.warn(`Audit log skipped: ${error.message}`);
     }
   });
+}
+
+function normalizeAssetCategory(value) {
+  const category = String(value || "shared_files").trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_");
+  return ASSET_CATEGORIES.has(category) ? category : "shared_files";
+}
+
+function safeAssetPart(value, fallback = "general") {
+  const normalized = String(value || fallback).trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-");
+  return normalized.replace(/^[-.]+|[-.]+$/g, "").slice(0, 80) || fallback;
+}
+
+function assetFileType(mimetype, originalName) {
+  const type = String(mimetype || "").toLowerCase();
+  const extension = path.extname(originalName || "").toLowerCase();
+  if (type.startsWith("video/") || [".mp4", ".mov", ".m4v", ".webm"].includes(extension)) return "video";
+  if (type.startsWith("image/") || [".jpg", ".jpeg", ".png", ".gif", ".heic", ".heif"].includes(extension)) return "image";
+  if (type.includes("pdf") || extension === ".pdf") return "pdf";
+  if (type.includes("word") || [".doc", ".docx"].includes(extension)) return "word";
+  if (type.includes("sheet") || type.includes("excel") || [".xls", ".xlsx"].includes(extension)) return "excel";
+  return "file";
+}
+
+function assetObjectKey(category, sku, version, originalName) {
+  const extension = path.extname(originalName || "").toLowerCase();
+  const safeName = safeAssetPart(path.basename(originalName || "asset"), "asset");
+  return safeObjectKey(`${category}/${safeAssetPart(sku, "general")}/${Date.now()}-v${version}-${uid("asset").slice(-8)}-${safeName}${extension && !safeName.toLowerCase().endsWith(extension) ? extension : ""}`);
+}
+
+function publicAsset(row) {
+  return {
+    id: row.id,
+    originalName: row.original_name,
+    objectKey: row.oss_key,
+    category: row.category,
+    sku: row.sku || "",
+    fileType: row.file_type || "file",
+    mimeType: row.mime_type || "application/octet-stream",
+    fileSize: Number(row.file_size || 0),
+    uploadedBy: row.uploaded_by || "",
+    uploadedByName: row.uploaded_by_name || row.uploaded_by || "",
+    uploadedAt: row.uploaded_at || row.created_at || "",
+    updatedAt: row.updated_at || row.uploaded_at || row.created_at || "",
+    version: Number(row.version || 1),
+    isCurrent: Boolean(row.is_current),
+    status: row.status || "active",
+    storageProvider: assetStorage.provider
+  };
+}
+
+function findAsset(id, includeInactive = false) {
+  const query = includeInactive
+    ? "SELECT * FROM asset_library WHERE id = ?"
+    : "SELECT * FROM asset_library WHERE id = ? AND status = 'active'";
+  return getSqliteDb().prepare(query).get(String(id || ""));
+}
+
+function assetCanManage(req) {
+  return ["admin", "product_manager"].includes(currentRole(req));
+}
+
+function assetUploader(req) {
+  return {
+    username: String(req.appUserRecord?.username || req.appUser || "localhost").trim(),
+    displayName: String(req.appUserRecord?.displayName || req.appUserRecord?.username || req.appUser || "Local Admin").trim()
+  };
+}
+
+function assetTempPath(fileName = "asset") {
+  return path.join(UPLOAD_TEMP_DIR, `${Date.now()}-${crypto.randomBytes(8).toString("hex")}-${safeAssetPart(fileName, "asset")}`);
 }
 
 function listBackups() {
@@ -1564,20 +1676,41 @@ function isPathInsideUploadTemp(filePath) {
   return resolved === uploadRoot || resolved.startsWith(`${uploadRoot}${path.sep}`);
 }
 
-function safeUploadedMailAttachments(items = []) {
-  return (Array.isArray(items) ? items : [])
-    .filter((item) => item && item.path && item.isUploadedFile)
-    .map((item) => {
-      const resolvedPath = path.resolve(String(item.path));
-      if (!isPathInsideUploadTemp(resolvedPath) || !fs.existsSync(resolvedPath)) {
-        throw new Error("Invalid or expired attachment file.");
+async function prepareMailAttachments(items = []) {
+  const mailAttachments = [];
+  const tempFiles = [];
+  try {
+    for (const item of (Array.isArray(items) ? items : [])) {
+      if (item?.assetId) {
+        const asset = findAsset(item.assetId);
+        if (!asset) throw new Error("Cloud attachment is unavailable or has been deleted.");
+        const tempPath = assetTempPath(asset.original_name);
+        await assetStorage.copyToFile(asset.oss_key, tempPath);
+        tempFiles.push({ path: tempPath });
+        mailAttachments.push({
+          filename: asset.original_name,
+          path: tempPath,
+          contentType: asset.mime_type || undefined
+        });
+        continue;
       }
-      return {
-        filename: String(item.originalName || item.filename || "attachment"),
-        path: resolvedPath,
-        contentType: item.mimetype || undefined
-      };
-    });
+      if (item?.path && item.isUploadedFile) {
+        const resolvedPath = path.resolve(String(item.path));
+        if (!isPathInsideUploadTemp(resolvedPath) || !fs.existsSync(resolvedPath)) {
+          throw new Error("Invalid or expired attachment file.");
+        }
+        mailAttachments.push({
+          filename: String(item.originalName || item.filename || "attachment"),
+          path: resolvedPath,
+          contentType: item.mimetype || undefined
+        });
+      }
+    }
+    return { mailAttachments, tempFiles };
+  } catch (error) {
+    cleanupUploadedFiles(tempFiles);
+    throw error;
+  }
 }
 
 function cleanupUploadedFiles(items = []) {
@@ -1656,6 +1789,19 @@ app.get("/health", (req, res) => {
   res.json({ success: true, status: "ok" });
 });
 
+const uploadAssetFiles = multer({
+  storage: attachmentStorage,
+  limits: { fileSize: MAX_ASSET_SIZE, files: MAX_ASSET_COUNT },
+  fileFilter: (req, file, cb) => {
+    const extension = path.extname(file.originalname || "").toLowerCase();
+    if (ALLOWED_ATTACHMENT_TYPES.has(file.mimetype) || ALLOWED_ATTACHMENT_EXTENSIONS.has(extension)) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error("Unsupported asset type. Please upload PDF, Word, Excel, image, or video files."));
+  }
+});
+
 app.get("/api/auth/me", (req, res) => {
   const role = currentRole(req);
   res.json({
@@ -1686,6 +1832,8 @@ app.get("/api/auth/me", (req, res) => {
       canManageSenders: role === "admin",
       canViewSenders: ["admin", "product_manager", "finance_manager", "shipping_manager", "user"].includes(role),
       canUseSenders: ["admin", "product_manager", "finance_manager", "shipping_manager", "user"].includes(role),
+      canViewAssets: ["admin", "product_manager", "finance_manager", "shipping_manager", "user"].includes(role),
+      canManageAssets: ["admin", "product_manager"].includes(role),
       canViewSystemLogs: role === "admin"
     }
   });
@@ -2542,7 +2690,6 @@ app.post("/api/import-excel-upload", (req, res) => {
 
 app.post("/api/import-customer-excel-upload", (req, res) => {
   if (rejectRole(req, res, ["admin", "user"], "Customer Excel import is not allowed for this role.")) return;
-  if (rejectRemoteImport(req, res)) return;
   uploadCustomerExcel.single("customerExcel")(req, res, (error) => {
     if (error) {
       res.status(400).json({ success: false, error: error.message || "Customer Excel upload failed." });
@@ -2592,6 +2739,202 @@ app.post("/api/generate-excel", (req, res) => {
   }
 });
 
+app.get("/api/assets", (req, res) => {
+  try {
+    const where = ["status = 'active'", "is_current = 1"];
+    const params = [];
+    const category = String(req.query.category || "").trim().toLowerCase();
+    const sku = String(req.query.sku || "").trim();
+    const search = String(req.query.q || "").trim();
+    if (ASSET_CATEGORIES.has(category)) {
+      where.push("category = ?");
+      params.push(category);
+    }
+    if (sku) {
+      where.push("sku LIKE ?");
+      params.push(`%${sku}%`);
+    }
+    if (search) {
+      where.push("(original_name LIKE ? OR sku LIKE ? OR uploaded_by_name LIKE ?)");
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    const rows = getSqliteDb().prepare(`
+      SELECT * FROM asset_library
+      WHERE ${where.join(" AND ")}
+      ORDER BY updated_at DESC, original_name COLLATE NOCASE
+    `).all(...params);
+    res.json({ success: true, provider: assetStorage.provider, assets: rows.map(publicAsset) });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to load asset library." });
+  }
+});
+
+app.post("/api/assets", (req, res) => {
+  if (!assetCanManage(req)) {
+    res.status(403).json({ success: false, error: "Only Admin or Product Manager can upload shared assets." });
+    return;
+  }
+  uploadAssetFiles.array("files", MAX_ASSET_COUNT)(req, res, async (error) => {
+    const files = Array.isArray(req.files) ? req.files : [];
+    try {
+      if (error) throw new Error(error.code === "LIMIT_FILE_SIZE" ? "Asset file is too large." : error.message || "Asset upload failed.");
+      if (!files.length) throw new Error("No asset files selected.");
+      const category = normalizeAssetCategory(req.body?.category);
+      const sku = String(req.body?.sku || "").trim();
+      const uploader = assetUploader(req);
+      const now = new Date().toISOString();
+      const db = getSqliteDb();
+      const insert = db.prepare(`
+        INSERT INTO asset_library
+          (id, original_name, oss_key, category, sku, file_type, mime_type, file_size, uploaded_by, uploaded_by_name, uploaded_at, updated_at, version, is_current, status, checksum, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?)
+      `);
+      const created = [];
+      for (const file of files) {
+        const id = uid("asset");
+        const key = assetObjectKey(category, sku, 1, file.originalname);
+        await assetStorage.put(key, file.path, file.mimetype || "application/octet-stream");
+        insert.run(
+          id,
+          file.originalname,
+          key,
+          category,
+          sku,
+          assetFileType(file.mimetype, file.originalname),
+          file.mimetype || "application/octet-stream",
+          file.size || 0,
+          uploader.username,
+          uploader.displayName,
+          now,
+          now,
+          1,
+          "",
+          now
+        );
+        const row = db.prepare("SELECT * FROM asset_library WHERE id = ?").get(id);
+        created.push(publicAsset(row));
+        logAudit(req, "CREATE", "asset", id, file.originalname, { category, sku, version: 1, provider: assetStorage.provider });
+      }
+      res.json({ success: true, assets: created });
+    } catch (uploadError) {
+      res.status(400).json({ success: false, error: uploadError.message || "Asset upload failed." });
+    } finally {
+      cleanupUploadedFiles(files);
+    }
+  });
+});
+
+app.get("/api/assets/:id/download-url", async (req, res) => {
+  try {
+    const row = findAsset(req.params.id);
+    if (!row) {
+      res.status(404).json({ success: false, error: "Asset not found." });
+      return;
+    }
+    const url = await assetStorage.getDownloadUrl(row.oss_key, {
+      localUrl: `/api/assets/${encodeURIComponent(row.id)}/content`,
+      expires: ASSET_SIGNED_URL_EXPIRES_SEC,
+      contentType: row.mime_type,
+      downloadName: row.original_name
+    });
+    logAudit(req, "DOWNLOAD", "asset", row.id, row.original_name, { category: row.category, version: row.version });
+    res.json({ success: true, url, expiresIn: assetStorage.provider === "oss" ? ASSET_SIGNED_URL_EXPIRES_SEC : null, asset: publicAsset(row) });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Failed to create asset download URL." });
+  }
+});
+
+app.get("/api/assets/:id/content", async (req, res) => {
+  try {
+    const row = findAsset(req.params.id);
+    if (!row) {
+      res.status(404).json({ success: false, error: "Asset not found." });
+      return;
+    }
+    res.setHeader("Content-Type", row.mime_type || "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(row.original_name)}"`);
+    await assetStorage.pipeToResponse(row.oss_key, res);
+  } catch (error) {
+    if (!res.headersSent) res.status(404).json({ success: false, error: "Asset content is unavailable." });
+  }
+});
+
+app.put("/api/assets/:id", (req, res) => {
+  if (!assetCanManage(req)) {
+    res.status(403).json({ success: false, error: "Only Admin or Product Manager can modify shared assets." });
+    return;
+  }
+  uploadAssetFiles.single("file")(req, res, async (error) => {
+    const file = req.file;
+    try {
+      if (error) throw new Error(error.code === "LIMIT_FILE_SIZE" ? "Asset file is too large." : error.message || "Asset update failed.");
+      const existing = findAsset(req.params.id);
+      if (!existing) {
+        res.status(404).json({ success: false, error: "Asset not found." });
+        return;
+      }
+      const db = getSqliteDb();
+      const now = new Date().toISOString();
+      const category = normalizeAssetCategory(req.body?.category || existing.category);
+      const sku = String(req.body?.sku ?? existing.sku ?? "").trim();
+      const originalName = String(req.body?.originalName || file?.originalname || existing.original_name).trim();
+      if (!file) {
+        db.prepare("UPDATE asset_library SET category = ?, sku = ?, original_name = ?, updated_at = ? WHERE id = ?")
+          .run(category, sku, originalName, now, existing.id);
+        const updated = db.prepare("SELECT * FROM asset_library WHERE id = ?").get(existing.id);
+        logAudit(req, "UPDATE", "asset", existing.id, originalName, { category, sku, version: existing.version, metadataOnly: true });
+        res.json({ success: true, asset: publicAsset(updated) });
+        return;
+      }
+      const nextVersion = Number(existing.version || 1) + 1;
+      const key = assetObjectKey(category, sku, nextVersion, originalName);
+      await assetStorage.put(key, file.path, file.mimetype || existing.mime_type || "application/octet-stream");
+      const uploader = assetUploader(req);
+      const id = uid("asset");
+      db.exec("BEGIN");
+      try {
+        db.prepare("UPDATE asset_library SET is_current = 0, updated_at = ? WHERE id = ?").run(now, existing.id);
+        db.prepare(`
+          INSERT INTO asset_library
+            (id, original_name, oss_key, category, sku, file_type, mime_type, file_size, uploaded_by, uploaded_by_name, uploaded_at, updated_at, version, is_current, status, checksum, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?)
+        `).run(id, originalName, key, category, sku, assetFileType(file.mimetype, originalName), file.mimetype || existing.mime_type || "application/octet-stream", file.size || 0, uploader.username, uploader.displayName, now, now, nextVersion, "", now);
+        db.exec("COMMIT");
+      } catch (dbError) {
+        db.exec("ROLLBACK");
+        throw dbError;
+      }
+      const updated = db.prepare("SELECT * FROM asset_library WHERE id = ?").get(id);
+      logAudit(req, "UPDATE", "asset", id, originalName, { previousAssetId: existing.id, category, sku, version: nextVersion });
+      res.json({ success: true, asset: publicAsset(updated) });
+    } catch (updateError) {
+      res.status(400).json({ success: false, error: updateError.message || "Asset update failed." });
+    } finally {
+      cleanupUploadedFiles(file ? [file] : []);
+    }
+  });
+});
+
+app.delete("/api/assets/:id", (req, res) => {
+  if (!assetCanManage(req)) {
+    res.status(403).json({ success: false, error: "Only Admin or Product Manager can delete shared assets." });
+    return;
+  }
+  try {
+    const row = findAsset(req.params.id);
+    if (!row) {
+      res.status(404).json({ success: false, error: "Asset not found." });
+      return;
+    }
+    const now = new Date().toISOString();
+    getSqliteDb().prepare("UPDATE asset_library SET status = 'deleted', is_current = 0, updated_at = ? WHERE id = ?").run(now, row.id);
+    logAudit(req, "DELETE", "asset", row.id, row.original_name, { category: row.category, version: row.version, softDelete: true });
+    res.json({ success: true, id: row.id });
+  } catch (deleteError) {
+    res.status(503).json({ success: false, error: deleteError.message || "Asset delete failed." });
+  }
+});
+
 app.post("/api/upload-attachments", (req, res) => {
   uploadAttachments.array("attachments", MAX_ATTACHMENT_COUNT)(req, res, (error) => {
     if (error) {
@@ -2637,6 +2980,7 @@ app.post("/api/send-email", async (req, res) => {
     return;
   }
 
+  let preparedAttachments = { mailAttachments: [], tempFiles: [] };
   try {
     let transporter = null;
     let from = process.env.SMTP_USER;
@@ -2672,7 +3016,8 @@ app.post("/api/send-email", async (req, res) => {
       transporter = createMailTransport();
     }
 
-    const mailAttachments = safeUploadedMailAttachments(attachments);
+    preparedAttachments = await prepareMailAttachments(attachments);
+    const mailAttachments = preparedAttachments.mailAttachments;
     const info = await transporter.sendMail({
       from,
       to,
@@ -2682,7 +3027,7 @@ app.post("/api/send-email", async (req, res) => {
       html,
       attachments: mailAttachments
     });
-    cleanupUploadedFiles(attachments);
+    cleanupUploadedFiles([...attachments, ...preparedAttachments.tempFiles]);
     logAudit(req, "SEND_EMAIL", "email", info.messageId || "", subject, {
       to,
       cc,
@@ -2694,6 +3039,7 @@ app.post("/api/send-email", async (req, res) => {
     });
     res.json({ success: true, messageId: info.messageId });
   } catch (error) {
+    cleanupUploadedFiles([...attachments, ...preparedAttachments.tempFiles]);
     console.error(`Send email failed: ${error.message}`);
     res.status(500).json({ success: false, error: error.message || "Failed to send email." });
   }

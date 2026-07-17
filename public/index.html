@@ -20,6 +20,7 @@
       <nav class="side-nav" aria-label="Main navigation">
         <button class="nav-button active" data-icon="◎" data-page="analysisPage" type="button">客戶分析 / Analysis</button>
         <button class="nav-button" data-icon="▦" data-page="productsPage" type="button">產品資料庫 / Products</button>
+        <button id="assetsNavBtn" class="nav-button" data-icon="▤" data-page="assetsPage" type="button">云端资料库 / File Library</button>
         <button class="nav-button" data-icon="◫" data-page="customersPage" type="button">客戶池 / Customers</button>
         <button id="sendersNavBtn" class="nav-button hidden" data-icon="✉" data-page="sendersPage" type="button">寄件者管理 / Senders</button>
         <button id="usersNavBtn" class="nav-button hidden" data-icon="u" data-page="usersPage" type="button">Users</button>
@@ -531,6 +532,51 @@
             基礎配件、所有人都可能需要 = All + Priority 2 或 3。
           </div>
           <div id="productTable" class="table-wrap"></div>
+        </section>
+      </section>
+
+      <section id="assetsPage" class="page">
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h3>云端资料库 / Cloud File Library</h3>
+              <p>共用产品图片、视频、PDF、Excel、价格表和邮件模板。</p>
+            </div>
+            <button id="refreshAssetsBtn" class="secondary-button" type="button">刷新资料</button>
+          </div>
+          <div class="toolbar asset-toolbar">
+            <select id="assetCategoryFilter">
+              <option value="">全部类别</option>
+              <option value="price_lists">Price Lists / 价格表</option>
+              <option value="product_images">Product Images / 产品图片</option>
+              <option value="product_videos">Product Videos / 产品视频</option>
+              <option value="product_documents">Product Documents / 产品文件</option>
+              <option value="email_templates">Email Templates / 邮件模板</option>
+              <option value="shared_files">Shared Files / 共用资料</option>
+            </select>
+            <input id="assetSkuFilter" type="search" placeholder="搜索 SKU">
+            <input id="assetSearch" type="search" placeholder="搜索文件名或上传者">
+          </div>
+          <form id="assetUploadForm" class="asset-upload-panel">
+            <div>
+              <strong>上传共用资料</strong>
+              <small>只有 Admin / Product Manager 可以上传；User 只能查看、下载和加入邮件。</small>
+            </div>
+            <select id="assetUploadCategory">
+              <option value="price_lists">Price Lists / 价格表</option>
+              <option value="product_images">Product Images / 产品图片</option>
+              <option value="product_videos">Product Videos / 产品视频</option>
+              <option value="product_documents">Product Documents / 产品文件</option>
+              <option value="email_templates">Email Templates / 邮件模板</option>
+              <option value="shared_files">Shared Files / 共用资料</option>
+            </select>
+            <input id="assetUploadSku" type="text" placeholder="SKU（可选）">
+            <input id="assetFileInput" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.heic,.heif,.mp4,.mov,.m4v,.webm">
+            <button id="uploadAssetBtn" class="primary-button" type="submit">上传到资料库</button>
+            <input id="assetReplaceFileInput" type="file" hidden accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.heic,.heif,.mp4,.mov,.m4v,.webm">
+            <span id="assetUploadStatus" class="attachment-upload-status">Local storage test mode</span>
+          </form>
+          <div id="assetList" class="asset-list"></div>
         </section>
       </section>
 

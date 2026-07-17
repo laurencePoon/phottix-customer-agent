@@ -201,6 +201,7 @@
     selectedCustomTemplateId: "",
     senders: [],
     users: [],
+    assets: [],
     groups: [],
     isHostAdmin: false,
     userRole: "user",
@@ -665,6 +666,10 @@
     return hasPermission("canBatchManageCustomers") || state.userRole === "admin" || state.userRole === "user";
   }
 
+  function canManageAssets() {
+    return hasPermission("canManageAssets") || state.userRole === "admin" || state.userRole === "product_manager";
+  }
+
   function compactDetails(details = {}) {
     if (!details || typeof details !== "object") return "";
     const parts = [];
@@ -684,8 +689,10 @@
   }
 
   function normalizeAttachment(item = {}) {
-    const isUploadedFile = Boolean(item.isUploadedFile || item.path || item.filename);
-    const type = normalizeText(item.type || (isUploadedFile ? inferAttachmentType(item) : "hyperlink")).toLowerCase();
+    const assetId = normalizeText(item.assetId || item.asset_id);
+    const isCloudAsset = Boolean(assetId);
+    const isUploadedFile = Boolean(item.isUploadedFile || item.path || item.filename || isCloudAsset);
+    const type = normalizeText(item.type || item.fileType || (isUploadedFile ? inferAttachmentType(item) : "hyperlink")).toLowerCase();
     const url = normalizeText(item.url || item.href || "");
     const originalName = normalizeText(item.originalName || item.originalname || item.name || item.label || item.filename || "Attachment");
     const name = normalizeText(item.name || item.label || originalName || url || "Attachment");
@@ -697,6 +704,10 @@
       filename: item.filename || "",
       originalName,
       path: item.path || "",
+      assetId,
+      category: item.category || "",
+      version: item.version || "",
+      storageProvider: item.storageProvider || "",
       mimetype: item.mimetype || "",
       isUploadedFile,
       size: item.size || "",
@@ -706,16 +717,16 @@
 
   function normalizeAttachments(items) {
     return Array.isArray(items)
-      ? items.map(normalizeAttachment).filter((item) => item.name || item.url || item.path)
+      ? items.map(normalizeAttachment).filter((item) => item.name || item.url || item.path || item.assetId)
       : [];
   }
 
   function uploadedMailAttachments(items = []) {
-    return normalizeAttachments(items).filter((item) => item.isUploadedFile && item.path);
+    return normalizeAttachments(items).filter((item) => item.assetId || (item.isUploadedFile && item.path));
   }
 
   function persistableAttachments(items = []) {
-    return normalizeAttachments(items).filter((item) => !item.isUploadedFile);
+    return normalizeAttachments(items).filter((item) => !item.isUploadedFile || item.assetId);
   }
 
   function attachmentTypeLabel(type) {
@@ -732,7 +743,7 @@
   }
 
   function formatAttachmentText(items = []) {
-    const attachments = normalizeAttachments(items).filter((item) => !item.isUploadedFile);
+    const attachments = normalizeAttachments(items).filter((item) => !item.isUploadedFile || item.assetId);
     if (!attachments.length) return "";
     return attachments.map((item) => {
       const sizeText = item.size ? ` (${formatFileSize(item.size)})` : "";
@@ -1839,6 +1850,57 @@
     }
   };
 
+  const AssetApi = {
+    async list() {
+      const response = await fetch(`${API_BASE}/api/assets`, { cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to load asset library.");
+      state.assets = Array.isArray(payload.assets) ? payload.assets : [];
+      return state.assets;
+    },
+    async upload(files, category, sku) {
+      const formData = new FormData();
+      Array.from(files || []).forEach((file) => formData.append("files", file));
+      formData.append("category", category || "shared_files");
+      formData.append("sku", sku || "");
+      const response = await fetch(`${API_BASE}/api/assets`, { method: "POST", body: formData });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Asset upload failed.");
+      await this.list();
+      UI.renderAssetList();
+      return payload.assets || [];
+    },
+    async replace(id, file) {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch(`${API_BASE}/api/assets/${encodeURIComponent(id)}`, { method: "PUT", body: formData });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Asset version update failed.");
+      await this.list();
+      UI.renderAssetList();
+      return payload.asset;
+    },
+    async download(id) {
+      const popup = window.open("about:blank", "_blank", "noopener");
+      const response = await fetch(`${API_BASE}/api/assets/${encodeURIComponent(id)}/download-url`);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) {
+        popup?.close();
+        throw new Error(payload.error || "Asset download is unavailable.");
+      }
+      if (popup) popup.location.href = payload.url;
+      else window.location.href = payload.url;
+      return payload;
+    },
+    async remove(id) {
+      const response = await fetch(`${API_BASE}/api/assets/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Asset delete failed.");
+      await this.list();
+      UI.renderAssetList();
+    }
+  };
+
   const GroupApi = {
     async list() {
       const response = await fetch(`${API_BASE}/api/groups`, { cache: "no-store" });
@@ -1965,6 +2027,10 @@
       };
       dom.pageTitle.textContent = titles[pageId]?.[0] || "Phottix Customer Agent";
       dom.pageSubtitle.textContent = titles[pageId]?.[1] || "";
+      if (pageId === "assetsPage") {
+        dom.pageTitle.textContent = "云端资料库 / Cloud File Library";
+        dom.pageSubtitle.textContent = "集中管理产品图片、视频、PDF、Excel、价格表和共用文件。";
+      }
       if (pageId === "systemPage") {
         dom.pageTitle.textContent = "System Backup & Audit Logs";
         dom.pageSubtitle.textContent = "Readable backup status and operation history.";
@@ -1982,6 +2048,7 @@
       const canImportCustomers = hasPermission("canImportCustomers");
       const canExportCustomers = hasPermission("canExportCustomers");
       const canManageSenders = hasPermission("canManageSenders");
+      if (dom.assetUploadForm) dom.assetUploadForm.classList.toggle("hidden", !canManageAssets());
       if (dom.sendersNavBtn) dom.sendersNavBtn.classList.toggle("hidden", !hasPermission("canViewSenders"));
       if (dom.usersNavBtn) dom.usersNavBtn.classList.toggle("hidden", !state.isHostAdmin);
       if (dom.systemNavBtn) dom.systemNavBtn.classList.toggle("hidden", !hasPermission("canViewSystemLogs"));
@@ -2079,6 +2146,56 @@
         `).join("") : `<tr><td colspan="5">No audit logs yet.</td></tr>`;
       }
     },
+    renderAssetList() {
+      if (!dom.assetList) return;
+      const category = normalizeText(dom.assetCategoryFilter?.value).toLowerCase();
+      const sku = normalizeText(dom.assetSkuFilter?.value).toLowerCase();
+      const search = normalizeText(dom.assetSearch?.value).toLowerCase();
+      const categoryLabels = {
+        price_lists: "Price List",
+        product_images: "Product Image",
+        product_videos: "Product Video",
+        product_documents: "Product Document",
+        email_templates: "Email Template",
+        shared_files: "Shared File"
+      };
+      const assets = state.assets.filter((asset) => {
+        const haystack = `${asset.originalName || ""} ${asset.sku || ""} ${asset.uploadedByName || ""}`.toLowerCase();
+        return (!category || asset.category === category)
+          && (!sku || String(asset.sku || "").toLowerCase().includes(sku))
+          && (!search || haystack.includes(search));
+      });
+      if (!assets.length) {
+        dom.assetList.innerHTML = `<div class="empty-state">No matching files. Upload a shared file to start the local test.</div>`;
+        return;
+      }
+      dom.assetList.innerHTML = `
+        <div class="asset-list-summary">${assets.length} current file(s). Older versions remain available to historical emails.</div>
+        <div class="asset-table-wrap">
+          <table class="asset-table">
+            <thead><tr><th>File</th><th>Category / SKU</th><th>Version</th><th>Size</th><th>Uploaded by / Updated</th><th>Actions</th></tr></thead>
+            <tbody>
+              ${assets.map((asset) => `
+                <tr>
+                  <td><strong>${escapeHtml(asset.originalName || "-")}</strong><br><small class="muted-text">${escapeHtml(attachmentTypeLabel(asset.fileType))}</small></td>
+                  <td>${escapeHtml(categoryLabels[asset.category] || asset.category || "Shared File")}<br><small class="muted-text">SKU: ${escapeHtml(asset.sku || "-")}</small></td>
+                  <td><span class="status-pill positive">v${escapeHtml(asset.version || 1)}${asset.isCurrent ? " / current" : ""}</span></td>
+                  <td>${escapeHtml(formatFileSize(asset.fileSize) || "-")}</td>
+                  <td>${escapeHtml(asset.uploadedByName || asset.uploadedBy || "-")}<br><small class="muted-text">${escapeHtml(formatDateTime(asset.updatedAt || asset.uploadedAt) || "-")}</small></td>
+                  <td>
+                    <div class="asset-actions">
+                      <button class="mini-button" data-action="download-asset" data-id="${escapeHtml(asset.id)}" type="button">Download</button>
+                      <button class="mini-button" data-action="add-asset-attachment" data-id="${escapeHtml(asset.id)}" type="button">Attach to email</button>
+                      ${canManageAssets() ? `<button class="mini-button" data-action="replace-asset" data-id="${escapeHtml(asset.id)}" type="button">New version</button><button class="danger-button" data-action="delete-asset" data-id="${escapeHtml(asset.id)}" type="button">Delete</button>` : ""}
+                    </div>
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    },
     async loadSystemPage() {
       if (dom.systemBackupStatus) dom.systemBackupStatus.textContent = "Loading...";
       const payload = await SystemApi.status();
@@ -2112,6 +2229,7 @@
       this.renderSenderSelector();
       this.renderSenderList();
       this.renderUserList();
+      this.renderAssetList();
       this.renderProductList();
       this.renderCustomerList();
       this.renderTemplateEditor();
@@ -4226,8 +4344,83 @@
       "customTemplateDialog", "customTemplateForm", "customTemplateName", "saveCustomTemplateDialogBtn",
       "blankTemplateDialog", "blankTemplateForm", "blankTemplateName", "blankTemplateSubject", "blankTemplateBody", "saveBlankTemplateBtn",
       "manualSqliteBackupBtn", "refreshSystemLogsBtn", "systemLastBackup", "systemBackupDir", "systemRetentionDays",
-      "systemAuditCount", "systemBackupStatus", "backupFileList", "auditLogTableBody"
+      "systemAuditCount", "systemBackupStatus", "backupFileList", "auditLogTableBody",
+      "assetsNavBtn", "assetsPage", "refreshAssetsBtn", "assetCategoryFilter", "assetSkuFilter", "assetSearch",
+      "assetUploadForm", "assetUploadCategory", "assetUploadSku", "assetFileInput", "uploadAssetBtn", "assetReplaceFileInput",
+      "assetUploadStatus", "assetList"
     ].forEach((id) => { dom[id] = $(id); });
+  }
+
+  async function uploadAssetsFromForm(event) {
+    event.preventDefault();
+    if (!canManageAssets()) {
+      UI.toast("Only Admin or Product Manager can upload shared files.", "warn");
+      return;
+    }
+    const files = dom.assetFileInput?.files;
+    if (!files?.length) {
+      UI.toast("Choose at least one file first.", "warn");
+      return;
+    }
+    const button = dom.uploadAssetBtn;
+    const originalText = button?.textContent || "Upload";
+    try {
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Uploading...";
+      }
+      if (dom.assetUploadStatus) dom.assetUploadStatus.textContent = `Uploading ${files.length} file(s)...`;
+      await AssetApi.upload(files, dom.assetUploadCategory?.value, dom.assetUploadSku?.value);
+      dom.assetUploadForm.reset();
+      if (dom.assetUploadStatus) dom.assetUploadStatus.textContent = "Upload complete. Local storage test mode.";
+      UI.toast("Files uploaded to the local library.", "good");
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
+    }
+  }
+
+  function addAssetToEmail(id) {
+    const asset = state.assets.find((item) => item.id === id);
+    if (!asset) return UI.toast("Asset not found.", "warn");
+    if (state.emailAttachments.some((item) => item.assetId === asset.id)) {
+      return UI.toast("This file is already attached.", "warn");
+    }
+    state.emailAttachments = normalizeAttachments([...state.emailAttachments, {
+      assetId: asset.id,
+      name: asset.originalName,
+      originalName: asset.originalName,
+      type: asset.fileType,
+      mimetype: asset.mimeType,
+      size: asset.fileSize,
+      category: asset.category,
+      version: asset.version,
+      storageProvider: asset.storageProvider,
+      isUploadedFile: true
+    }]);
+    UI.renderAttachmentList();
+    previewTemplate();
+    UI.toast(`${asset.originalName} added to the email.`, "good");
+  }
+
+  async function replaceAssetFromInput(event) {
+    const file = event.target.files?.[0];
+    const id = event.target.dataset.assetId;
+    event.target.value = "";
+    delete event.target.dataset.assetId;
+    if (!file || !id) return;
+    if (!canManageAssets()) {
+      UI.toast("Only Admin or Product Manager can replace shared files.", "warn");
+      return;
+    }
+    try {
+      await AssetApi.replace(id, file);
+      UI.toast("New version saved. Older versions remain available for historical emails.", "good");
+    } catch (error) {
+      UI.toast(error.message, "bad");
+    }
   }
 
   function bindEvents() {
@@ -4371,6 +4564,10 @@
     dom.refreshSendersBtn?.addEventListener("click", () => refreshSenders().catch((error) => UI.toast(error.message, "bad")));
     dom.saveSenderBtn?.addEventListener("click", () => SenderApi.save().catch((error) => UI.toast(error.message, "bad")));
     dom.resetSenderFormBtn?.addEventListener("click", clearSenderForm);
+    dom.refreshAssetsBtn?.addEventListener("click", () => AssetApi.list().then(() => UI.renderAssetList()).catch((error) => UI.toast(error.message, "bad")));
+    [dom.assetCategoryFilter, dom.assetSkuFilter, dom.assetSearch].forEach((input) => input?.addEventListener("input", () => UI.renderAssetList()));
+    dom.assetUploadForm?.addEventListener("submit", uploadAssetsFromForm);
+    dom.assetReplaceFileInput?.addEventListener("change", replaceAssetFromInput);
     dom.refreshUsersBtn?.addEventListener("click", () => UserApi.list().then(() => UI.renderUserList()).catch((error) => UI.toast(error.message, "bad")));
     dom.saveUserBtn?.addEventListener("click", () => UserApi.save().catch((error) => UI.toast(error.message, "bad")));
     dom.resetUserFormBtn?.addEventListener("click", clearUserForm);
@@ -4516,6 +4713,35 @@
       if (!target) return;
       const action = target.dataset.action;
       const id = target.dataset.id;
+      if (action === "download-asset") {
+        AssetApi.download(id).catch((error) => UI.toast(error.message, "bad"));
+        return;
+      }
+      if (action === "add-asset-attachment") {
+        addAssetToEmail(id);
+        return;
+      }
+      if (action === "replace-asset") {
+        if (!canManageAssets()) {
+          UI.toast("Only Admin or Product Manager can replace shared files.", "warn");
+          return;
+        }
+        if (dom.assetReplaceFileInput) {
+          dom.assetReplaceFileInput.dataset.assetId = id;
+          dom.assetReplaceFileInput.click();
+        }
+        return;
+      }
+      if (action === "delete-asset") {
+        if (!canManageAssets()) {
+          UI.toast("Only Admin or Product Manager can delete shared files.", "warn");
+          return;
+        }
+        if (confirm("Delete this current asset? Historical email attachments will remain available.")) {
+          AssetApi.remove(id).then(() => UI.toast("Asset deleted.", "good")).catch((error) => UI.toast(error.message, "bad"));
+        }
+        return;
+      }
       if (["edit-product", "delete-product"].includes(action) && !canManageProducts()) {
         UI.toast("Product editing is not allowed for this role.", "warn");
         return;
@@ -4740,6 +4966,10 @@
     await GroupApi.list().catch((error) => {
       DB.addErrorLog("載入客戶組別", error);
       state.groups = [];
+    });
+    await AssetApi.list().catch((error) => {
+      DB.addErrorLog("Load asset library", error);
+      state.assets = [];
     });
     await refreshSenders().catch((error) => {
       DB.addErrorLog("載入寄件者", error);
