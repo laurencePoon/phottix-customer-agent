@@ -1679,9 +1679,10 @@ app.get("/api/auth/me", (req, res) => {
       isAdmin: role === "admin",
       canManageProducts: ["admin", "product_manager"].includes(role),
       canManageCustomers: ["admin", "user", "shipping_manager"].includes(role),
-      canDeleteCustomers: role === "admin",
+      canDeleteCustomers: ["admin", "user"].includes(role),
+      canBatchManageCustomers: ["admin", "user"].includes(role),
       canImportCustomers: ["admin", "user"].includes(role),
-      canExportCustomers: ["admin", "product_manager", "finance_manager"].includes(role),
+      canExportCustomers: ["admin", "product_manager", "finance_manager", "user"].includes(role),
       canManageSenders: role === "admin",
       canViewSenders: ["admin", "product_manager", "finance_manager", "shipping_manager", "user"].includes(role),
       canUseSenders: ["admin", "product_manager", "finance_manager", "shipping_manager", "user"].includes(role),
@@ -1982,7 +1983,7 @@ app.put("/api/db/key/:key", (req, res) => {
     const role = currentRole(req);
     if (key === "phottix_customers") {
       if (rejectRole(req, res, ["admin", "user", "shipping_manager"], "Customer changes are not allowed for this role.")) return;
-      if (["user", "shipping_manager"].includes(role) && customerSnapshotRemovesRecords(before, nextValue)) {
+      if (role === "shipping_manager" && customerSnapshotRemovesRecords(before, nextValue)) {
         res.status(403).json({ success: false, error: "This role cannot delete customer records.", role });
         return;
       }
@@ -2209,7 +2210,7 @@ app.put("/api/customers/:id/group", (req, res) => {
 });
 
 app.post("/api/customers/batch-group", (req, res) => {
-  if (rejectRole(req, res, ["admin"], "Batch customer group changes are admin-only.")) return;
+  if (rejectRole(req, res, ["admin", "user"], "Batch customer group changes are not allowed for this role.")) return;
   try {
     const customerIds = Array.isArray(req.body?.customerIds) ? req.body.customerIds.map((id) => String(id || "")) : [];
     const groupId = normalizeGroupId(req.body?.group_id ?? req.body?.groupId);
@@ -2571,7 +2572,7 @@ app.post("/api/import-customer-excel-upload", (req, res) => {
 
 app.post("/api/generate-excel", (req, res) => {
   const exportType = String(req.body?.exportType || "customer").trim().toLowerCase();
-  if (exportType === "customer" && rejectRole(req, res, ["admin", "product_manager", "finance_manager"], "Customer export is not allowed for this role.")) return;
+  if (exportType === "customer" && rejectRole(req, res, ["admin", "product_manager", "finance_manager", "user"], "Customer export is not allowed for this role.")) return;
   if (exportType === "product" && rejectRole(req, res, ["admin", "product_manager", "finance_manager", "shipping_manager", "user"], "Product export is not allowed for this role.")) return;
   try {
     const data = Array.isArray(req.body?.data) ? req.body.data : [];

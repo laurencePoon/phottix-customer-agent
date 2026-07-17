@@ -219,6 +219,53 @@
     return String(value || "").replace(/\s+/g, " ").trim();
   }
 
+  const GENERIC_CONTACT_ALIASES = new Set([
+    "info", "sales", "admin", "support", "hello", "hola", "contact", "contactus", "office", "service",
+    "customer", "customerservice", "inquiries", "enquiries", "enquiry", "orders", "order", "marketing",
+    "business", "team", "general", "mail", "postmaster", "noreply", "help", "webmaster", "careers",
+    "accounts", "finance", "billing", "press", "media", "booking", "bookings", "reception", "frontdesk",
+    "notifications", "seminars", "data", "jimukyoku", "secretariat"
+  ]);
+
+  function compactContactLabel(value) {
+    return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
+  }
+
+  function looksLikePersonEmailLocal(value) {
+    const local = normalizeText(value).toLowerCase();
+    return /^[a-z]{2,}[._-][a-z]{2,}$/i.test(local) || /^[a-z]\.[a-z]{3,}$/i.test(local);
+  }
+
+  function contactNameType(value, email = "") {
+    const raw = normalizeText(value);
+    if (!raw) return "";
+    const compact = compactContactLabel(raw);
+    const local = normalizeText(email).toLowerCase().split("@")[0] || "";
+    const compactLocal = compactContactLabel(local);
+    if (GENERIC_CONTACT_ALIASES.has(compact)) return "generic_inbox";
+    if (/^(info|sales|admin|support|contact|office|service|team|group|grupo|hello|hola)[a-z0-9]*$/i.test(compact)) return "generic_inbox";
+    if (compactLocal && compact === compactLocal && !/\s/.test(raw) && !looksLikePersonEmailLocal(local)) return "unconfirmed_label";
+    return "person";
+  }
+
+  function normalizeContactName(value, email = "") {
+    return contactNameType(value, email) === "person" ? normalizeText(value) : "";
+  }
+
+  function contactNameNote(value, email = "") {
+    const raw = normalizeText(value);
+    const type = contactNameType(raw, email);
+    if (!raw || type === "person") return "";
+    return `原始 Contact Name：${raw}（部门邮箱标签或未确认真人姓名，不用于邮件称呼）`;
+  }
+
+  function emailGreeting(customer = {}) {
+    const contactName = normalizeContactName(customer.contactName, customer.contactEmail);
+    if (contactName) return `Hi ${contactName},`;
+    const company = normalizeText(customer.companyName);
+    return company ? `Hello ${company} team,` : "Dear Sir or Madam,";
+  }
+
   function decodeWebsiteEntities(value) {
     return String(value || "")
       .replace(/&nbsp;/gi, " ")
@@ -611,7 +658,11 @@
   }
 
   function canDeleteCustomers() {
-    return hasPermission("canDeleteCustomers") || state.userRole === "admin";
+    return hasPermission("canDeleteCustomers") || state.userRole === "admin" || state.userRole === "user";
+  }
+
+  function canBatchManageCustomers() {
+    return hasPermission("canBatchManageCustomers") || state.userRole === "admin" || state.userRole === "user";
   }
 
   function compactDetails(details = {}) {
@@ -1182,7 +1233,8 @@
       const emailStrategy = analysis?.emailStrategy || this.strategy(customer, analysis);
       return {
         "{{公司名}}": customer.companyName || "your team",
-        "{{聯絡人}}": customer.contactName || "there",
+        "{{聯絡人}}": normalizeContactName(customer.contactName, customer.contactEmail) || "there",
+        "{{稱呼}}": emailGreeting(customer),
         "{{官網}}": customer.website || "",
         "{{客戶類型}}": customer.customerType || "prospect",
         "{{官網發現的產品線}}": this.describeSignals(signals),
@@ -1200,6 +1252,9 @@
         subject = subject.split(key).join(value || "");
         body = body.split(key).join(value || "");
       }
+      if (variables["{{聯絡人}}"] === "there" && variables["{{稱呼}}"] ) {
+        body = body.replace(/^\s*(?:Hi|Hello|Dear)\s+there,\s*$/gim, variables["{{稱呼}}"]);
+      }
       return { subject, body };
     },
     generate(customer, analysis) {
@@ -1208,11 +1263,10 @@
       const emailAnalysis = { ...analysis, emailStrategy, emailRecommendedProducts };
       if (!analysis?.recommendedProducts?.length) {
         const company = customer.companyName || "your team";
-        const greeting = customer.contactName || "there";
         return {
           subject: `Quick Phottix introduction for ${company}`,
           body: [
-            `Hi ${greeting},`,
+            emailGreeting(customer),
             "",
             `I came across ${company} and wanted to make a brief introduction from Phottix.`,
             "",
@@ -1230,7 +1284,6 @@
       }
       if ((customer.emailPurpose || "") === "New Product Promotion") {
         const company = customer.companyName || "your team";
-        const greeting = customer.contactName || "there";
         const products = this.describeProducts(emailRecommendedProducts || customer.recommendedProducts || []);
         const isExisting = customer.customerType === "existing";
         return {
@@ -1240,7 +1293,7 @@
             ? `New Phottix product update for ${company}`
             : `New Phottix products for ${company}`,
           body: isExisting ? [
-            `Hi ${greeting},`,
+            emailGreeting(customer),
             "",
             `I wanted to share a quick update on our new Phottix products that may be useful for ${company}'s next product refresh or reorder planning.`,
             "",
@@ -1252,7 +1305,7 @@
             "[Your Name]",
             "Phottix Business Development Team"
           ].filter((line) => line !== null).join("\n") : [
-            `Hi ${greeting},`,
+            emailGreeting(customer),
             "",
             `I came across ${company} and wanted to briefly introduce a few new Phottix products that may fit your photo/video equipment range.`,
             "",
@@ -1954,7 +2007,9 @@
         if (button) button.classList.toggle("hidden", !canManageCustomers());
       });
       if (dom.exportCustomersBtn) dom.exportCustomersBtn.classList.toggle("hidden", !canExportCustomers);
-      [dom.bulkDeleteBtn, dom.bulkConvertBtn, dom.bulkMoveGroupBtn, dom.addGroupBtn].forEach((button) => {
+      if (dom.bulkDeleteBtn) dom.bulkDeleteBtn.classList.toggle("hidden", !canBatchManageCustomers());
+      if (dom.bulkMoveGroupBtn) dom.bulkMoveGroupBtn.classList.toggle("hidden", !canBatchManageCustomers());
+      [dom.bulkConvertBtn, dom.addGroupBtn].forEach((button) => {
         if (button) button.classList.toggle("hidden", !state.isHostAdmin);
       });
       if (dom.senderForm) dom.senderForm.classList.toggle("hidden", !canManageSenders);
@@ -2638,6 +2693,10 @@
     const n = normalizeKeys(row);
     const customerTypeText = getAny(n, "Customer Type", "customer_type", "客戶類型", "客户类型");
     const industry = getAny(n, "Industry", "industry", "行業類別", "行业类别", "行業", "行业");
+    const contactEmail = getAny(n, "Contact Email", "contact_email", "email", "email address", "Primary Contact Email", "主要聯絡人郵箱", "主要联系人邮箱", "郵箱", "邮箱", "電子郵箱", "电子邮箱", "聯絡郵箱", "联系邮箱");
+    const rawContactName = getAny(n, "Contact Name", "contact_name", "contact", "Primary Contact Name", "主要聯絡人名稱", "主要联系人名称", "聯絡人", "联系人", "联系人姓名");
+    const contactName = normalizeContactName(rawContactName, contactEmail);
+    const contactNote = contactNameNote(rawContactName, contactEmail);
     const buyingRole = normalizeBuyingRole(getAny(n, "Buying Role", "Buyer Classification", "Customer Category", "buying_role", "buyingRole", "購買角色", "购买角色", "買家分類", "买家分类"));
     const customerScore = normalizeCustomerScore(getAny(n, "Customer Score", "customer_score", "customerScore", "客戶價值分數", "客户价值分数", "客戶分數", "客户分数"));
     const groupId = resolveGroupId(getAny(n, "Group ID", "group_id", "groupId", "Group", "group", "組別", "组别", "客戶組別", "客户组别"));
@@ -2647,14 +2706,17 @@
       getAny(n, "Notes", "notes", "備註", "备注"),
       getAny(n, "Company Type", "company_type", "公司類型", "公司类型"),
       getAny(n, "Main Products", "main_products", "主營產品", "主营产品"),
+      contactNote,
       industry ? `Industry: ${industry}` : ""
     ].filter(Boolean).join(" | ");
     return {
       id: getAny(n, "id", "Customer ID", "customer_id", "客戶ID", "客户ID") || uid("cust"),
       companyName: getAny(n, "Company Name", "company_name", "company", "name", "公司名稱", "公司名称"),
       website: normalizeUrl(getAny(n, "Website", "website", "domain", "url", "Company Website", "Company Homepage", "公司主頁", "公司主页", "官網", "官网", "官網域名", "官网域名")),
-      contactName: getAny(n, "Contact Name", "contact_name", "contact", "Primary Contact Name", "主要聯絡人名稱", "主要联系人名称", "聯絡人", "联系人", "联系人姓名"),
-      contactEmail: getAny(n, "Contact Email", "contact_email", "email", "email address", "Primary Contact Email", "主要聯絡人郵箱", "主要联系人邮箱", "郵箱", "邮箱", "電子郵箱", "电子邮箱", "聯絡郵箱", "联系邮箱"),
+      contactName,
+      contactNameOriginal: contactName ? "" : rawContactName,
+      contactNameType: contactNameType(rawContactName, contactEmail),
+      contactEmail,
       country,
       city,
       industry,
@@ -2827,12 +2889,18 @@
 
   function formCustomer() {
     const existing = state.currentCustomerId ? DB.getCustomers().find((item) => item.id === state.currentCustomerId) : null;
+    const contactEmail = normalizeText(dom.contactEmail.value);
+    const rawContactName = normalizeText(dom.contactName.value);
+    const contactName = normalizeContactName(rawContactName, contactEmail);
+    const contactNote = contactNameNote(rawContactName, contactEmail);
     return {
       id: state.currentCustomerId || uid("cust"),
       companyName: normalizeText(dom.companyName.value),
       website: normalizeUrl(dom.website.value),
-      contactName: normalizeText(dom.contactName.value),
-      contactEmail: normalizeText(dom.contactEmail.value),
+      contactName,
+      contactNameOriginal: contactName ? "" : rawContactName || existing?.contactNameOriginal || "",
+      contactNameType: contactNameType(rawContactName, contactEmail) || existing?.contactNameType || "",
+      contactEmail,
       country: normalizeText(dom.country.value),
       city: normalizeText(dom.city.value),
       industry: normalizeText(dom.industry.value),
@@ -2858,7 +2926,7 @@
       lastAnalyzedAt: existing?.lastAnalyzedAt || "",
       isManuallyReviewed: Boolean(existing?.isManuallyReviewed),
       manualOverride: existing?.manualOverride || null,
-      notes: normalizeText(dom.businessNotes.value),
+      notes: [normalizeText(dom.businessNotes.value), contactNote].filter(Boolean).join(" | "),
       socialMedia: { instagram: normalizeUrl(dom.instagram.value), facebook: normalizeUrl(dom.facebook.value) },
       manualWebsiteSummary: normalizeText(dom.manualWebsiteSummary.value),
       websiteExtract: cleanWebsiteExtract(dom.websiteExtract.value),
@@ -3174,13 +3242,18 @@
     const existing = DB.getCustomers().find((item) => item.id === dom.customerId.value);
     const selectedBuyingRole = normalizeBuyingRole(dom.dialogBuyingRole.value);
     const buyingRoleWasChanged = selectedBuyingRole !== normalizeBuyingRole(existing?.buyingRole);
+    const contactEmail = normalizeText(dom.dialogContactEmail.value);
+    const rawContactName = normalizeText(dom.dialogContactName.value);
+    const contactName = normalizeContactName(rawContactName, contactEmail);
     const customer = {
       ...(existing || normalizeImportedCustomer({})),
       id: dom.customerId.value || uid("cust"),
       companyName: normalizeText(dom.dialogCompanyName.value),
       website: normalizeUrl(dom.dialogWebsite.value),
-      contactName: normalizeText(dom.dialogContactName.value),
-      contactEmail: normalizeText(dom.dialogContactEmail.value),
+      contactName,
+      contactNameOriginal: contactName ? "" : rawContactName || existing?.contactNameOriginal || "",
+      contactNameType: contactNameType(rawContactName, contactEmail) || existing?.contactNameType || "",
+      contactEmail,
       country: normalizeText(dom.dialogCountry.value),
       groupId: normalizeGroupId(dom.dialogGroup?.value),
       group_id: normalizeGroupId(dom.dialogGroup?.value),
@@ -3555,8 +3628,8 @@
   }
 
   function bulkDeleteSelected() {
-    if (!canDeleteCustomers()) {
-      UI.toast("Customer deletion is admin-only.", "warn");
+    if (!canBatchManageCustomers()) {
+      UI.toast("Batch customer deletion is not allowed for this role.", "warn");
       return;
     }
     const selected = selectedCustomers();
@@ -3611,8 +3684,8 @@
   }
 
   function bulkMoveSelectedToGroup() {
-    if (!state.isHostAdmin) {
-      UI.toast("Batch customer group changes are admin-only.", "warn");
+    if (!canBatchManageCustomers()) {
+      UI.toast("Batch customer group changes are not allowed for this role.", "warn");
       return;
     }
     const selected = selectedCustomers();

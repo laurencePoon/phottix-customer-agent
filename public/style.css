@@ -3190,9 +3190,44 @@ textarea {
 
 #productsPage .product-table th:nth-child(1) { width: 22%; }
 #productsPage .product-table th:nth-child(2) { width: 14%; }
-#productsPage .product-table th:nth-child(3) { width: 14%; }
-#productsPage .product-table th:nth-child(4) { width: 15%; }
-#productsPage .product-table th:nth-child(5) { width: 35%; }
+#productsPage .product-table th:nth-child(3) { width: 18%; }
+#productsPage .product-table th:nth-child(4) { width: 46%; }
+
+.product-target-priorities {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.product-target-priorities legend {
+  padding: 0 6px;
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.product-target-priorities .field-help {
+  margin: 0 0 10px;
+}
+
+.target-priority-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.target-priority-grid label {
+  min-width: 0;
+}
+
+.target-priority-summary {
+  display: inline-block;
+  color: var(--text);
+  font-weight: 800;
+  white-space: nowrap;
+}
 
 .product-description-cell {
   color: var(--muted);
@@ -9371,13 +9406,9 @@ body.role-shipping-manager [data-action="delete-product"],
 body.role-shipping-manager [data-action="toggle-product-pool"],
 body.role-shipping-manager [data-action="toggle-product-priority"],
 body.role-shipping-manager [data-action="change-product-recommended-for"],
-body.role-user #exportCustomersBtn,
 body.role-shipping-manager #exportCustomersBtn,
-body.role-user #bulkDeleteBtn,
 body.role-user #bulkConvertBtn,
-body.role-user #bulkMoveGroupBtn,
 body.role-user #addGroupBtn,
-body.role-user [data-action="delete-customer"],
 body.role-user [data-action="change-customer-group"],
 body.role-finance-manager #addCustomerBtn,
 body.role-finance-manager #saveCustomerBtn,
