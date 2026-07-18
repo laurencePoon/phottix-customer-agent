@@ -1555,9 +1555,11 @@
         }
         incoming.importClassification = "valid";
         incoming._normalizedDomain = importedRowDomain(row) || normalizeDomain(incoming.website);
-        if (targetGroupId || options.forceGroup) {
-          incoming.groupId = targetGroupId;
-          incoming.group_id = targetGroupId;
+        const importedGroupId = normalizeGroupId(incoming.groupId || incoming.group_id);
+        const effectiveGroupId = targetGroupId || importedGroupId;
+        if (effectiveGroupId) {
+          incoming.groupId = effectiveGroupId;
+          incoming.group_id = effectiveGroupId;
         }
         if (!incoming.companyName && !incoming.website && !incoming.contactEmail) continue;
         const index = customers.findIndex((item) => isDuplicateCustomer(item, incoming));
@@ -1574,11 +1576,11 @@
               isBuyingRoleManuallyReviewed: customers[index].isBuyingRoleManuallyReviewed || incoming.isBuyingRoleManuallyReviewed
             };
             forceUpdated += 1;
-          } else if (options.forceGroup) {
+          } else if (options.forceGroup && effectiveGroupId) {
             customers[index] = {
               ...customers[index],
-              groupId: targetGroupId,
-              group_id: targetGroupId
+              groupId: effectiveGroupId,
+              group_id: effectiveGroupId
             };
             movedGroup += 1;
           } else {
