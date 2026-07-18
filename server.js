@@ -31,6 +31,9 @@ const MAX_ATTACHMENT_COUNT = 10;
 const MAX_ASSET_SIZE = 200 * 1024 * 1024;
 const MAX_ASSET_COUNT = 10;
 const ASSET_SIGNED_URL_EXPIRES_SEC = 600;
+const DEFAULT_CUSTOMER_GROUPS = [
+  { id: "old_customers", name: "Old customers" }
+];
 const ASSET_CATEGORIES = new Set([
   "price_lists",
   "product_images",
@@ -806,6 +809,53 @@ function ensureOptionalCustomerGroupColumn(db) {
   }
 }
 
+function ensureDefaultCustomerGroups(db) {
+  try {
+    const insert = db.prepare("INSERT OR IGNORE INTO groups (id, name, created_at) VALUES (?, ?, ?)");
+    for (const group of DEFAULT_CUSTOMER_GROUPS) {
+      const existing = db.prepare("SELECT id, name FROM groups").all()
+        .find((row) => isOldCustomerGroupName(row.name));
+      if (!existing) insert.run(group.id, group.name, new Date().toISOString());
+    }
+  } catch (error) {
+    console.warn("Default customer group migration skipped: " + error.message);
+  }
+}
+
+function isOldCustomerGroupName(value) {
+  const text = String(value || "").toLowerCase().replace(/[\s_-]+/g, "");
+  return text.includes("oldcustomers") || text.includes("oldcustomer") || text.includes("\u65e7\u5ba2\u6237") || text.includes("\u820a\u5ba2\u6236");
+}
+
+function consolidateOldCustomerGroups() {
+  const db = getSqliteDb();
+  ensureDefaultCustomerGroups(db);
+  const groups = db.prepare("SELECT id, name FROM groups ORDER BY created_at, id").all();
+  const oldGroups = groups.filter((group) => isOldCustomerGroupName(group.name));
+  if (!oldGroups.length) return null;
+
+  const canonical = oldGroups.find((group) => group.id === "old_customers") || oldGroups[0];
+  const aliases = oldGroups.filter((group) => group.id !== canonical.id).map((group) => group.id);
+  if (canonical.name !== "Old customers") {
+    db.prepare("UPDATE groups SET name = ? WHERE id = ?").run("Old customers", canonical.id);
+  }
+  if (aliases.length) {
+    const aliasSet = new Set(aliases);
+    const snapshot = readSharedStore();
+    const customers = Array.isArray(snapshot.data.phottix_customers) ? snapshot.data.phottix_customers : [];
+    const updatedCustomers = customers.map((customer) => {
+      const groupId = String(customer.groupId || customer.group_id || "");
+      if (!aliasSet.has(groupId)) return customer;
+      return { ...customer, groupId: canonical.id, group_id: canonical.id };
+    });
+    if (updatedCustomers.some((customer, index) => customer !== customers[index])) {
+      writeSharedKey("phottix_customers", updatedCustomers);
+    }
+    const deleteStatement = db.prepare("DELETE FROM groups WHERE id = ?");
+    aliases.forEach((id) => deleteStatement.run(id));
+  }
+  return canonical.id;
+}
 function uid(prefix = "id") {
   return `${prefix}_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`;
 }
@@ -2252,6 +2302,7 @@ app.put("/api/customers/:id", (req, res) => {
 
 app.get("/api/groups", (req, res) => {
   try {
+    consolidateOldCustomerGroups();
     const rows = getSqliteDb()
       .prepare("SELECT id, name, created_at FROM groups ORDER BY name COLLATE NOCASE")
       .all();

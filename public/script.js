@@ -32,6 +32,7 @@
   const RECOMMENDED_FOR_OPTIONS = ["All", "A", "B", "C", "D"];
   const TARGET_PRIORITY_DISPLAY_ORDER = ["A", "B", "C", "D", "All"];
   const CUSTOMER_TYPES = ["prospect", "existing"];
+  const OLD_CUSTOMER_GROUP_ID = "old_customers";
   const INDUSTRY_TYPES = ["", "Wholesale", "Retail", "Studio", "Events", "Creator", "Camera Store", "Online Shop", "Physical Store", "Services", "Other"];
   const FOLLOW_STATUSES = ["open", "completed", "pending", "cancelled", "deferred"];
   const MAX_ATTACHMENT_COUNT = 10;
@@ -1541,27 +1542,42 @@
       const customers = DB.getCustomers();
       const classification = CustomerClassification.classifyRows(rows);
       const targetGroupId = normalizeGroupId(options.groupId ?? dom.customerImportGroupSelect?.value);
+      const detectedOldCustomerImport = rows.some((row) => isOldCustomerImportRow(row));
+      if (detectedOldCustomerImport && dom.customerImportGroupSelect) {
+        dom.customerImportGroupSelect.value = getOldCustomerGroupId();
+      }
       let added = 0;
       let skipped = 0;
       let forceUpdated = 0;
       let movedGroup = 0;
+      let oldCustomerRetained = 0;
       for (const classifiedRow of classification.rows) {
-        if (classifiedRow.status !== CustomerClassification.STATUS.VALID) continue;
         const row = classifiedRow.row;
+        const rowIsOldCustomer = isOldCustomerImportRow(row);
+        const keepAsOldCustomer = rowIsOldCustomer || isOldCustomerGroupId(targetGroupId);
+        if (classifiedRow.status !== CustomerClassification.STATUS.VALID && !keepAsOldCustomer) continue;
         const incoming = normalizeImportedCustomer(row);
         if (incoming.buyingRole === "Unknown" && classifiedRow.buyingRole) {
           incoming.buyingRole = classifiedRow.buyingRole;
           incoming.isBuyingRoleManuallyReviewed = false;
         }
-        incoming.importClassification = "valid";
+        incoming.importClassification = keepAsOldCustomer && classifiedRow.status !== CustomerClassification.STATUS.VALID
+          ? "old_customer_review"
+          : "valid";
+        incoming.importOriginalClassification = classifiedRow.status;
+        incoming.importReviewReason = classifiedRow.reason || "";
+        incoming.isOldCustomer = keepAsOldCustomer;
         incoming._normalizedDomain = importedRowDomain(row) || normalizeDomain(incoming.website);
         const importedGroupId = normalizeGroupId(incoming.groupId || incoming.group_id);
-        const effectiveGroupId = targetGroupId || importedGroupId;
+        const effectiveGroupId = keepAsOldCustomer
+          ? getOldCustomerGroupId()
+          : (targetGroupId || importedGroupId);
         if (effectiveGroupId) {
           incoming.groupId = effectiveGroupId;
           incoming.group_id = effectiveGroupId;
         }
         if (!incoming.companyName && !incoming.website && !incoming.contactEmail) continue;
+        if (keepAsOldCustomer) oldCustomerRetained += 1;
         const index = customers.findIndex((item) => isDuplicateCustomer(item, incoming));
         if (index >= 0) {
           if (isForceUpdateRow(row)) {
@@ -1594,7 +1610,7 @@
       const reviewPayload = {
         importedAt: new Date().toISOString(),
         sourceFile: options.fileName || "",
-        counts: { ...classification.counts, added, skipped, forceUpdated, movedGroup },
+        counts: { ...classification.counts, added, skipped, forceUpdated, movedGroup, oldCustomerRetained },
         pending: classification.rows.filter((item) => item.status === CustomerClassification.STATUS.PENDING).map((item) => ({
           rowNumber: item.rowNumber,
           status: item.status,
@@ -2437,6 +2453,7 @@
       }
       dom.customerImportResult.className = "attachment-upload-status good";
       dom.customerImportResult.innerHTML = `
+        ${counts.oldCustomerRetained ? `Old customers retained: ${Number(counts.oldCustomerRetained)}` : ""}
         导入完成 / Import complete：总记录 ${Number(counts.total) || 0}，有效 ${Number(counts.valid) || 0}，待分类 ${Number(counts.pending) || 0}，无效 ${Number(counts.invalid) || 0}；新增客户池 ${Number(counts.added) || 0}。
         ${counts.pending ? `<button type="button" class="mini-button" data-action="download-customer-review" data-status="pending">下载待分类</button>` : ""}
         ${counts.invalid ? `<button type="button" class="mini-button" data-action="download-customer-review" data-status="invalid">下载无效存档</button>` : ""}
@@ -2889,6 +2906,26 @@
     return text && text !== "null" && text !== "__ungrouped__" ? text : "";
   }
 
+  function isOldCustomerGroupValue(value) {
+    const text = normalizeText(value).toLowerCase().replace(/[\s_-]+/g, "");
+    return text.includes("oldcustomers") || text.includes("oldcustomer") || text.includes("旧客户") || text.includes("舊客戶");
+  }
+
+  function getOldCustomerGroupId() {
+    return state.groups.find((group) => isOldCustomerGroupValue(group.name))?.id || OLD_CUSTOMER_GROUP_ID;
+  }
+
+  function isOldCustomerGroupId(value) {
+    const id = normalizeGroupId(value);
+    return id === OLD_CUSTOMER_GROUP_ID || state.groups.some((group) => group.id === id && isOldCustomerGroupValue(group.name));
+  }
+
+  function isOldCustomerImportRow(row = {}) {
+    const normalized = normalizeKeys(row);
+    const group = getAny(normalized, "Group ID", "group_id", "groupId", "Group", "group", "组别", "組別", "客户组别", "客戶組別");
+    return isOldCustomerGroupValue(group);
+  }
+
   function groupName(groupId) {
     const id = normalizeGroupId(groupId);
     if (!id) return "未分組 / Ungrouped";
@@ -2898,6 +2935,7 @@
   function resolveGroupId(value) {
     const text = normalizeGroupId(value);
     if (!text) return "";
+    if (isOldCustomerGroupValue(text)) return getOldCustomerGroupId();
     return state.groups.find((group) => group.id === text || group.name.toLowerCase() === text.toLowerCase())?.id || text;
   }
 
