@@ -2047,13 +2047,13 @@
       UI.toast("Group created.", "good");
       return payload.group;
     },
-    async update(id, name) {
+    async update(id, name, visibleRoles) {
       const cleanName = normalizeText(name);
       if (!id || !cleanName) throw new Error("Group name is required.");
       const response = await fetch(`${API_BASE}/api/groups/${encodeURIComponent(id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: cleanName })
+        body: JSON.stringify({ name: cleanName, ...(Array.isArray(visibleRoles) ? { visibleRoles } : {}) })
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to update group.");
@@ -2101,6 +2101,12 @@
       UI.toast(`Moved ${payload.updated || 0} customers to ${groupName(groupId)}.`, "good");
     }
   };
+
+  function renderGroupVisibilityControls(group) {
+    const roles = [["admin", "Admin"], ["sales", "Sales"], ["sales_manager", "Sales Manager"], ["marketing_manager", "Marketing Manager"], ["product_manager", "Product Manager"], ["finance_manager", "Finance Manager"], ["shipping_manager", "Shipping Manager"]];
+    const allowed = Array.isArray(group.visibleRoles) ? group.visibleRoles : roles.map(([role]) => role);
+    return `<span class="group-role-permissions" data-group-id="${escapeHtml(group.id)}">${roles.map(([role, label]) => `<label><input type="checkbox" value="${role}" ${role === "admin" ? "checked disabled" : allowed.includes(role) ? "checked" : ""}> ${label}</label>`).join("")}</span><button data-action="save-group-visibility" data-id="${escapeHtml(group.id)}" type="button">Save access</button>`;
+  }
 
   const UI = {
     toast(message, tone = "") {
@@ -2806,8 +2812,9 @@
         } else {
           dom.groupList.innerHTML = state.groups.map((group) => `
             <span class="group-chip">
-              ${escapeHtml(group.name)}
+              <strong>${escapeHtml(group.name)}</strong>
               ${state.isHostAdmin ? `
+                ${renderGroupVisibilityControls(group)}
                 <button data-action="edit-group" data-id="${escapeHtml(group.id)}" type="button">Edit</button>
                 <button data-action="delete-group" data-id="${escapeHtml(group.id)}" type="button">Delete</button>
               ` : ""}
@@ -4942,7 +4949,7 @@
         UI.toast("User management is admin-only.", "warn");
         return;
       }
-      if (["edit-group", "delete-group"].includes(action) && !state.isHostAdmin) {
+      if (["edit-group", "delete-group", "save-group-visibility"].includes(action) && !state.isHostAdmin) {
         UI.toast("Customer group management is admin-only.", "warn");
         return;
       }
@@ -4996,6 +5003,13 @@
       if (action === "edit-user") editUser(id);
       if (action === "delete-user" && confirm("Delete this user?")) {
         UserApi.remove(id).catch((error) => UI.toast(error.message, "bad"));
+      }
+      if (action === "save-group-visibility") {
+        const group = state.groups.find((item) => item.id === id);
+        const permissions = Array.from(dom.groupList?.querySelectorAll(".group-role-permissions") || []).find((item) => item.dataset.groupId === id);
+        if (!group || !permissions) return;
+        const visibleRoles = Array.from(permissions.querySelectorAll('input[type="checkbox"]:checked')).map((input) => input.value);
+        GroupApi.update(id, group.name, visibleRoles).catch((error) => UI.toast(error.message, "bad"));
       }
       if (action === "edit-group") {
         const group = state.groups.find((item) => item.id === id);

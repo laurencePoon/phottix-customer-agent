@@ -34,6 +34,10 @@ const ASSET_SIGNED_URL_EXPIRES_SEC = 600;
 const DEFAULT_CUSTOMER_GROUPS = [
   { id: "old_customers", name: "Old customers" }
 ];
+const CUSTOMER_VISIBILITY_ROLES = [
+  "admin", "sales", "sales_manager", "marketing_manager",
+  "product_manager", "finance_manager", "shipping_manager"
+];
 const ASSET_CATEGORIES = new Set([
   "price_lists",
   "product_images",
@@ -766,7 +770,8 @@ function getSqliteDb() {
     CREATE TABLE IF NOT EXISTS groups (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      created_at TEXT
+      created_at TEXT,
+      visible_roles TEXT
     )
   `);
   sqliteDb.exec(`
@@ -832,12 +837,34 @@ function getSqliteDb() {
     )
   `);
   ensureOptionalCustomerGroupColumn(sqliteDb);
+  ensureGroupVisibilityColumn(sqliteDb);
   ensureOptionalUserColumns(sqliteDb);
   ensureDefaultCustomerGroups(sqliteDb);
   seedDefaultSender(sqliteDb);
   return sqliteDb;
 }
 
+function defaultGroupVisibleRoles(name) {
+  const normalizedName = String(name || "").toLowerCase().replace(/[\s_-]+/g, "");
+  return CUSTOMER_VISIBILITY_ROLES.filter((role) => !(normalizedName === "procustomers" && role === "sales"));
+}
+function normalizeVisibleRoles(value, groupName = "") {
+  let roles = value;
+  if (typeof roles === "string") { try { roles = JSON.parse(roles); } catch { roles = roles.split(","); } }
+  if (!Array.isArray(roles)) roles = defaultGroupVisibleRoles(groupName);
+  const normalized = new Set(roles.map((role) => normalizeRole(role)));
+  normalized.add("admin");
+  return CUSTOMER_VISIBILITY_ROLES.filter((role) => normalized.has(role));
+}
+function ensureGroupVisibilityColumn(db) {
+  try {
+    const columns = db.prepare("PRAGMA table_info(groups)").all();
+    if (!columns.some((column) => column.name === "visible_roles")) db.exec("ALTER TABLE groups ADD COLUMN visible_roles TEXT");
+    const rows = db.prepare("SELECT id, name, visible_roles FROM groups").all();
+    const update = db.prepare("UPDATE groups SET visible_roles = ? WHERE id = ?");
+    rows.forEach((row) => { if (!String(row.visible_roles || "").trim()) update.run(JSON.stringify(defaultGroupVisibleRoles(row.name)), row.id); });
+  } catch (error) { console.warn("Optional groups.visible_roles migration skipped: " + error.message); }
+}
 function ensureOptionalCustomerGroupColumn(db) {
   try {
     const table = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'customers'").get();
@@ -978,7 +1005,8 @@ function publicGroup(row) {
   return {
     id: row.id,
     name: row.name,
-    created_at: row.created_at
+    created_at: row.created_at,
+    visibleRoles: normalizeVisibleRoles(row.visible_roles, row.name)
   };
 }
 
@@ -1491,6 +1519,33 @@ function isAdminRequest(req) {
   return hasRole(req, ["admin"]);
 }
 
+function customerGroupRows() {
+  return getSqliteDb().prepare("SELECT id, name, created_at, visible_roles FROM groups ORDER BY name COLLATE NOCASE").all();
+}
+function visibleCustomerGroupIds(req) {
+  const role = currentRole(req);
+  return new Set(customerGroupRows().filter((group) => normalizeVisibleRoles(group.visible_roles, group.name).includes(role)).map((group) => String(group.id)));
+}
+function canViewGroupId(req, groupId) {
+  const normalizedId = normalizeGroupId(groupId);
+  return !normalizedId || isAdminRequest(req) || visibleCustomerGroupIds(req).has(normalizedId);
+}
+function canViewCustomer(req, customer) {
+  if (isAdminRequest(req)) return true;
+  const groupId = normalizeGroupId(customer?.groupId || customer?.group_id);
+  return !groupId || visibleCustomerGroupIds(req).has(groupId);
+}
+function visibleCustomers(req, customers) {
+  return (Array.isArray(customers) ? customers : []).filter((customer) => canViewCustomer(req, customer));
+}
+function publicCustomer(customer) {
+  return { ...customer, groupId: normalizeGroupId(customer.groupId || customer.group_id), group_id: normalizeGroupId(customer.group_id || customer.groupId), emailContacts: normalizeCustomerEmailContacts(customer.emailContacts) };
+}
+function rejectHiddenCustomer(req, res, customer) {
+  if (customer && canViewCustomer(req, customer)) return false;
+  res.status(404).json({ success: false, error: "Customer not found." });
+  return true;
+}
 function rejectRole(req, res, allowedRoles, message = "Permission denied.") {
   if (hasRole(req, allowedRoles)) return false;
   res.status(403).json({
@@ -2242,6 +2297,7 @@ app.get("/api/audit-logs", (req, res) => {
 app.get("/api/db/snapshot", (req, res) => {
   try {
     const snapshot = readSharedStore();
+    snapshot.data.phottix_customers = visibleCustomers(req, snapshot.data.phottix_customers).map(publicCustomer);
     res.json({ success: true, ...snapshot });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "SQLite snapshot failed." });
@@ -2272,10 +2328,22 @@ app.put("/api/db/key/:key", (req, res) => {
       return;
     }
     const before = readSharedStore().data[key];
-    const nextValue = req.body?.value;
+    let nextValue = req.body?.value;
     const role = currentRole(req);
     if (key === "phottix_customers") {
       if (rejectRole(req, res, ["admin", "sales", "sales_manager", "shipping_manager"], "Customer changes are not allowed for this role.")) return;
+      if (!isAdminRequest(req)) {
+        const submitted = Array.isArray(nextValue) ? nextValue : [];
+        if (submitted.some((customer) => !canViewCustomer(req, customer))) {
+          res.status(403).json({ success: false, error: "Customer changes include a restricted group." }); return;
+        }
+        const submittedIds = new Set(submitted.map((customer) => String(customer?.id || "")));
+        const hidden = (Array.isArray(before) ? before : []).filter((customer) => !canViewCustomer(req, customer));
+        if (hidden.some((customer) => submittedIds.has(String(customer?.id || "")))) {
+          res.status(403).json({ success: false, error: "Restricted customers cannot be changed." }); return;
+        }
+        nextValue = [...hidden, ...submitted];
+      }
       if (role === "shipping_manager" && customerSnapshotRemovesRecords(before, nextValue)) {
         res.status(403).json({ success: false, error: "This role cannot delete customer records.", role });
         return;
@@ -2343,18 +2411,24 @@ app.get("/api/customers", (req, res) => {
   try {
     const { data } = readSharedStore();
     const customers = Array.isArray(data.phottix_customers) ? data.phottix_customers : [];
-    res.json({
-      success: true,
-      customers: customers.map((customer) => ({
-        ...customer,
-        groupId: normalizeGroupId(customer.groupId || customer.group_id),
-        group_id: normalizeGroupId(customer.group_id || customer.groupId),
-        emailContacts: normalizeCustomerEmailContacts(customer.emailContacts)
-      }))
-    });
+    const query = String(req.query.q || "").trim().toLowerCase();
+    const filtered = visibleCustomers(req, customers).filter((customer) => !query || [
+      customer.companyName, customer.name, customer.website, customer.contactName,
+      customer.contactEmail, customer.country, customer.city, customer.industry
+    ].some((value) => String(value || "").toLowerCase().includes(query)));
+    res.json({ success: true, customers: filtered.map(publicCustomer) });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to load customers." });
   }
+});
+
+app.get("/api/customers/:id", (req, res) => {
+  try {
+    const customers = readSharedStore().data.phottix_customers;
+    const customer = (Array.isArray(customers) ? customers : []).find((item) => String(item.id || "") === String(req.params.id || ""));
+    if (rejectHiddenCustomer(req, res, customer)) return;
+    res.json({ success: true, customer: publicCustomer(customer) });
+  } catch (error) { res.status(503).json({ success: false, error: error.message || "Failed to load customer." }); }
 });
 
 app.put("/api/customers/:id", (req, res) => {
@@ -2372,12 +2446,17 @@ app.put("/api/customers/:id", (req, res) => {
       res.status(404).json({ success: false, error: "Customer not found." });
       return;
     }
+    if (rejectHiddenCustomer(req, res, customers[index])) return;
+    const requestedGroupId = normalizeGroupId(req.body?.groupId ?? req.body?.group_id ?? customers[index].groupId ?? customers[index].group_id);
+    if (!canViewGroupId(req, requestedGroupId)) {
+      res.status(403).json({ success: false, error: "The selected customer group is restricted." }); return;
+    }
     const nextCustomer = {
       ...customers[index],
       ...(req.body || {}),
       id,
-      groupId: normalizeGroupId(req.body?.groupId ?? req.body?.group_id ?? customers[index].groupId ?? customers[index].group_id),
-      group_id: normalizeGroupId(req.body?.group_id ?? req.body?.groupId ?? customers[index].group_id ?? customers[index].groupId),
+      groupId: requestedGroupId,
+      group_id: requestedGroupId,
       emailContacts: normalizeCustomerEmailContacts(req.body?.emailContacts ?? customers[index].emailContacts)
     };
     const previousCustomer = customers[index];
@@ -2396,10 +2475,9 @@ app.put("/api/customers/:id", (req, res) => {
 app.get("/api/groups", (req, res) => {
   try {
     consolidateOldCustomerGroups();
-    const rows = getSqliteDb()
-      .prepare("SELECT id, name, created_at FROM groups ORDER BY name COLLATE NOCASE")
-      .all();
-    res.json({ success: true, hostOnly: isAdminRequest(req), groups: rows.map(publicGroup) });
+    const rows = customerGroupRows();
+    const visibleRows = isAdminRequest(req) ? rows : rows.filter((row) => normalizeVisibleRoles(row.visible_roles, row.name).includes(currentRole(req)));
+    res.json({ success: true, hostOnly: isAdminRequest(req), groups: visibleRows.map(publicGroup) });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to load groups." });
   }
@@ -2415,9 +2493,10 @@ app.post("/api/groups", (req, res) => {
     }
     const id = uid("group");
     const createdAt = new Date().toISOString();
-    getSqliteDb().prepare("INSERT INTO groups (id, name, created_at) VALUES (?, ?, ?)")
-      .run(id, name, createdAt);
-    const group = getSqliteDb().prepare("SELECT id, name, created_at FROM groups WHERE id = ?").get(id);
+    const visibleRoles = normalizeVisibleRoles(req.body?.visibleRoles, name);
+    getSqliteDb().prepare("INSERT INTO groups (id, name, created_at, visible_roles) VALUES (?, ?, ?, ?)")
+      .run(id, name, createdAt, JSON.stringify(visibleRoles));
+    const group = getSqliteDb().prepare("SELECT id, name, created_at, visible_roles FROM groups WHERE id = ?").get(id);
     logAudit(req, "CREATE", "group", id, name, {});
     res.json({ success: true, group: publicGroup(group) });
   } catch (error) {
@@ -2434,12 +2513,14 @@ app.put("/api/groups/:id", (req, res) => {
       res.status(400).json({ success: false, error: "Group id and name are required." });
       return;
     }
-    const result = getSqliteDb().prepare("UPDATE groups SET name = ? WHERE id = ?").run(name, id);
+    const existing = getSqliteDb().prepare("SELECT id, name, visible_roles FROM groups WHERE id = ?").get(id);
+    const visibleRoles = normalizeVisibleRoles(req.body?.visibleRoles ?? existing?.visible_roles, name);
+    const result = getSqliteDb().prepare("UPDATE groups SET name = ?, visible_roles = ? WHERE id = ?").run(name, JSON.stringify(visibleRoles), id);
     if (!result.changes) {
       res.status(404).json({ success: false, error: "Group not found." });
       return;
     }
-    const group = getSqliteDb().prepare("SELECT id, name, created_at FROM groups WHERE id = ?").get(id);
+    const group = getSqliteDb().prepare("SELECT id, name, created_at, visible_roles FROM groups WHERE id = ?").get(id);
     logAudit(req, "UPDATE", "group", id, name, {});
     res.json({ success: true, group: publicGroup(group) });
   } catch (error) {
@@ -2485,6 +2566,9 @@ app.put("/api/customers/:id/group", (req, res) => {
       res.status(404).json({ success: false, error: "Customer not found." });
       return;
     }
+    if (!canViewGroupId(req, groupId)) {
+      res.status(403).json({ success: false, error: "The selected customer group is restricted." }); return;
+    }
     if (groupId) {
       const group = getSqliteDb().prepare("SELECT id FROM groups WHERE id = ?").get(groupId);
       if (!group) {
@@ -2524,6 +2608,9 @@ app.post("/api/customers/batch-group", (req, res) => {
     const idSet = new Set(customerIds);
     const snapshot = readSharedStore();
     const customers = Array.isArray(snapshot.data.phottix_customers) ? snapshot.data.phottix_customers : [];
+    if (!canViewGroupId(req, groupId) || customers.some((customer) => idSet.has(String(customer.id || "")) && !canViewCustomer(req, customer))) {
+      res.status(403).json({ success: false, error: "Batch changes include a restricted customer or group." }); return;
+    }
     let updated = 0;
     const updatedCustomers = customers.map((customer) => {
       if (!idSet.has(String(customer.id || ""))) return customer;
@@ -2885,7 +2972,19 @@ app.post("/api/generate-excel", (req, res) => {
   if (exportType === "customer" && rejectRole(req, res, ["admin", "product_manager", "finance_manager", "sales", "sales_manager"], "Customer export is not allowed for this role.")) return;
   if (exportType === "product" && rejectRole(req, res, ["admin", "product_manager", "finance_manager", "shipping_manager", "sales", "sales_manager"], "Product export is not allowed for this role.")) return;
   try {
-    const data = Array.isArray(req.body?.data) ? req.body.data : [];
+    const groupsById = new Map(customerGroupRows().map((group) => [String(group.id), group.name]));
+    const data = exportType === "customer"
+      ? visibleCustomers(req, readSharedStore().data.phottix_customers).map((customer) => ({
+          id: customer.id, company_name: customer.companyName, contact_name: customer.contactName,
+          contact_email: customer.contactEmail, country: customer.country, city: customer.city,
+          industry: customer.industry, main_products: customer.mainProducts || "",
+          group_id: normalizeGroupId(customer.groupId || customer.group_id),
+          group_name: groupsById.get(normalizeGroupId(customer.groupId || customer.group_id)) || "Ungrouped",
+          buying_role: customer.buyingRole || "", customer_score: customer.customerScore ?? "",
+          customer_type: customer.customerType || "", rating: customer.rating || "",
+          website: customer.website || "", notes: customer.notes || ""
+        }))
+      : (Array.isArray(req.body?.data) ? req.body.data : []);
     if (!data.length) {
       res.status(400).json({ success: false, error: "No data provided." });
       return;

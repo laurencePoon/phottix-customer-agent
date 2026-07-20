@@ -9619,3 +9619,9 @@ body.role-user #systemNavBtn {
   width: 100%;
   min-width: 0;
 }
+
+
+/* Admin customer-group visibility controls. */
+#customersPage .group-chip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#customersPage .group-role-permissions { display: flex; flex-wrap: wrap; gap: 6px 10px; width: 100%; }
+#customersPage .group-role-permissions label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }
