@@ -520,6 +520,36 @@ textarea:focus {
   min-width: 155px;
 }
 
+.group-filter-control {
+  display: flex;
+  flex: 1 1 260px;
+  min-width: 220px;
+  gap: 8px;
+  align-items: center;
+}
+
+.group-filter-control select {
+  flex: 1 1 auto;
+  min-width: 155px;
+}
+
+.group-create-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+#customersPage .group-management > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+#customersPage .group-management > div:first-child p {
+  flex: 1 1 100%;
+}
+
+
 .customer-search-box {
   position: relative;
   flex: 1 1 320px;
@@ -9566,4 +9596,26 @@ body.role-user #systemNavBtn {
   .asset-upload-panel .primary-button {
     width: 100%;
   }
+}
+
+
+
+/* Customer group filters stay visible on narrow or zoomed desktop layouts. */
+#customersPage > .card > .toolbar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  align-items: end;
+}
+#customersPage > .card > .toolbar > select,
+#customersPage > .card > .toolbar > .group-filter-control,
+#customersPage > .card > .toolbar > .customer-search-box {
+  width: 100%;
+  min-width: 0;
+}
+#customersPage > .card > .toolbar > .group-filter-control {
+  display: block;
+}
+#customersPage > .card > .toolbar > .group-filter-control select {
+  width: 100%;
+  min-width: 0;
 }

@@ -210,20 +210,48 @@ function parseEmailList(value) {
 function normalizeRole(value) {
   const role = String(value || "").trim().toLowerCase();
   if (role === "admin") return "admin";
+  if (role === "sales" || role === "salesperson" || role === "sales_person" || role === "user") return "sales";
+  if (role === "sales_manager" || role === "sales-manager" || role === "sales manager") return "sales_manager";
+  if (role === "marketing_manager" || role === "marketing-manager" || role === "marketing manager") return "marketing_manager";
   if (role === "product_manager" || role === "product-manager" || role === "product manager") return "product_manager";
   if (role === "finance_manager" || role === "finance-manager" || role === "finance manager") return "finance_manager";
   if (role === "shipping_manager" || role === "shipping-manager" || role === "shipping manager") return "shipping_manager";
-  return "user";
+  return "sales";
 }
 
 function roleLabel(role) {
   return {
     admin: "Admin",
+    sales: "Sales",
+    sales_manager: "Sales Manager",
+    marketing_manager: "Marketing Manager",
     product_manager: "Product Manager",
     finance_manager: "Finance Manager",
-    shipping_manager: "Shipping Manager",
-    user: "User"
-  }[normalizeRole(role)] || "User";
+    shipping_manager: "Shipping Manager"
+  }[normalizeRole(role)] || "Sales";
+}
+
+function normalizePosition(value) {
+  return String(value || "").trim();
+}
+
+const XIAOHONGSHU_POSITION = "小红书管理员";
+
+function canManageUsers(req) {
+  return ["admin", "marketing_manager"].includes(currentRole(req));
+}
+
+function canManageEmailTemplates(req) {
+  const role = currentRole(req);
+  if (["admin", "sales_manager"].includes(role)) return true;
+  return role === "sales"
+    && String(req.appUserRecord?.username || req.appUser || "").trim().toLowerCase() === "gina";
+}
+
+function canMarketingManagerManageUser(req, user) {
+  if (currentRole(req) !== "marketing_manager") return false;
+  return normalizeRole(user?.role) === "sales"
+    && normalizePosition(user?.position) === XIAOHONGSHU_POSITION;
 }
 
 function configuredUsers() {
@@ -235,6 +263,8 @@ function configuredUsers() {
       displayName: APP_AUTH_USER,
       email: normalizeEmail(process.env.APP_AUTH_EMAIL),
       role: "admin",
+      position: "",
+      managerUsername: "",
       senderEmails: parseEmailList(APP_AUTH_SENDERS || process.env.APP_AUTH_EMAIL)
     });
   }
@@ -258,6 +288,8 @@ function configuredUsers() {
             displayName: String(item.displayName || username).trim(),
             email,
             role: normalizeRole(item.role),
+            position: normalizePosition(item.position),
+            managerUsername: String(item.managerUsername || item.manager_username || "").trim(),
             senderEmails
           });
         });
@@ -284,7 +316,7 @@ function configuredUsers() {
 
 function readDbUsers() {
   const rows = getSqliteDb().prepare(`
-    SELECT id, username, password_hash, display_name, email, role, sender_emails, is_active, created_at, updated_at, last_login
+    SELECT id, username, password_hash, display_name, email, role, position, manager_username, sender_emails, is_active, created_at, updated_at, last_login
     FROM users
     WHERE is_active = 1
     ORDER BY username COLLATE NOCASE
@@ -296,6 +328,8 @@ function readDbUsers() {
     displayName: row.display_name || row.username,
     email: normalizeEmail(row.email),
     role: normalizeRole(row.role),
+    position: normalizePosition(row.position),
+    managerUsername: String(row.manager_username || "").trim(),
     senderEmails: parseEmailList(row.sender_emails || row.email),
     isActive: Boolean(row.is_active),
     createdAt: row.created_at,
@@ -313,6 +347,8 @@ function publicUser(row) {
     email: row.email || "",
     role: normalizeRole(row.role),
     roleLabel: roleLabel(row.role),
+    position: normalizePosition(row.position),
+    managerUsername: String(row.manager_username || row.managerUsername || "").trim(),
     senderEmails: parseEmailList(row.sender_emails || row.senderEmails || ""),
     isActive: row.is_active === undefined ? Boolean(row.isActive ?? true) : Boolean(row.is_active),
     createdAt: row.created_at || row.createdAt || "",
@@ -434,7 +470,9 @@ function createSessionToken(user) {
     user: user.username,
     displayName: user.displayName || user.username,
     email: user.email || "",
-    role: user.role || "user",
+    role: user.role || "sales",
+    position: user.position || "",
+    managerUsername: user.managerUsername || "",
     senderEmails: user.senderEmails || [],
     exp: Date.now() + SESSION_TTL_MS
   }));
@@ -762,7 +800,9 @@ function getSqliteDb() {
       password_hash TEXT NOT NULL,
       display_name TEXT,
       email TEXT,
-      role TEXT DEFAULT 'user',
+      role TEXT DEFAULT 'sales',
+      position TEXT,
+      manager_username TEXT,
       sender_emails TEXT,
       is_active INTEGER DEFAULT 1,
       created_at TEXT,
@@ -792,6 +832,8 @@ function getSqliteDb() {
     )
   `);
   ensureOptionalCustomerGroupColumn(sqliteDb);
+  ensureOptionalUserColumns(sqliteDb);
+  ensureDefaultCustomerGroups(sqliteDb);
   seedDefaultSender(sqliteDb);
   return sqliteDb;
 }
@@ -809,6 +851,23 @@ function ensureOptionalCustomerGroupColumn(db) {
   }
 }
 
+function ensureOptionalUserColumns(db) {
+  try {
+    const table = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get();
+    if (!table) return;
+    const columns = db.prepare("PRAGMA table_info(users)").all();
+    if (!columns.some((column) => column.name === "position")) {
+      db.exec("ALTER TABLE users ADD COLUMN position TEXT");
+    }
+    if (!columns.some((column) => column.name === "manager_username")) {
+      db.exec("ALTER TABLE users ADD COLUMN manager_username TEXT");
+    }
+    db.prepare("UPDATE users SET role = 'sales' WHERE lower(COALESCE(role, '')) = 'user'").run();
+  } catch (error) {
+    console.warn('Optional users role migration skipped: ' + error.message)
+  }
+}
+
 function ensureDefaultCustomerGroups(db) {
   try {
     const insert = db.prepare("INSERT OR IGNORE INTO groups (id, name, created_at) VALUES (?, ?, ?)");
@@ -818,18 +877,17 @@ function ensureDefaultCustomerGroups(db) {
       if (!existing) insert.run(group.id, group.name, new Date().toISOString());
     }
   } catch (error) {
-    console.warn("Default customer group migration skipped: " + error.message);
+    console.warn(`Default customer group migration skipped: ${error.message}`);
   }
 }
 
 function isOldCustomerGroupName(value) {
   const text = String(value || "").toLowerCase().replace(/[\s_-]+/g, "");
-  return text.includes("oldcustomers") || text.includes("oldcustomer") || text.includes("\u65e7\u5ba2\u6237") || text.includes("\u820a\u5ba2\u6236");
+  return text.includes("oldcustomers") || text.includes("oldcustomer") || text.includes("旧客户") || text.includes("舊客戶");
 }
 
 function consolidateOldCustomerGroups() {
   const db = getSqliteDb();
-  ensureDefaultCustomerGroups(db);
   const groups = db.prepare("SELECT id, name FROM groups ORDER BY created_at, id").all();
   const oldGroups = groups.filter((group) => isOldCustomerGroupName(group.name));
   if (!oldGroups.length) return null;
@@ -856,6 +914,7 @@ function consolidateOldCustomerGroups() {
   }
   return canonical.id;
 }
+
 function uid(prefix = "id") {
   return `${prefix}_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`;
 }
@@ -1864,6 +1923,8 @@ app.get("/api/auth/me", (req, res) => {
       email: req.appUserRecord.email || "",
       role,
       roleLabel: roleLabel(role),
+      position: req.appUserRecord.position || "",
+      managerUsername: req.appUserRecord.managerUsername || "",
       senderEmails: req.appUserRecord.senderEmails || []
     } : {
       username: isHostImportRequest(req) ? "localhost" : "anonymous",
@@ -1871,51 +1932,67 @@ app.get("/api/auth/me", (req, res) => {
       email: "",
       role,
       roleLabel: roleLabel(role),
+      position: "",
+      managerUsername: "",
       senderEmails: []
     },
     permissions: {
       isAdmin: role === "admin",
       canManageProducts: ["admin", "product_manager"].includes(role),
-      canManageCustomers: ["admin", "user", "shipping_manager"].includes(role),
-      canDeleteCustomers: ["admin", "user"].includes(role),
-      canBatchManageCustomers: ["admin", "user"].includes(role),
-      canImportCustomers: ["admin", "user"].includes(role),
-      canExportCustomers: ["admin", "product_manager", "finance_manager", "user"].includes(role),
+      canManageCustomers: ["admin", "sales", "sales_manager", "shipping_manager"].includes(role),
+      canDeleteCustomers: ["admin", "sales", "sales_manager"].includes(role),
+      canBatchManageCustomers: ["admin", "sales", "sales_manager"].includes(role),
+      canImportCustomers: ["admin", "sales", "sales_manager"].includes(role),
+      canExportCustomers: ["admin", "product_manager", "finance_manager", "sales", "sales_manager"].includes(role),
       canManageSenders: role === "admin",
-      canViewSenders: ["admin", "product_manager", "finance_manager", "shipping_manager", "user"].includes(role),
-      canUseSenders: ["admin", "product_manager", "finance_manager", "shipping_manager", "user"].includes(role),
-      canViewAssets: ["admin", "product_manager", "finance_manager", "shipping_manager", "user"].includes(role),
+      canViewSenders: ["admin", "product_manager", "finance_manager", "shipping_manager", "sales", "sales_manager"].includes(role),
+      canUseSenders: ["admin", "product_manager", "finance_manager", "shipping_manager", "sales", "sales_manager"].includes(role),
+      canViewAssets: ["admin", "product_manager", "finance_manager", "shipping_manager", "marketing_manager", "sales", "sales_manager"].includes(role),
       canManageAssets: ["admin", "product_manager"].includes(role),
+      canManageEmailTemplates: canManageEmailTemplates(req),
+      canManageUsers: role === "admin" || role === "marketing_manager",
       canViewSystemLogs: role === "admin"
     }
   });
 });
 
 app.get("/api/users", (req, res) => {
-  if (rejectRole(req, res, ["admin"], "User management is admin-only.")) return;
+  if (rejectRole(req, res, ["admin", "marketing_manager"], "User management is restricted to Admin and Marketing Manager.")) return;
   try {
     const dbUsers = getSqliteDb().prepare(`
-      SELECT id, username, display_name, email, role, sender_emails, is_active, created_at, updated_at, last_login
+      SELECT id, username, display_name, email, role, position, manager_username, sender_emails, is_active, created_at, updated_at, last_login
       FROM users
       ORDER BY username COLLATE NOCASE
     `).all().map((row) => publicUser(row));
     const envUsers = configuredUsers()
       .filter((user) => user.source !== "sqlite")
       .map((user) => publicUser({ ...user, source: "env", isActive: true }));
-    res.json({ success: true, users: [...envUsers, ...dbUsers] });
+    const users = [...envUsers, ...dbUsers];
+    const visibleUsers = currentRole(req) === "marketing_manager"
+      ? users.filter((user) => canMarketingManagerManageUser(req, user))
+      : users;
+    res.json({ success: true, users: visibleUsers });
   } catch (error) {
     res.status(503).json({ success: false, error: error.message || "Failed to load users." });
   }
 });
 
 app.post("/api/users", (req, res) => {
-  if (rejectRole(req, res, ["admin"], "User management is admin-only.")) return;
+  if (rejectRole(req, res, ["admin", "marketing_manager"], "User management is restricted to Admin and Marketing Manager.")) return;
   try {
     const username = String(req.body?.username || "").trim();
     const password = String(req.body?.password || "");
     const displayName = String(req.body?.displayName || req.body?.display_name || username).trim();
     const email = normalizeEmail(req.body?.email);
-    const role = normalizeRole(req.body?.role);
+    const actorRole = currentRole(req);
+    let role = normalizeRole(req.body?.role);
+    let position = normalizePosition(req.body?.position);
+    let managerUsername = String(req.body?.managerUsername || req.body?.manager_username || "").trim();
+    if (actorRole === "marketing_manager") {
+      role = "sales";
+      position = XIAOHONGSHU_POSITION;
+      managerUsername = String(req.appUserRecord?.username || req.appUser || "").trim();
+    }
     const senderEmails = Array.isArray(req.body?.senderEmails)
       ? req.body.senderEmails.map((value) => normalizeEmail(value)).filter(Boolean)
       : parseEmailList(req.body?.senderEmails || req.body?.sender_emails || email);
@@ -1930,10 +2007,10 @@ app.post("/api/users", (req, res) => {
     const now = new Date().toISOString();
     const id = uid("user");
     getSqliteDb().prepare(`
-      INSERT INTO users (id, username, password_hash, display_name, email, role, sender_emails, is_active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-    `).run(id, username, hashPassword(password), displayName, email, role, senderEmails.join(","), now, now);
-    const row = getSqliteDb().prepare("SELECT id, username, display_name, email, role, sender_emails, is_active, created_at, updated_at, last_login FROM users WHERE id = ?").get(id);
+      INSERT INTO users (id, username, password_hash, display_name, email, role, position, manager_username, sender_emails, is_active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    `).run(id, username, hashPassword(password), displayName, email, role, position, managerUsername, senderEmails.join(","), now, now);
+    const row = getSqliteDb().prepare("SELECT id, username, display_name, email, role, position, manager_username, sender_emails, is_active, created_at, updated_at, last_login FROM users WHERE id = ?").get(id);
     logAudit(req, "CREATE", "user", id, username, { role, email });
     res.json({ success: true, user: publicUser(row) });
   } catch (error) {
@@ -1943,7 +2020,7 @@ app.post("/api/users", (req, res) => {
 });
 
 app.put("/api/users/:id", (req, res) => {
-  if (rejectRole(req, res, ["admin"], "User management is admin-only.")) return;
+  if (rejectRole(req, res, ["admin", "marketing_manager"], "User management is restricted to Admin and Marketing Manager.")) return;
   try {
     const id = String(req.params.id || "").trim();
     const existing = getSqliteDb().prepare("SELECT * FROM users WHERE id = ?").get(id);
@@ -1951,9 +2028,21 @@ app.put("/api/users/:id", (req, res) => {
       res.status(404).json({ success: false, error: "User not found or is managed by .env." });
       return;
     }
+    if (currentRole(req) === "marketing_manager" && !canMarketingManagerManageUser(req, existing)) {
+      res.status(403).json({ success: false, error: "Marketing Manager can only manage the 小红书管理员 sales account." });
+      return;
+    }
     const displayName = String(req.body?.displayName || req.body?.display_name || existing.display_name || existing.username).trim();
     const email = normalizeEmail(req.body?.email);
-    const role = normalizeRole(req.body?.role || existing.role);
+    const actorRole = currentRole(req);
+    let role = normalizeRole(req.body?.role || existing.role);
+    let position = normalizePosition(req.body?.position ?? existing.position);
+    let managerUsername = String(req.body?.managerUsername || req.body?.manager_username || existing.manager_username || "").trim();
+    if (actorRole === "marketing_manager") {
+      role = "sales";
+      position = XIAOHONGSHU_POSITION;
+      managerUsername = String(req.appUserRecord?.username || req.appUser || "").trim();
+    }
     const senderEmails = Array.isArray(req.body?.senderEmails)
       ? req.body.senderEmails.map((value) => normalizeEmail(value)).filter(Boolean)
       : parseEmailList(req.body?.senderEmails || req.body?.sender_emails || email);
@@ -1962,16 +2051,16 @@ app.put("/api/users/:id", (req, res) => {
     const now = new Date().toISOString();
     if (password) {
       getSqliteDb().prepare(`
-        UPDATE users SET password_hash = ?, display_name = ?, email = ?, role = ?, sender_emails = ?, is_active = ?, updated_at = ?
+        UPDATE users SET password_hash = ?, display_name = ?, email = ?, role = ?, position = ?, manager_username = ?, sender_emails = ?, is_active = ?, updated_at = ?
         WHERE id = ?
-      `).run(hashPassword(password), displayName, email, role, senderEmails.join(","), isActive ? 1 : 0, now, id);
+      `).run(hashPassword(password), displayName, email, role, position, managerUsername, senderEmails.join(","), isActive ? 1 : 0, now, id);
     } else {
       getSqliteDb().prepare(`
-        UPDATE users SET display_name = ?, email = ?, role = ?, sender_emails = ?, is_active = ?, updated_at = ?
+        UPDATE users SET display_name = ?, email = ?, role = ?, position = ?, manager_username = ?, sender_emails = ?, is_active = ?, updated_at = ?
         WHERE id = ?
-      `).run(displayName, email, role, senderEmails.join(","), isActive ? 1 : 0, now, id);
+      `).run(displayName, email, role, position, managerUsername, senderEmails.join(","), isActive ? 1 : 0, now, id);
     }
-    const row = getSqliteDb().prepare("SELECT id, username, display_name, email, role, sender_emails, is_active, created_at, updated_at, last_login FROM users WHERE id = ?").get(id);
+    const row = getSqliteDb().prepare("SELECT id, username, display_name, email, role, position, manager_username, sender_emails, is_active, created_at, updated_at, last_login FROM users WHERE id = ?").get(id);
     logAudit(req, "UPDATE", "user", id, existing.username, { role, email, isActive, passwordChanged: Boolean(password) });
     res.json({ success: true, user: publicUser(row) });
   } catch (error) {
@@ -1980,12 +2069,16 @@ app.put("/api/users/:id", (req, res) => {
 });
 
 app.delete("/api/users/:id", (req, res) => {
-  if (rejectRole(req, res, ["admin"], "User management is admin-only.")) return;
+  if (rejectRole(req, res, ["admin", "marketing_manager"], "User management is restricted to Admin and Marketing Manager.")) return;
   try {
     const id = String(req.params.id || "").trim();
     const existing = getSqliteDb().prepare("SELECT * FROM users WHERE id = ?").get(id);
     if (!existing) {
       res.status(404).json({ success: false, error: "User not found or is managed by .env." });
+      return;
+    }
+    if (currentRole(req) === "marketing_manager" && !canMarketingManagerManageUser(req, existing)) {
+      res.status(403).json({ success: false, error: "Marketing Manager can only manage the 小红书管理员 sales account." });
       return;
     }
     if (String(existing.username || "").toLowerCase() === String(req.appUserRecord?.username || req.appUser || "").toLowerCase()) {
@@ -2001,7 +2094,7 @@ app.delete("/api/users/:id", (req, res) => {
 });
 
 app.get("/api/import-files", (req, res) => {
-  if (rejectRole(req, res, ["admin", "user"], "Customer Excel import is not allowed for this role.")) return;
+  if (rejectRole(req, res, ["admin", "sales", "sales_manager"], "Customer Excel import is not allowed for this role.")) return;
   if (rejectRemoteImport(req, res)) return;
   try {
     res.json({ success: true, files: listExcelFiles() });
@@ -2011,7 +2104,7 @@ app.get("/api/import-files", (req, res) => {
 });
 
 app.get("/list-excel", (req, res) => {
-  if (rejectRole(req, res, ["admin", "user"], "Customer Excel import is not allowed for this role.")) return;
+  if (rejectRole(req, res, ["admin", "sales", "sales_manager"], "Customer Excel import is not allowed for this role.")) return;
   if (rejectRemoteImport(req, res)) return;
   try {
     res.json({ success: true, files: listExcelFiles() });
@@ -2182,7 +2275,7 @@ app.put("/api/db/key/:key", (req, res) => {
     const nextValue = req.body?.value;
     const role = currentRole(req);
     if (key === "phottix_customers") {
-      if (rejectRole(req, res, ["admin", "user", "shipping_manager"], "Customer changes are not allowed for this role.")) return;
+      if (rejectRole(req, res, ["admin", "sales", "sales_manager", "shipping_manager"], "Customer changes are not allowed for this role.")) return;
       if (role === "shipping_manager" && customerSnapshotRemovesRecords(before, nextValue)) {
         res.status(403).json({ success: false, error: "This role cannot delete customer records.", role });
         return;
@@ -2192,7 +2285,7 @@ app.put("/api/db/key/:key", (req, res) => {
     } else if (["phottix_settings", "phottix_auto_backups", "phottix_error_logs"].includes(key)) {
       if (rejectRole(req, res, ["admin"], "System setting changes are admin-only.")) return;
     } else if (key === "phottix_customer_import_reviews") {
-      if (rejectRole(req, res, ["admin", "user"], "Customer import review changes are not allowed for this role.")) return;
+      if (rejectRole(req, res, ["admin", "sales", "sales_manager"], "Customer import review changes are not allowed for this role.")) return;
     }
     writeSharedKey(key, nextValue);
     const value = nextValue;
@@ -2265,7 +2358,7 @@ app.get("/api/customers", (req, res) => {
 });
 
 app.put("/api/customers/:id", (req, res) => {
-  if (rejectRole(req, res, ["admin", "user", "shipping_manager"], "Customer editing is not allowed for this role.")) return;
+  if (rejectRole(req, res, ["admin", "sales", "sales_manager", "shipping_manager"], "Customer editing is not allowed for this role.")) return;
   try {
     const id = String(req.params.id || "").trim();
     if (!id) {
@@ -2413,7 +2506,7 @@ app.put("/api/customers/:id/group", (req, res) => {
 });
 
 app.post("/api/customers/batch-group", (req, res) => {
-  if (rejectRole(req, res, ["admin", "user"], "Batch customer group changes are not allowed for this role.")) return;
+  if (rejectRole(req, res, ["admin", "sales", "sales_manager"], "Batch customer group changes are not allowed for this role.")) return;
   try {
     const customerIds = Array.isArray(req.body?.customerIds) ? req.body.customerIds.map((id) => String(id || "")) : [];
     const groupId = normalizeGroupId(req.body?.group_id ?? req.body?.groupId);
@@ -2450,7 +2543,7 @@ app.post("/api/customers/batch-group", (req, res) => {
 });
 
 app.get("/api/senders", (req, res) => {
-  if (rejectRole(req, res, ["admin", "product_manager", "finance_manager", "shipping_manager", "user"], "Sender list is not available for this role.")) return;
+  if (rejectRole(req, res, ["admin", "product_manager", "finance_manager", "shipping_manager", "sales", "sales_manager"], "Sender list is not available for this role.")) return;
   try {
     const rows = getSqliteDb()
       .prepare("SELECT id, name, email, isActive, createdAt, updatedAt FROM senders ORDER BY name COLLATE NOCASE, email COLLATE NOCASE")
@@ -2578,6 +2671,10 @@ app.get("/api/custom-templates", (req, res) => {
 });
 
 app.post("/api/custom-templates", (req, res) => {
+  if (!canManageEmailTemplates(req)) {
+    res.status(403).json({ success: false, error: "Only Admin, Sales Manager, or Gina can modify Email templates." });
+    return;
+  }
   try {
     const name = String(req.body?.name || "").trim();
     const subject = String(req.body?.subject || "").trim();
@@ -2624,6 +2721,10 @@ app.post("/api/custom-templates", (req, res) => {
 });
 
 app.put("/api/custom-templates/:id", (req, res) => {
+  if (!canManageEmailTemplates(req)) {
+    res.status(403).json({ success: false, error: "Only Admin, Sales Manager, or Gina can modify Email templates." });
+    return;
+  }
   try {
     const id = String(req.params.id || "").trim();
     const existing = getSqliteDb().prepare("SELECT id FROM custom_templates WHERE id = ?").get(id);
@@ -2668,6 +2769,11 @@ app.put("/api/custom-templates/:id", (req, res) => {
 });
 
 app.delete("/api/custom-templates/:id", (req, res) => {
+  if (!canManageEmailTemplates(req)) {
+    res.status(403).json({ success: false, error: "Only Admin, Sales Manager, or Gina can modify Email templates." });
+    return;
+  }
+
   try {
     const id = String(req.params.id || "");
     const existing = getSqliteDb().prepare("SELECT id, name FROM custom_templates WHERE id = ?").get(id);
@@ -2684,7 +2790,7 @@ app.delete("/api/custom-templates/:id", (req, res) => {
 });
 
 app.post("/api/parse-excel-config", (req, res) => {
-  if (rejectRole(req, res, ["admin", "user"], "Customer Excel import is not allowed for this role.")) return;
+  if (rejectRole(req, res, ["admin", "sales", "sales_manager"], "Customer Excel import is not allowed for this role.")) return;
   if (rejectRemoteImport(req, res)) return;
   try {
     const filename = path.basename(String(req.body?.fileName || req.body?.filename || "").trim().replace(/^["']|["']$/g, ""));
@@ -2744,7 +2850,7 @@ app.post("/api/import-excel-upload", (req, res) => {
 });
 
 app.post("/api/import-customer-excel-upload", (req, res) => {
-  if (rejectRole(req, res, ["admin", "user"], "Customer Excel import is not allowed for this role.")) return;
+  if (rejectRole(req, res, ["admin", "sales", "sales_manager"], "Customer Excel import is not allowed for this role.")) return;
   uploadCustomerExcel.single("customerExcel")(req, res, (error) => {
     if (error) {
       res.status(400).json({ success: false, error: error.message || "Customer Excel upload failed." });
@@ -2776,8 +2882,8 @@ app.post("/api/import-customer-excel-upload", (req, res) => {
 
 app.post("/api/generate-excel", (req, res) => {
   const exportType = String(req.body?.exportType || "customer").trim().toLowerCase();
-  if (exportType === "customer" && rejectRole(req, res, ["admin", "product_manager", "finance_manager", "user"], "Customer export is not allowed for this role.")) return;
-  if (exportType === "product" && rejectRole(req, res, ["admin", "product_manager", "finance_manager", "shipping_manager", "user"], "Product export is not allowed for this role.")) return;
+  if (exportType === "customer" && rejectRole(req, res, ["admin", "product_manager", "finance_manager", "sales", "sales_manager"], "Customer export is not allowed for this role.")) return;
+  if (exportType === "product" && rejectRole(req, res, ["admin", "product_manager", "finance_manager", "shipping_manager", "sales", "sales_manager"], "Product export is not allowed for this role.")) return;
   try {
     const data = Array.isArray(req.body?.data) ? req.body.data : [];
     if (!data.length) {

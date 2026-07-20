@@ -23,8 +23,8 @@
         <button id="assetsNavBtn" class="nav-button" data-icon="▤" data-page="assetsPage" type="button">云端资料库 / File Library</button>
         <button class="nav-button" data-icon="◫" data-page="customersPage" type="button">客戶池 / Customers</button>
         <button id="sendersNavBtn" class="nav-button hidden" data-icon="✉" data-page="sendersPage" type="button">寄件者管理 / Senders</button>
-        <button id="usersNavBtn" class="nav-button hidden" data-icon="u" data-page="usersPage" type="button">Users</button>
-        <button id="systemNavBtn" class="nav-button hidden" data-icon="i" data-page="systemPage" type="button">System Logs</button>
+        <button id="usersNavBtn" class="nav-button hidden" data-icon="u" data-page="usersPage" type="button">&#x7528;&#x6237;&#x7BA1;&#x7406; / Users</button>
+        <button id="systemNavBtn" class="nav-button hidden" data-icon="i" data-page="systemPage" type="button">&#x7CFB;&#x7EDF;&#x65E5;&#x5FD7; / System Logs</button>
       </nav>
 
       <section class="today-widget">
@@ -262,6 +262,9 @@
               </label>
               <label class="wide">手動網站摘要 / Manual Website Summary
                 <textarea id="manualWebsiteSummary" rows="4" placeholder="Paste About Us, product lines, address, brand pages, store information..."></textarea>
+              </label>
+              <label class="wide">Main Products / Website Main Products
+                <textarea id="mainProducts" rows="3" placeholder="Main products confirmed on the customer website."></textarea>
               </label>
               <label class="wide">官網社媒摘錄 / Website & Social Extract
                 <textarea id="websiteExtract" rows="5" placeholder="Fetched website text or copied social media captions will appear here."></textarea>
@@ -612,7 +615,6 @@
               <p>建立組別後，可在客戶池篩選或批量移動客戶。</p>
             </div>
             <div class="group-actions">
-              <button id="addGroupBtn" class="secondary-button" type="button">新增組別</button>
               <div id="groupList" class="group-list"></div>
             </div>
           </div>
@@ -620,8 +622,8 @@
           <div class="toolbar">
             <select id="customerTypeFilter">
               <option value="">全部類型</option>
-              <option value="prospect">Prospect</option>
-              <option value="existing">Existing</option>
+              <option value="prospect">&#x6F5C;&#x5728;&#x5BA2;&#x6237; / Prospect</option>
+              <option value="existing">&#x73B0;&#x6709;&#x5BA2;&#x6237; / Existing</option>
             </select>
             <select id="ratingFilter">
               <option value="">全部評級</option>
@@ -639,10 +641,13 @@
               <option value="cancelled">cancelled</option>
               <option value="deferred">deferred</option>
             </select>
-            <select id="groupFilter">
-              <option value="">全部組別</option>
-              <option value="__ungrouped__">未分組 / Ungrouped</option>
-            </select>
+            <div class="group-filter-control">
+              <select id="groupFilter">
+                <option value="">全部組別</option>
+                <option value="__ungrouped__">未分組 / Ungrouped</option>
+              </select>
+              <button id="addGroupBtn" class="secondary-button group-create-button" type="button">新增組別 / Create Group</button>
+            </div>
             <label class="customer-search-box">搜尋 / Search
               <input id="customerSearch" type="search" placeholder="輸入公司、官網、聯絡人、郵箱...">
             </label>
@@ -779,7 +784,7 @@
           <div class="card-head">
             <div>
               <h3>User Management</h3>
-              <p>Admin-only role and login management.</p>
+              <p>Role, position, and login management.</p>
             </div>
             <button id="refreshUsersBtn" class="secondary-button" type="button">Refresh</button>
           </div>
@@ -798,9 +803,14 @@
             <label>Email
               <input id="managedEmail" type="email" placeholder="gina@phottix.com">
             </label>
+            <label>Position
+              <input id="managedPosition" type="text" placeholder="例如：小红书管理员">
+            </label>
             <label>Role
               <select id="managedRole">
-                <option value="user">User</option>
+                <option value="sales">Sales</option>
+                <option value="sales_manager">Sales Manager</option>
+                <option value="marketing_manager">Marketing Manager</option>
                 <option value="product_manager">Product Manager</option>
                 <option value="finance_manager">Finance Manager</option>
                 <option value="shipping_manager">Shipping Manager</option>
@@ -871,6 +881,9 @@
       <label>聯絡人 <input id="dialogContactName"></label>
       <label>郵箱 <input id="dialogContactEmail" type="email"></label>
       <label>國家/城市 <input id="dialogCountry"></label>
+      <label>Main Products / Website Main Products
+        <textarea id="dialogMainProducts" rows="3" placeholder="Main products confirmed on the customer website."></textarea>
+      </label>
       <label>組別 / Group
         <select id="dialogGroup"></select>
       </label>

@@ -207,7 +207,8 @@
     assets: [],
     groups: [],
     isHostAdmin: false,
-    userRole: "user",
+    username: "",
+    userRole: "sales",
     permissions: {}
   };
 
@@ -682,16 +683,27 @@
     return hasPermission("canManageProducts") || state.userRole === "admin" || state.userRole === "product_manager";
   }
 
+  function canManageTemplates() {
+    return hasPermission("canManageEmailTemplates")
+      || state.userRole === "admin"
+      || state.userRole === "sales_manager"
+      || (state.userRole === "sales" && String(state.username || "").toLowerCase() === "gina");
+  }
+
+  function canManageUsers() {
+    return hasPermission("canManageUsers") || state.userRole === "admin" || state.userRole === "marketing_manager";
+  }
+
   function canManageCustomers() {
-    return hasPermission("canManageCustomers") || state.userRole === "admin" || state.userRole === "user" || state.userRole === "shipping_manager";
+    return hasPermission("canManageCustomers") || state.userRole === "admin" || state.userRole === "sales" || state.userRole === "sales_manager" || state.userRole === "shipping_manager";
   }
 
   function canDeleteCustomers() {
-    return hasPermission("canDeleteCustomers") || state.userRole === "admin" || state.userRole === "user";
+    return hasPermission("canDeleteCustomers") || state.userRole === "admin" || state.userRole === "sales" || state.userRole === "sales_manager";
   }
 
   function canBatchManageCustomers() {
-    return hasPermission("canBatchManageCustomers") || state.userRole === "admin" || state.userRole === "user";
+    return hasPermission("canBatchManageCustomers") || state.userRole === "admin" || state.userRole === "sales" || state.userRole === "sales_manager";
   }
 
   function canManageAssets() {
@@ -1707,6 +1719,7 @@
         country: customer.country,
         city: customer.city,
         industry: customer.industry,
+        main_products: customer.mainProducts || "",
         group_id: normalizeGroupId(customer.groupId || customer.group_id),
         group_name: groupName(customer.groupId || customer.group_id),
         buying_role: normalizeBuyingRole(customer.buyingRole),
@@ -1796,6 +1809,7 @@
       return state.customTemplates;
     },
     async save(name, templateInput = {}) {
+      if (!canManageTemplates()) throw new Error("Only Admin, Sales Manager, or Gina can modify Email templates.");
       const body = {
         name: normalizeText(name),
         subject: String(templateInput.subject ?? dom.templateSubject.value ?? "").trim(),
@@ -1822,6 +1836,7 @@
       return payload.template;
     },
     async remove(id) {
+      if (!canManageTemplates()) throw new Error("Only Admin, Sales Manager, or Gina can modify Email templates.");
       const response = await fetch(`${API_BASE}/api/custom-templates/${encodeURIComponent(id)}`, { method: "DELETE" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to delete custom template.");
@@ -1838,7 +1853,8 @@
       const response = await fetch(`${API_BASE}/api/auth/me`, { cache: "no-store" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to load current user.");
-      state.userRole = payload.user?.role || "user";
+      state.username = String(payload.user?.username || "").trim();
+      state.userRole = payload.user?.role || "sales";
       state.permissions = payload.permissions || {};
       state.isHostAdmin = Boolean(payload.permissions?.isAdmin || state.userRole === "admin");
       return payload.user;
@@ -1925,7 +1941,8 @@
         password: String(dom.managedPassword?.value || ""),
         displayName: normalizeText(dom.managedDisplayName?.value),
         email: normalizeText(dom.managedEmail?.value),
-        role: normalizeText(dom.managedRole?.value || "user"),
+        position: normalizeText(dom.managedPosition?.value),
+        role: normalizeText(dom.managedRole?.value || "sales"),
         senderEmails: normalizeText(dom.managedSenderEmails?.value),
         isActive: Boolean(dom.managedIsActive?.checked)
       };
@@ -2024,6 +2041,7 @@
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || "Failed to create group.");
       await this.list();
+      if (payload.group?.id && dom.groupFilter) dom.groupFilter.value = payload.group.id;
       UI.renderGroupControls();
       UI.renderCustomerList();
       UI.toast("Group created.", "good");
@@ -2112,8 +2130,8 @@
         this.toast("System Logs is admin-only.", "warn");
         pageId = "analysisPage";
       }
-      if (pageId === "usersPage" && !state.isHostAdmin) {
-        this.toast("User Management is admin-only.", "warn");
+      if (pageId === "usersPage" && !canManageUsers()) {
+        this.toast("User management is restricted to Admin and Marketing Manager.", "warn");
         pageId = "analysisPage";
       }
       if (pageId === "sendersPage" && !hasPermission("canViewSenders")) {
@@ -2141,20 +2159,24 @@
       }
       if (pageId === "usersPage") {
         dom.pageTitle.textContent = "User Management";
-        dom.pageSubtitle.textContent = "Admin-only login, role, and sender access settings.";
+        dom.pageSubtitle.textContent = "Role and position access settings.";
         UserApi.list().then(() => this.renderUserList()).catch((error) => this.toast(error.message, "bad"));
       }
     },
     renderAdminNavigation() {
-      document.body.classList.remove("role-admin", "role-product-manager", "role-finance-manager", "role-shipping-manager", "role-user");
-      document.body.classList.add(`role-${String(state.userRole || "user").replace(/_/g, "-")}`);
+      document.body.classList.remove("role-admin", "role-sales", "role-sales-manager", "role-marketing-manager", "role-product-manager", "role-finance-manager", "role-shipping-manager", "role-user");
+      document.body.classList.add(`role-${String(state.userRole || "sales").replace(/_/g, "-")}`);
       const canImportCustomers = hasPermission("canImportCustomers");
       const canExportCustomers = hasPermission("canExportCustomers");
       const canManageSenders = hasPermission("canManageSenders");
+      const canEditTemplates = canManageTemplates();
       if (dom.assetUploadForm) dom.assetUploadForm.classList.toggle("hidden", !canManageAssets());
       if (dom.sendersNavBtn) dom.sendersNavBtn.classList.toggle("hidden", !hasPermission("canViewSenders"));
-      if (dom.usersNavBtn) dom.usersNavBtn.classList.toggle("hidden", !state.isHostAdmin);
+      if (dom.usersNavBtn) dom.usersNavBtn.classList.toggle("hidden", !canManageUsers());
       if (dom.systemNavBtn) dom.systemNavBtn.classList.toggle("hidden", !hasPermission("canViewSystemLogs"));
+      [dom.newBlankTemplateBtn, dom.saveTemplateBtn, dom.saveTemplateTopBtn, dom.deleteTemplateBtn, dom.deleteTemplateTopBtn].forEach((button) => {
+        if (button) button.classList.toggle("hidden", !canEditTemplates);
+      });
       [
         dom.addProductBtn,
         dom.importProductsBtn
@@ -2186,8 +2208,8 @@
     },
     renderUserList() {
       if (!dom.userList) return;
-      if (!state.isHostAdmin) {
-        dom.userList.innerHTML = `<div class="empty">User management is admin-only.</div>`;
+      if (!canManageUsers()) {
+        dom.userList.innerHTML = `<div class="empty">User management is restricted to Admin and Marketing Manager.</div>`;
         return;
       }
       dom.userList.innerHTML = state.users.length ? `
@@ -2201,7 +2223,7 @@
                 <td>${escapeHtml(user.email || "")}</td>
                 <td><span class="audit-action">${escapeHtml(user.roleLabel || user.role || "User")}</span></td>
                 <td><span class="status-pill ${user.isActive ? "positive" : "negative"}">${user.isActive ? "Active" : "Inactive"}</span></td>
-                <td>${escapeHtml(formatDateTime(user.lastLogin) || "-")}</td>
+                <td>${escapeHtml(formatDateTime(user.lastLogin) || "Never")}</td>
                 <td>${user.source === "env" ? `<span class="muted-text">Managed by .env</span>` : `
                   <button class="mini-button" data-action="edit-user" data-id="${escapeHtml(user.id)}" type="button">Edit</button>
                   <button class="danger-button" data-action="delete-user" data-id="${escapeHtml(user.id)}" type="button">Delete</button>
@@ -2754,6 +2776,10 @@
       setEmailEditorMode("edit");
     },
     renderGroupControls() {
+      const groupHeading = document.querySelector("#customersPage .group-management > div:first-child");
+      if (dom.addGroupBtn && groupHeading && dom.addGroupBtn.parentElement !== groupHeading) {
+        groupHeading.appendChild(dom.addGroupBtn);
+      }
       const filterValue = dom.groupFilter?.value || "";
       const importValue = dom.customerImportGroupSelect?.value || "";
       const bulkValue = dom.bulkGroupSelect?.value || "";
@@ -2824,6 +2850,7 @@
       ["Buyer Classification / 買家分類", `${buyingRoleDisplay(customer.buyingRole)}${customer.isBuyingRoleManuallyReviewed ? " (Manual)" : ""}`],
       ["Customer Score", customer.customerScore ?? ""],
       ["客戶類型", customer.customerType],
+      ["Main Products / Website Main Products", customer.mainProducts],
       ["Instagram", customer.socialMedia?.instagram],
       ["Facebook", customer.socialMedia?.facebook],
       ["上次分析", customer.lastAnalyzedAt ? formatDateTime(customer.lastAnalyzedAt) : ""]
@@ -2961,10 +2988,10 @@
     const groupId = resolveGroupId(getAny(n, "Group ID", "group_id", "groupId", "Group", "group", "組別", "组别", "客戶組別", "客户组别"));
     const country = getAny(n, "Country", "country", "國家", "国家", "地區", "地区", "國家地區名", "国家地区名", "國家地區名稱", "国家地区名称");
     const city = getAny(n, "City", "city", "城市", "城巿");
+    const mainProducts = getAny(n, "Main Products", "main_products", "主營產品", "主营产品");
     const notes = [
       getAny(n, "Notes", "notes", "備註", "备注"),
       getAny(n, "Company Type", "company_type", "公司類型", "公司类型"),
-      getAny(n, "Main Products", "main_products", "主營產品", "主营产品"),
       contactNote,
       industry ? `Industry: ${industry}` : ""
     ].filter(Boolean).join(" | ");
@@ -2979,6 +3006,7 @@
       country,
       city,
       industry,
+      mainProducts,
       groupId,
       group_id: groupId,
       buyingRole,
@@ -3119,6 +3147,7 @@
       customer.website,
       customer.contactName,
       customer.contactEmail,
+      customer.mainProducts,
       customer.groupId,
       customer.group_id,
       normalizeBuyingRole(customer.buyingRole),
@@ -3163,6 +3192,7 @@
       country: normalizeText(dom.country.value),
       city: normalizeText(dom.city.value),
       industry: normalizeText(dom.industry.value),
+      mainProducts: normalizeText(dom.mainProducts.value),
       groupId: normalizeGroupId(existing?.groupId || existing?.group_id),
       group_id: normalizeGroupId(existing?.group_id || existing?.groupId),
       buyingRole: normalizeBuyingRole(dom.buyingRole?.value || existing?.buyingRole),
@@ -3272,6 +3302,7 @@
     dom.country.value = customer.country || "";
     dom.city.value = customer.city || "";
     dom.industry.value = customer.industry || "";
+    dom.mainProducts.value = customer.mainProducts || "";
     if (dom.buyingRole) dom.buyingRole.value = normalizeBuyingRole(customer.buyingRole);
     if (dom.buyingRoleManualStatus) {
       dom.buyingRoleManualStatus.textContent = customer.isBuyingRoleManuallyReviewed
@@ -3481,6 +3512,7 @@
     dom.dialogContactName.value = customer?.contactName || "";
     dom.dialogContactEmail.value = customer?.contactEmail || "";
     dom.dialogCountry.value = customer?.country || "";
+    dom.dialogMainProducts.value = customer?.mainProducts || "";
     if (dom.dialogGroup) {
       dom.dialogGroup.innerHTML = groupOptionsHtml(customer?.groupId || customer?.group_id);
       dom.dialogGroup.value = normalizeGroupId(customer?.groupId || customer?.group_id);
@@ -3514,6 +3546,7 @@
       contactNameType: contactNameType(rawContactName, contactEmail) || existing?.contactNameType || "",
       contactEmail,
       country: normalizeText(dom.dialogCountry.value),
+      mainProducts: normalizeText(dom.dialogMainProducts.value),
       groupId: normalizeGroupId(dom.dialogGroup?.value),
       group_id: normalizeGroupId(dom.dialogGroup?.value),
       customerScore: normalizeCustomerScore(dom.dialogCustomerScore.value),
@@ -4408,7 +4441,8 @@
     dom.managedPassword.placeholder = "Required for new users";
     dom.managedDisplayName.value = "";
     dom.managedEmail.value = "";
-    dom.managedRole.value = "user";
+    dom.managedRole.value = "sales";
+    dom.managedPosition.value = state.userRole === "marketing_manager" ? "小红书管理员" : "";
     dom.managedSenderEmails.value = "";
     dom.managedIsActive.checked = true;
     if (dom.saveUserBtn) dom.saveUserBtn.textContent = "Save User";
@@ -4427,7 +4461,8 @@
     dom.managedPassword.placeholder = "Leave blank to keep current password";
     dom.managedDisplayName.value = user.displayName || "";
     dom.managedEmail.value = user.email || "";
-    dom.managedRole.value = user.role || "user";
+    dom.managedRole.value = user.role || "sales";
+    dom.managedPosition.value = user.position || "";
     dom.managedSenderEmails.value = Array.isArray(user.senderEmails) ? user.senderEmails.join(", ") : "";
     dom.managedIsActive.checked = user.isActive !== false;
     if (dom.saveUserBtn) dom.saveUserBtn.textContent = "Update User";
@@ -4454,7 +4489,7 @@
       "todayFollowCount", "todayFollowList", "toast", "pageTitle", "pageSubtitle", "environmentBanner",
       "overdueFollowCount", "dueTodayFollowCount", "statsSummary", "errorLogList", "clearErrorLogsBtn",
       "loadCustomerSelect", "companyName", "website", "contactName", "contactEmail", "country", "city", "industry",
-      "buyingRole", "buyingRoleManualStatus", "instagram", "facebook", "emailPurpose", "businessNotes", "manualWebsiteSummary", "websiteExtract",
+      "buyingRole", "buyingRoleManualStatus", "instagram", "facebook", "emailPurpose", "businessNotes", "manualWebsiteSummary", "mainProducts", "websiteExtract",
       "fetchWebsiteBtn", "runAnalysisBtn", "saveCustomerBtn", "clearAnalysisBtn", "staleBanner",
       "templatePurpose", "newBlankTemplateBtn", "templateSubject", "emailTo", "emailCc", "emailBcc", "quickEmailContactsBtn", "manageEmailContactsBtn", "emailContactQuickPanel", "templateBody", "templatePreviewPane", "emailEditModeBtn", "emailPreviewModeBtn",
       "senderAvatar", "senderSelect", "senderStatus", "attachmentType", "attachmentName", "attachmentUrl",
@@ -4471,7 +4506,7 @@
       "productId", "productName", "productCategory", "productInPool", "productPriority",
       "productPriorityNumber", "productRecommendedFor", "productPriorityA", "productPriorityB", "productPriorityC", "productPriorityD", "productPriorityAll", "productSku", "productDescription", "productPrice", "productUrl", "productLaunchDate",
       "saveProductDialogBtn", "customerDialog", "customerForm", "customerDialogTitle", "customerId",
-      "dialogCompanyName", "dialogWebsite", "dialogContactName", "dialogContactEmail", "dialogCountry", "dialogGroup", "dialogCustomerScore",
+      "dialogCompanyName", "dialogWebsite", "dialogContactName", "dialogContactEmail", "dialogCountry", "dialogMainProducts", "dialogGroup", "dialogCustomerScore",
       "dialogBuyingRole", "dialogCustomerType", "dialogFollowStatus", "dialogNextFollowDate", "saveCustomerDialogBtn",
       "overrideDialog", "overrideForm", "overrideRating", "overrideReason", "saveOverrideBtn",
       "logDialog", "logForm", "logCustomerId", "logDate", "logChannel", "logContactPerson", "logSubject",
@@ -4479,7 +4514,7 @@
       "sendersNavBtn", "usersNavBtn", "systemNavBtn", "themeToggle", "refreshSendersBtn", "senderForm", "senderId", "senderName", "senderEmail",
       "senderAppPassword", "saveSenderBtn", "resetSenderFormBtn", "senderList",
       "refreshUsersBtn", "userForm", "managedUserId", "managedUsername", "managedPassword", "managedDisplayName",
-      "managedEmail", "managedRole", "managedSenderEmails", "managedIsActive", "saveUserBtn", "resetUserFormBtn", "userList",
+      "managedEmail", "managedPosition", "managedRole", "managedSenderEmails", "managedIsActive", "saveUserBtn", "resetUserFormBtn", "userList",
       "emailContactsDialog", "emailContactsForm", "emailContactsCustomerId", "emailContactsList",
       "emailContactAddress", "emailContactRole", "addEmailContactBtn", "saveEmailContactsBtn",
       "customTemplateDialog", "customTemplateForm", "customTemplateName", "saveCustomTemplateDialogBtn",
@@ -4903,7 +4938,7 @@
         UI.toast("Sender management is admin-only.", "warn");
         return;
       }
-      if (["edit-user", "delete-user"].includes(action) && !state.isHostAdmin) {
+      if (["edit-user", "delete-user"].includes(action) && !canManageUsers()) {
         UI.toast("User management is admin-only.", "warn");
         return;
       }
@@ -5096,7 +5131,7 @@
     UI.toast("Loading shared database...", "warn");
     await AuthApi.me().catch((error) => {
       DB.addErrorLog("Load current user", error);
-      state.userRole = isLocalEnvironment() ? "admin" : "user";
+      state.userRole = isLocalEnvironment() ? "admin" : "sales";
       state.permissions = { isAdmin: isLocalEnvironment() };
       state.isHostAdmin = isLocalEnvironment();
     });
@@ -5121,7 +5156,7 @@
       UI.renderSenderSelector();
       UI.renderSenderList();
     });
-    if (state.isHostAdmin) {
+    if (canManageUsers()) {
       await UserApi.list().catch((error) => {
         DB.addErrorLog("Load users", error);
         state.users = [];
