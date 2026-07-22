@@ -252,6 +252,71 @@ function canManageEmailTemplates(req) {
     && String(req.appUserRecord?.username || req.appUser || "").trim().toLowerCase() === "gina";
 }
 
+const EMAIL_DRAFT_ROLES = ["admin", "sales", "sales_manager", "marketing_manager", "product_manager"];
+
+function customerPrimaryEmail(customer) {
+  const contacts = normalizeCustomerEmailContacts(customer?.emailContacts);
+  return contacts.find((contact) => contact.role === "to")?.email
+    || contacts[0]?.email
+    || normalizeEmail(customer?.contactEmail || customer?.email);
+}
+
+function describeDraftProducts(products = []) {
+  return (Array.isArray(products) ? products : []).slice(0, 3).map((product) => {
+    if (typeof product === "string") return product;
+    return [product.name || product.productName, product.sku ? `(${product.sku})` : ""].filter(Boolean).join(" ");
+  }).filter(Boolean).join(", ");
+}
+
+function draftGreeting(customer) {
+  const contact = String(customer?.contactName || "").trim();
+  if (contact && !/^(info|sales|admin|support|contact)$/i.test(contact)) return `Dear ${contact},`;
+  return "Dear Sir or Madam,";
+}
+
+function renderBatchDraftTemplate(template, customer, products) {
+  const role = String(customer?.buyingRole || "").trim().toUpperCase();
+  const strategy = ({ A: "distribution and wholesale opportunity", B: "physical retail assortment", C: "online retail assortment", D: "studio and creator workflow" })[role] || "business fit";
+  const variables = {
+    "{{公司名}}": customer?.companyName || "your team",
+    "{{聯絡人}}": String(customer?.contactName || "").trim() || "there",
+    "{{稱呼}}": draftGreeting(customer),
+    "{{官網}}": customer?.website || "",
+    "{{客戶類型}}": customer?.customerType || "",
+    "{{推薦產品}}": describeDraftProducts(products),
+    "{{評分}}": `${customer?.rating || "NR"}${customer?.totalScore !== undefined && customer?.totalScore !== "" ? ` / ${customer.totalScore}` : ""}`,
+    "{{郵件目的}}": customer?.emailPurpose || "First Touch",
+    "{{郵件推薦策略}}": strategy,
+    "{{emailAttachments}}": ""
+  };
+  let subject = String(template?.subject || "");
+  let body = String(template?.body || "");
+  Object.entries(variables).forEach(([key, value]) => {
+    subject = subject.split(key).join(value || "");
+    body = body.split(key).join(value || "");
+  });
+  if (!String(customer?.contactName || "").trim()) {
+    body = body.replace(/^\s*(?:Hi|Hello|Dear)\s+there,\s*$/gim, draftGreeting(customer));
+  }
+  return { subject: subject.trim(), body: body.trim() };
+}
+
+function batchDraftTemplate(templateId, snapshot) {
+  const id = String(templateId || "").trim();
+  if (!id) return null;
+  if (id.startsWith("custom:")) {
+    const row = getSqliteDb().prepare("SELECT id, name, subject, body FROM custom_templates WHERE id = ?").get(id.slice(7));
+    return row ? { id, name: row.name, subject: row.subject, body: row.body } : null;
+  }
+  if (id.startsWith("default:")) {
+    const key = id.slice(8);
+    const templates = snapshot?.data?.phottix_email_templates;
+    const template = templates && typeof templates === "object" ? templates[key] : null;
+    return template ? { id, name: key, subject: template.subject, body: template.body } : null;
+  }
+  return null;
+}
+
 function canMarketingManagerManageUser(req, user) {
   if (currentRole(req) !== "marketing_manager") return false;
   return normalizeRole(user?.role) === "sales"
@@ -1440,7 +1505,8 @@ function syncInboxMessages() {
       password: process.env.IMAP_PASS,
       host: process.env.IMAP_HOST || "imap.gmail.com",
       port: Number(process.env.IMAP_PORT || 993),
-      tls: String(process.env.IMAP_TLS || "true").toLowerCase() !== "false"
+      tls: String(process.env.IMAP_TLS || "true").toLowerCase() !== "false",
+      tlsOptions: { servername: process.env.IMAP_HOST || "imap.gmail.com" }
     });
     let settled = false;
     const finish = (error, value) => {
@@ -1494,6 +1560,8 @@ function applyInboxReplySignal(customers, customerId) {
       ...customer,
       businessSignals: hasReplySignal ? signals : [...signals, { type: "email_reply", value: "高潛力 - 客戶已回覆" }],
       customerScore: nextScore,
+      replied: true,
+      replyCount: Number(customer.replyCount || 0) + 1,
       nextFollowUpDate: todayPlusDays(2),
       followUpStatus: "pending"
     };
@@ -2876,6 +2944,99 @@ app.delete("/api/custom-templates/:id", (req, res) => {
   }
 });
 
+app.post("/api/batch-generate-emails", (req, res) => {
+  if (rejectRole(req, res, EMAIL_DRAFT_ROLES, "Batch email drafts are not available for this role.")) return;
+  try {
+    const customerIds = [...new Set((Array.isArray(req.body?.customerIds) ? req.body.customerIds : [])
+      .map((id) => String(id || "").trim()).filter(Boolean))];
+    if (!customerIds.length) {
+      res.status(400).json({ success: false, error: "Select at least one customer." });
+      return;
+    }
+    if (customerIds.length > 100) {
+      res.status(400).json({ success: false, error: "A batch can contain up to 100 customers." });
+      return;
+    }
+    const snapshot = readSharedStore();
+    const template = batchDraftTemplate(req.body?.templateId, snapshot);
+    if (!template?.subject || !template?.body) {
+      res.status(404).json({ success: false, error: "The selected email template no longer exists." });
+      return;
+    }
+    const senderId = String(req.body?.senderId || "").trim();
+    const sender = senderId ? getSqliteDb().prepare("SELECT id, name, email, isActive FROM senders WHERE id = ? AND isActive = 1").get(senderId) : null;
+    if (!sender) {
+      res.status(400).json({ success: false, error: "Select an active sender." });
+      return;
+    }
+    if (isAppAuthEnabled() && !senderAllowedForUser(req.appUserRecord, sender) && !isHostImportRequest(req)) {
+      res.status(403).json({ success: false, error: "This sender is not assigned to your login." });
+      return;
+    }
+    const customers = Array.isArray(snapshot.data.phottix_customers) ? snapshot.data.phottix_customers : [];
+    const productsById = new Map((Array.isArray(snapshot.data.phottix_products) ? snapshot.data.phottix_products : [])
+      .map((product) => [String(product?.id || ""), product]));
+    const selectedProducts = (Array.isArray(req.body?.productIds) ? req.body.productIds : [])
+      .map((id) => productsById.get(String(id))).filter(Boolean);
+    const logs = snapshot.data.phottix_followup_logs && typeof snapshot.data.phottix_followup_logs === "object"
+      ? { ...snapshot.data.phottix_followup_logs } : {};
+    const failures = [];
+    const created = [];
+    const now = new Date().toISOString();
+    customerIds.forEach((customerId) => {
+      const customer = customers.find((item) => String(item?.id) === customerId);
+      if (!customer || !canViewCustomer(req, customer)) {
+        failures.push({ customerId, reason: "Customer not found or not available." });
+        return;
+      }
+      const to = customerPrimaryEmail(customer);
+      if (!to) {
+        failures.push({ customerId, companyName: customer.companyName || "", reason: "No valid recipient email." });
+        return;
+      }
+      try {
+        const products = selectedProducts.length ? selectedProducts : (Array.isArray(customer.recommendedProducts) ? customer.recommendedProducts : []);
+        const draft = renderBatchDraftTemplate(template, customer, products);
+        if (!draft.subject || !draft.body) throw new Error("Template rendered empty subject or body.");
+        const logId = uid("draft");
+        logs[logId] = {
+          logId,
+          customerId: customer.id,
+          logDate: now.slice(0, 10),
+          channel: "Email",
+          contactPerson: customer.contactName || "",
+          subject: draft.subject,
+          summary: "Batch email draft. Review and send when ready.",
+          response: "no_response",
+          nextAction: "Review email draft",
+          nextFollowUpDate: customer.nextFollowUpDate || "",
+          status: "draft",
+          isDraft: true,
+          to,
+          senderId: sender.id,
+          senderName: sender.name || sender.email,
+          body: draft.body,
+          templateId: template.id,
+          templateName: template.name || "",
+          productIds: products.map((product) => product?.id).filter(Boolean),
+          createdBy: req.appUserRecord?.username || req.appUser || "local-admin",
+          createdAt: now
+        };
+        created.push({ customerId: customer.id, logId, companyName: customer.companyName || "", to });
+      } catch (error) {
+        failures.push({ customerId, companyName: customer.companyName || "", reason: error.message || "Draft generation failed." });
+      }
+    });
+    writeSharedSnapshot({ ...snapshot.data, phottix_followup_logs: logs }, ["phottix_followup_logs"]);
+    logAudit(req, "CREATE", "batch_email_draft", uid("batch"), template.name || template.id, {
+      requested: customerIds.length, created: created.length, failed: failures.length, senderId: sender.id, templateId: template.id
+    });
+    res.json({ success: true, requested: customerIds.length, created, failures, summary: { success: created.length, failed: failures.length } });
+  } catch (error) {
+    res.status(503).json({ success: false, error: error.message || "Batch email draft generation failed." });
+  }
+});
+
 app.post("/api/parse-excel-config", (req, res) => {
   if (rejectRole(req, res, ["admin", "sales", "sales_manager"], "Customer Excel import is not allowed for this role.")) return;
   if (rejectRemoteImport(req, res)) return;
@@ -2982,6 +3143,13 @@ app.post("/api/generate-excel", (req, res) => {
           group_name: groupsById.get(normalizeGroupId(customer.groupId || customer.group_id)) || "Ungrouped",
           buying_role: customer.buyingRole || "", customer_score: customer.customerScore ?? "",
           customer_type: customer.customerType || "", rating: customer.rating || "",
+          last_sent_at: customer.lastSentAt || customer.last_sent_at || "",
+          last_email_subject: customer.lastEmailSubject || customer.last_email_subject || "",
+          sent_email_count: Number(customer.sentEmailCount ?? customer.sent_email_count ?? 0),
+          replied: Boolean(customer.replied),
+          reply_count: Number(customer.replyCount ?? customer.reply_count ?? 0),
+          next_follow_up_date: customer.nextFollowUpDate || customer.next_follow_up_date || "",
+          last_follow_up_topic: customer.lastFollowUpTopic || customer.last_follow_up_topic || "",
           website: customer.website || "", notes: customer.notes || ""
         }))
       : (Array.isArray(req.body?.data) ? req.body.data : []);

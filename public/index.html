@@ -22,6 +22,8 @@
         <button class="nav-button" data-icon="▦" data-page="productsPage" type="button">產品資料庫 / Products</button>
         <button id="assetsNavBtn" class="nav-button" data-icon="▤" data-page="assetsPage" type="button">云端资料库 / File Library</button>
         <button class="nav-button" data-icon="◫" data-page="customersPage" type="button">客戶池 / Customers</button>
+        <button id="repliedCustomersNav" class="nav-button" data-icon="✉" data-page="customersPage" type="button">已回信客戶 / Replied</button>
+        <button id="dueFollowUpsNav" class="nav-button" data-icon="◷" data-page="customersPage" type="button">待跟進客戶 / Due Follow-ups</button>
         <button id="sendersNavBtn" class="nav-button hidden" data-icon="✉" data-page="sendersPage" type="button">寄件者管理 / Senders</button>
         <button id="usersNavBtn" class="nav-button hidden" data-icon="u" data-page="usersPage" type="button">&#x7528;&#x6237;&#x7BA1;&#x7406; / Users</button>
         <button id="systemNavBtn" class="nav-button hidden" data-icon="i" data-page="systemPage" type="button">&#x7CFB;&#x7EDF;&#x65E5;&#x5FD7; / System Logs</button>
@@ -191,7 +193,7 @@
                   <input id="companyName" type="text" placeholder="B&H Photo Video" required>
                 </label>
                 <label class="website-highlight-field">官網 / Website
-                  <input id="website" type="text" inputmode="url" pattern="^(https?://)?[^\s]+\.[^\s]+.*$" placeholder="shturl.cc/PJ832">
+                  <input id="website" type="text" inputmode="url" placeholder="https://www.phottix.com or phottix.com">
                   <small class="field-help">支援完整網址或短網址 / Full URL or short link accepted</small>
                 </label>
                 <label>國家/城市 / Country or Region
@@ -594,7 +596,11 @@
               <button id="addCustomerBtn" class="secondary-button" type="button">新增客戶</button>
               <button id="importCustomersBtn" class="secondary-button" type="button">刷新導入文件</button>
               <button id="importUpdateBtn" class="ghost-button" type="button">匯入更新 Excel</button>
-              <button id="exportCustomersBtn" class="primary-button" type="button">導出客戶 / Export Customer Excel</button>
+              <div class="customer-export-actions">
+                <button id="exportCustomersBtn" class="primary-button" type="button">导出全部客户 / Export All</button>
+                <button id="exportCurrentGroupBtn" class="secondary-button" type="button">导出当前组别 / Export Current Group</button>
+                <button id="exportFilteredCustomersBtn" class="secondary-button" type="button">导出当前筛选 / Export Filtered</button>
+              </div>
             </div>
           </div>
 
@@ -641,6 +647,18 @@
               <option value="cancelled">cancelled</option>
               <option value="deferred">deferred</option>
             </select>
+            <select id="sentEmailFilter"><option value="">郵件發送：全部</option><option value="yes">已發送郵件</option><option value="no">從未發送郵件</option></select>
+            <select id="repliedFilter"><option value="">回信：全部</option><option value="yes">已回信</option><option value="no">未回信</option></select>
+            <select id="followUpTopicFilter"><option value="">郵件主題：全部</option></select>
+            <select id="lastFollowUpRangeFilter"><option value="">上次發送：全部</option><option value="7">最近 7 天</option><option value="14">最近 14 天</option><option value="30">最近 30 天</option></select>
+            <select id="nextFollowUpRangeFilter"><option value="">下次跟進：全部</option><option value="today">今天</option><option value="week">本週</option><option value="due">今天或逾期</option></select>
+            <select id="buyingRoleFilter">
+              <option value="">全部购买角色 / All Buying Roles</option>
+              <option value="A">A = 批发商 / Wholesaler</option>
+              <option value="B">B = 实体零售商 / Physical Reseller</option>
+              <option value="C">C = 网店零售商 / Online Reseller</option>
+              <option value="D">D = 工作室 / Studio or End User</option>
+            </select>
             <div class="group-filter-control">
               <select id="groupFilter">
                 <option value="">全部組別</option>
@@ -656,6 +674,7 @@
           <div class="bulk-box">
             <label><input id="selectAllCustomers" type="checkbox"> 全選目前列表</label>
             <button id="syncInboxBtn" class="secondary-button" type="button">📥 同步回信</button>
+            <button id="batchGenerateEmailBtn" class="secondary-button" type="button">批次產生郵件</button>
             <button id="bulkAnalyzeSelectedBtn" class="secondary-button" type="button">批量分析：選中客戶</button>
             <button id="bulkAnalyzeAllBtn" class="secondary-button" type="button">批量分析：全部</button>
             <button id="bulkDeleteBtn" class="ghost-button" type="button">批量刪除</button>
@@ -877,7 +896,7 @@
       <h3 id="customerDialogTitle">客戶</h3>
       <input id="customerId" type="hidden">
       <label>公司名 <input id="dialogCompanyName" required></label>
-      <label>官網 <input id="dialogWebsite" type="url"></label>
+      <label>官網 <input id="dialogWebsite" type="text" inputmode="url" placeholder="https://www.phottix.com or phottix.com"></label>
       <label>聯絡人 <input id="dialogContactName"></label>
       <label>郵箱 <input id="dialogContactEmail" type="email"></label>
       <label>國家/城市 <input id="dialogCountry"></label>
@@ -952,6 +971,28 @@
       <menu>
         <button value="cancel" class="ghost-button">取消</button>
         <button id="saveCustomTemplateDialogBtn" value="default" class="primary-button">保存範本</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="batchEmailDialog">
+    <form method="dialog" id="batchEmailForm" class="dialog-form">
+      <h3>批次產生郵件草稿 / Batch Email Drafts</h3>
+      <p id="batchEmailSelectedCount">已選取 0 位客戶</p>
+      <label>郵件範本 / Template
+        <select id="batchEmailTemplate" required></select>
+      </label>
+      <label>寄件者 / Sender
+        <select id="batchEmailSender" required></select>
+      </label>
+      <label>本次推廣產品（可不選）/ Campaign Products
+        <select id="batchEmailProducts" multiple size="6"></select>
+      </label>
+      <small>不選產品時，系統使用每位客戶現有的推薦產品。產生後只會建立草稿，不會發送郵件。</small>
+      <div id="batchEmailProgress" class="attachment-upload-status" role="status" aria-live="polite"></div>
+      <menu>
+        <button value="cancel" class="ghost-button">取消</button>
+        <button id="confirmBatchEmailBtn" value="default" class="primary-button">產生郵件</button>
       </menu>
     </form>
   </dialog>

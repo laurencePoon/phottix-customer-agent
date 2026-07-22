@@ -254,7 +254,21 @@
   }
 
   function normalizeContactName(value, email = "") {
-    return contactNameType(value, email) === "person" ? normalizeText(value) : "";
+    const normalized = normalizeText(value);
+    const type = contactNameType(normalized, email);
+    // A name entered by a user is authoritative unless it is a generic mailbox label.
+    if (normalized && type !== "generic_inbox") return normalized;
+    const local = String(email || "").trim().split("@")[0] || "";
+    if (!normalized && looksLikePersonEmailLocal(local)) {
+      return local.split(/[._-]+/).filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()).join(" ");
+    }
+    return "";
+  }
+
+  function displayRecipient(email, contactName = "") {
+    const cleanEmail = normalizeText(email);
+    const name = normalizeContactName(contactName, cleanEmail);
+    return name && cleanEmail ? `${name} <${cleanEmail}>` : cleanEmail;
   }
 
   function contactNameNote(value, email = "") {
@@ -1710,8 +1724,21 @@
     async importProductsFromUpload(file) {
       this.importProductRows(await this.parseUploadedExcelFile(file));
     },
-    async exportCustomers() {
-      const customers = DB.getCustomers().map((customer) => ({
+    async exportCustomers(scope = 'all') {
+      const allCustomers = DB.getCustomers();
+      let selectedCustomers = allCustomers;
+      let filenameScope = 'all';
+      if (scope === 'group') {
+        const selectedGroupId = dom.groupFilter?.value || '';
+        if (!selectedGroupId) throw new Error('Please select a customer group before exporting the current group.');
+        selectedCustomers = selectedGroupId === '__ungrouped__' ? allCustomers.filter((customer) => !normalizeGroupId(customer.groupId || customer.group_id)) : allCustomers.filter((customer) => normalizeGroupId(customer.groupId || customer.group_id) === selectedGroupId);
+        filenameScope = selectedGroupId === '__ungrouped__' ? 'ungrouped' : groupName(selectedGroupId).replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '').toLowerCase() || 'group';
+      } else if (scope === 'filtered') {
+        selectedCustomers = filterCustomers(allCustomers);
+        filenameScope = 'filtered';
+      }
+      if (!selectedCustomers.length) throw new Error('There are no customers in this export scope.');
+      const customers = selectedCustomers.map((customer) => ({
         id: customer.id,
         company_name: customer.companyName,
         contact_name: customer.contactName,
@@ -1751,8 +1778,8 @@
         const payload = await response.json().catch(() => ({}));
         throw new Error(payload.error || "Export failed.");
       }
-      downloadBlob(await response.blob(), `phottix_decision_table_${Date.now()}.xlsx`);
-      UI.toast("Excel exported.", "good");
+      downloadBlob(await response.blob(), `phottix_customers_${filenameScope}_${Date.now()}.xlsx`);
+      UI.toast("Excel exported: " + customers.length + " customers.", "good");
     },
     async importUpdateRows(rows) {
       DB.backup("before_excel_update_import");
@@ -2204,7 +2231,9 @@
       [dom.bulkAnalyzeSelectedBtn, dom.bulkAnalyzeAllBtn].forEach((button) => {
         if (button) button.classList.toggle("hidden", !canManageCustomers());
       });
-      if (dom.exportCustomersBtn) dom.exportCustomersBtn.classList.toggle("hidden", !canExportCustomers);
+      [dom.exportCustomersBtn, dom.exportCurrentGroupBtn, dom.exportFilteredCustomersBtn].forEach((button) => {
+        if (button) button.classList.toggle("hidden", !canExportCustomers);
+      });
       if (dom.bulkDeleteBtn) dom.bulkDeleteBtn.classList.toggle("hidden", !canBatchManageCustomers());
       if (dom.bulkMoveGroupBtn) dom.bulkMoveGroupBtn.classList.toggle("hidden", !canBatchManageCustomers());
       [dom.bulkConvertBtn, dom.addGroupBtn].forEach((button) => {
@@ -2727,7 +2756,8 @@
             <header><strong>${channelIcon} ${escapeHtml(log.logDate)} · ${escapeHtml(log.subject || "No subject")}</strong><span>${responseIcon} ${escapeHtml(log.response || "")}</span></header>
             <p>${escapeHtml(log.summary || "")}</p>
             <p>${escapeHtml([log.contactPerson, log.nextAction, log.nextFollowUpDate].filter(Boolean).join(" · "))}</p>
-            ${log.channel === "Email" ? `<button class="mini-button" data-action="copy-log-email" data-id="${escapeHtml(log.logId)}" type="button">從歷史郵件複製</button>` : ""}
+            ${log.isDraft ? `<button class="mini-button" data-action="open-email-draft" data-id="${escapeHtml(log.logId)}" type="button">檢視並編輯草稿</button>` : ""}
+            ${log.channel === "Email" && !log.isDraft ? `<button class="mini-button" data-action="copy-log-email" data-id="${escapeHtml(log.logId)}" type="button">從歷史郵件複製</button>` : ""}
           </div>
         `;
       }).join("") : `<div class="empty">沒有跟進記錄。</div>`;
@@ -3154,6 +3184,11 @@
       customer.website,
       customer.contactName,
       customer.contactEmail,
+      customer.country,
+      customer.city,
+      customer.industry,
+      customer.address,
+      customer.notes,
       customer.mainProducts,
       customer.groupId,
       customer.group_id,
@@ -3168,12 +3203,27 @@
     const type = dom.customerTypeFilter.value;
     const rating = dom.ratingFilter.value;
     const status = dom.followStatusFilter.value;
+    const buyingRole = dom.buyingRoleFilter?.value || "";
     const groupFilter = dom.groupFilter?.value || "";
+    const sent = dom.sentEmailFilter?.value || "";
+    const replied = dom.repliedFilter?.value || "";
+    const topic = dom.followUpTopicFilter?.value || "";
+    const nextRange = dom.nextFollowUpRangeFilter?.value || "";
     const query = normalizeText(dom.customerSearch.value).toLowerCase();
     return customers.filter((customer) => {
       if (type && customer.customerType !== type) return false;
       if (rating && customer.rating !== rating) return false;
       if (status && customer.followUpStatus !== status) return false;
+      if (buyingRole && normalizeBuyingRole(customer.buyingRole) !== buyingRole) return false;
+      const sentCount = Number(customer.sentEmailCount || 0);
+      if (sent === "yes" && !sentCount) return false;
+      if (sent === "no" && sentCount) return false;
+      if (replied === "yes" && !customer.replied) return false;
+      if (replied === "no" && customer.replied) return false;
+      if (topic && customer.lastFollowUpTopic !== topic) return false;
+      const nextDate = String(customer.nextFollowUpDate || "");
+      if (nextRange === "today" && nextDate !== TODAY) return false;
+      if (nextRange === "due" && (!nextDate || nextDate > TODAY)) return false;
       const customerGroupId = normalizeGroupId(customer.groupId || customer.group_id);
       if (groupFilter === "__ungrouped__" && customerGroupId) return false;
       if (groupFilter && groupFilter !== "__ungrouped__" && customerGroupId !== groupFilter) return false;
@@ -3239,7 +3289,7 @@
       if (options.preserveManual && normalizeText(input.value)) return;
       input.value = value || "";
     };
-    const fallbackTo = normalizeText(customer.contactEmail || dom.contactEmail?.value);
+    const fallbackTo = displayRecipient(customer.contactEmail || dom.contactEmail?.value, customer.contactName || dom.contactName?.value);
     setRecipientValue(dom.emailTo, isExisting && contacts.length ? contactsByRole(contacts, "to") : fallbackTo);
     setRecipientValue(dom.emailCc, isExisting && contacts.length ? contactsByRole(contacts, "cc") : "");
     setRecipientValue(dom.emailBcc, isExisting && contacts.length ? contactsByRole(contacts, "bcc") : "");
@@ -3710,7 +3760,15 @@
     const customers = DB.getCustomers();
     const index = customers.findIndex((item) => item.id === customer.id);
     if (index >= 0) {
+      const sentAt = log.createdAt;
+      const nextFollowUp = new Date(sentAt);
+      nextFollowUp.setDate(nextFollowUp.getDate() + 14);
       customers[index].lastContactDate = log.logDate;
+      customers[index].lastSentAt = sentAt;
+      customers[index].lastEmailSubject = subject;
+      customers[index].sentEmailCount = Number(customers[index].sentEmailCount || 0) + 1;
+      customers[index].lastFollowUpTopic = dom.templatePurpose?.selectedOptions?.[0]?.textContent || customers[index].emailPurpose || "";
+      customers[index].nextFollowUpDate = nextFollowUp.toISOString().slice(0, 10);
       customers[index].emailHistory = customers[index].emailHistory || [];
       customers[index].emailHistory.unshift({ subject: log.subject, summary: log.summary, emailAttachments: persistableAttachments(attachments), createdAt: log.createdAt });
       customers[index].emailHistory = customers[index].emailHistory.slice(0, 10);
@@ -3924,6 +3982,81 @@
 
   function selectedCustomers() {
     return DB.getCustomers().filter((item) => state.selectedCustomerIds.has(item.id));
+  }
+
+  function batchTemplateOptions() {
+    const defaults = Object.entries(DB.getTemplates() || {}).map(([id, template]) => ({
+      value: `default:${id}`,
+      label: `預設 / ${template?.name || id}`
+    }));
+    const customs = state.customTemplates.map((template) => ({ value: `custom:${template.id}`, label: `自訂 / ${template.name}` }));
+    return [...defaults, ...customs];
+  }
+
+  function openBatchEmailDialog() {
+    const customers = selectedCustomers();
+    if (!customers.length) {
+      UI.toast("請先勾選至少一位客戶。", "warn");
+      return;
+    }
+    if (!dom.batchEmailDialog?.showModal) {
+      UI.toast("此瀏覽器不支援批次草稿對話框。", "bad");
+      return;
+    }
+    dom.batchEmailSelectedCount.textContent = `已選取 ${customers.length} 位客戶`;
+    dom.batchEmailTemplate.innerHTML = batchTemplateOptions().map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`).join("");
+    dom.batchEmailSender.innerHTML = state.senders.filter((sender) => sender.isActive && sender.canUse !== false)
+      .map((sender) => `<option value="${escapeHtml(sender.id)}">${escapeHtml(sender.name || sender.email)} - ${escapeHtml(sender.email)}</option>`).join("");
+    dom.batchEmailProducts.innerHTML = DB.getProducts().filter((product) => product.inRecommendationPool !== false)
+      .map((product) => `<option value="${escapeHtml(product.id)}">${escapeHtml([product.sku, product.name || product.productName].filter(Boolean).join(" - "))}</option>`).join("");
+    dom.batchEmailProgress.textContent = "";
+    dom.batchEmailDialog.showModal();
+  }
+
+  async function generateBatchEmailDrafts() {
+    const customers = selectedCustomers();
+    if (!customers.length) throw new Error("請先勾選至少一位客戶。");
+    const templateId = dom.batchEmailTemplate.value;
+    const senderId = dom.batchEmailSender.value;
+    if (!templateId || !senderId) throw new Error("請選擇郵件範本和寄件者。");
+    const productIds = [...dom.batchEmailProducts.selectedOptions].map((option) => option.value).filter(Boolean);
+    dom.confirmBatchEmailBtn.disabled = true;
+    dom.batchEmailProgress.textContent = `正在產生：0 / ${customers.length}`;
+    try {
+      const response = await fetch(`${API_BASE}/api/batch-generate-emails`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerIds: customers.map((customer) => customer.id), templateId, senderId, productIds })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "批次郵件草稿產生失敗。");
+      await DB.initSharedStore();
+      const failed = payload.summary?.failed || 0;
+      dom.batchEmailProgress.textContent = `完成：成功 ${payload.summary?.success || 0} 封；失敗 ${failed} 封${failed ? "（缺少有效收件人或客戶不可用）" : ""}`;
+      UI.refreshAll();
+      UI.toast(`已產生 ${payload.summary?.success || 0} 封郵件草稿。`, failed ? "warn" : "good");
+      if (!failed) setTimeout(() => dom.batchEmailDialog.close(), 700);
+    } finally {
+      dom.confirmBatchEmailBtn.disabled = false;
+    }
+  }
+
+  function openEmailDraft(logId) {
+    const log = DB.getLogs()[logId];
+    const customer = DB.getCustomers().find((item) => item.id === log?.customerId);
+    if (!log?.isDraft || !customer) {
+      UI.toast("找不到此郵件草稿。", "warn");
+      return;
+    }
+    fillAnalysisForm(customer);
+    state.currentCustomerId = customer.id;
+    dom.templateSubject.value = log.subject || "";
+    dom.templateBody.value = log.body || "";
+    dom.emailTo.value = log.to || customer.contactEmail || "";
+    if (log.senderId) dom.senderSelect.value = log.senderId;
+    UI.showPage("analysisPage");
+    UI.renderTimeline(customer.id);
+    UI.toast("草稿已載入，可檢查、修改後發送。", "good");
   }
 
   function bulkDeleteSelected() {
@@ -4506,8 +4639,8 @@
       "emailStrategyNote",
       "addLogBtn", "timeline", "analysisHistory", "addProductBtn", "importProductsBtn", "productExcelFileInput", "productSearch",
       "productView", "productTable", "addCustomerBtn", "importCustomersBtn", "syncInboxBtn", "importUpdateBtn",
-      "exportCustomersBtn", "customerImportFileSelect", "customerImportIndex", "importCustomersConfigBtn", "uploadCustomerExcelBtn", "customerExcelFileInput", "customerImportGroupSelect", "customerImportResult", "excelFileList", "addGroupBtn", "groupList", "customerTypeFilter", "ratingFilter",
-      "followStatusFilter", "groupFilter", "customerSearch", "selectAllCustomers", "bulkAnalyzeSelectedBtn",
+      "exportCustomersBtn", "exportCurrentGroupBtn", "exportFilteredCustomersBtn", "customerImportFileSelect", "customerImportIndex", "importCustomersConfigBtn", "uploadCustomerExcelBtn", "customerExcelFileInput", "customerImportGroupSelect", "customerImportResult", "excelFileList", "addGroupBtn", "groupList", "customerTypeFilter", "ratingFilter",
+      "followStatusFilter", "buyingRoleFilter", "groupFilter", "customerSearch", "sentEmailFilter", "repliedFilter", "followUpTopicFilter", "lastFollowUpRangeFilter", "nextFollowUpRangeFilter", "repliedCustomersNav", "dueFollowUpsNav", "selectAllCustomers", "batchGenerateEmailBtn", "bulkAnalyzeSelectedBtn",
       "bulkAnalyzeAllBtn", "bulkDeleteBtn", "bulkConvertBtn", "bulkGroupSelect", "bulkMoveGroupBtn", "bulkFollowStatus", "bulkNextFollowDate", "bulkProgressBar", "bulkProgressText", "customerList", "backupExportBtn",
       "backupImportBtn", "pullLiveSnapshotBtn", "backupFileInput", "liveSyncDialog", "liveSyncForm", "liveSyncLocalSummary", "liveSyncLiveSummary", "liveSyncScopeSummary", "syncAllSections", "syncCustomersSection", "syncProductsSection", "syncLogsSection", "syncTemplatesSection", "syncSettingsSection", "syncAnalysisHistorySection", "syncErrorLogsSection", "previewLiveSyncBtn", "syncLiveSnapshotBtn", "productDialog", "productForm", "productDialogTitle",
       "productId", "productName", "productCategory", "productInPool", "productPriority",
@@ -4526,6 +4659,7 @@
       "emailContactAddress", "emailContactRole", "addEmailContactBtn", "saveEmailContactsBtn",
       "customTemplateDialog", "customTemplateForm", "customTemplateName", "saveCustomTemplateDialogBtn",
       "blankTemplateDialog", "blankTemplateForm", "blankTemplateName", "blankTemplateSubject", "blankTemplateBody", "saveBlankTemplateBtn",
+      "batchEmailDialog", "batchEmailForm", "batchEmailSelectedCount", "batchEmailTemplate", "batchEmailSender", "batchEmailProducts", "batchEmailProgress", "confirmBatchEmailBtn",
       "manualSqliteBackupBtn", "refreshSystemLogsBtn", "systemLastBackup", "systemBackupDir", "systemRetentionDays",
       "systemAuditCount", "systemBackupStatus", "backupFileList", "auditLogTableBody",
       "assetsNavBtn", "assetsPage", "refreshAssetsBtn", "assetCategoryFilter", "assetSkuFilter", "assetSearch",
@@ -4661,6 +4795,14 @@
       dom.overrideReason.value = "";
       dom.overrideRating.value = state.currentAnalysis?.rating || "B";
       dom.overrideDialog.showModal();
+    });
+    dom.batchGenerateEmailBtn?.addEventListener("click", openBatchEmailDialog);
+    dom.confirmBatchEmailBtn?.addEventListener("click", (event) => {
+      event.preventDefault();
+      generateBatchEmailDrafts().catch((error) => {
+        if (dom.batchEmailProgress) dom.batchEmailProgress.textContent = error.message;
+        UI.toast(error.message, "bad");
+      });
     });
     dom.saveOverrideBtn.addEventListener("click", () => {
       const rating = dom.overrideRating.value;
@@ -4854,12 +4996,19 @@
       UI.refreshAll();
       UI.toast(error.message, "bad");
     }));
-    dom.exportCustomersBtn.addEventListener("click", () => ExcelHandler.exportCustomers().catch((error) => {
-      DB.addErrorLog("導出 Excel", error);
-      UI.refreshAll();
-      UI.toast(error.message, "bad");
-    }));
-    [dom.customerTypeFilter, dom.ratingFilter, dom.followStatusFilter, dom.groupFilter, dom.customerSearch].forEach((item) => item?.addEventListener("input", () => UI.renderCustomerList()));
+    function exportCustomerScope(scope) {
+      return () => ExcelHandler.exportCustomers(scope).catch((error) => {
+        DB.addErrorLog("Export Excel", error);
+        UI.refreshAll();
+        UI.toast(error.message, "bad");
+      });
+    }
+    dom.exportCustomersBtn.addEventListener("click", exportCustomerScope("all"));
+    dom.exportCurrentGroupBtn.addEventListener("click", exportCustomerScope("group"));
+    dom.exportFilteredCustomersBtn.addEventListener("click", exportCustomerScope("filtered"));
+    [dom.customerTypeFilter, dom.ratingFilter, dom.followStatusFilter, dom.buyingRoleFilter, dom.groupFilter, dom.customerSearch, dom.sentEmailFilter, dom.repliedFilter, dom.followUpTopicFilter, dom.lastFollowUpRangeFilter, dom.nextFollowUpRangeFilter].forEach((item) => item?.addEventListener("input", () => UI.renderCustomerList()));
+    dom.repliedCustomersNav?.addEventListener("click", () => { dom.repliedFilter.value = "yes"; UI.showPage("customersPage"); UI.renderCustomerList(); });
+    dom.dueFollowUpsNav?.addEventListener("click", () => { dom.nextFollowUpRangeFilter.value = "due"; UI.showPage("customersPage"); UI.renderCustomerList(); });
     dom.selectAllCustomers.addEventListener("change", () => {
       filterCustomers(DB.getCustomers()).forEach((customer) => {
         if (dom.selectAllCustomers.checked) state.selectedCustomerIds.add(customer.id);
@@ -4988,6 +5137,7 @@
           UI.toast("Historical email copied.", "good");
         }
       }
+      if (action === "open-email-draft") openEmailDraft(id);
       if (action === "remove-attachment") {
         state.emailAttachments = normalizeAttachments(state.emailAttachments).filter((item) => item.id !== id);
         UI.renderAttachmentList();

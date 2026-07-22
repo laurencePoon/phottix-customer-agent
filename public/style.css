@@ -8620,6 +8620,8 @@ html.local-compact-scale {
 #customersPage .customer-list-table {
   display: grid;
   gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
 }
 
 #customersPage .customer-list-head,
@@ -8628,6 +8630,7 @@ html.local-compact-scale {
   grid-template-columns: 32px minmax(145px, 1.35fr) minmax(145px, 1.1fr) minmax(190px, 1.2fr) minmax(95px, 0.55fr) minmax(190px, auto);
   align-items: center;
   column-gap: 8px;
+  min-width: 880px;
 }
 
 #customersPage .customer-list-head {
@@ -9656,4 +9659,89 @@ body.role-user #systemNavBtn {
   padding: 7px 12px;
   border-radius: 6px;
   font-size: 13px;
+}
+
+
+/* Customer export scopes remain readable when the header wraps on narrow screens. */
+#customersPage .customer-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+#customersPage .customer-export-actions button {
+  white-space: nowrap;
+}
+@media (max-width: 900px) {
+  #customersPage .customer-export-actions { width: 100%; }
+  #customersPage .customer-export-actions button { flex: 1 1 190px; }
+}
+
+/* Compact customer-group access controls, independent from global form sizing. */
+#customersPage .group-chip {
+  gap: 8px;
+  padding: 9px 11px;
+}
+#customersPage .group-chip > strong {
+  width: 100%;
+  color: #1c5f9e;
+  font-size: 16px !important;
+  line-height: 1.25;
+}
+#customersPage .group-role-permissions {
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 7px 12px;
+}
+#customersPage .group-role-permissions label {
+  gap: 6px;
+  min-height: 26px;
+  font-size: 12px !important;
+  font-weight: 600;
+  line-height: 1.2;
+}
+#customersPage .group-role-permissions input[type="checkbox"] {
+  box-sizing: border-box;
+  flex: 0 0 16px;
+  width: 16px !important;
+  min-width: 16px !important;
+  height: 16px !important;
+  min-height: 16px !important;
+  margin: 0;
+}
+#customersPage .group-chip button {
+  padding: 5px 9px;
+  border-radius: 5px;
+  font-size: 12px !important;
+  line-height: 1.2;
+}
+
+/* Keep imported-customer rows as compact as the workflow navigation. */
+#customersPage .customer-card.customer-list-row {
+  padding: 6px 8px;
+}
+#customersPage .customer-main-cell h4 {
+  font-size: 0.72rem !important;
+  line-height: 1.2;
+}
+#customersPage .customer-main-cell a,
+#customersPage .customer-main-cell .muted-text,
+#customersPage .customer-contact-cell span,
+#customersPage .customer-next-cell span {
+  font-size: 0.64rem !important;
+  line-height: 1.2;
+}
+#customersPage .customer-contact-cell strong,
+#customersPage .customer-next-cell strong {
+  font-size: 0.68rem !important;
+  line-height: 1.2;
+}
+#customersPage .customer-card.customer-list-row .status-pill,
+#customersPage .customer-card.customer-list-row .rating-pill,
+#customersPage .customer-card.customer-list-row .customer-meta span {
+  min-height: 18px;
+  padding: 2px 6px;
+  font-size: 0.6rem !important;
+}
+#customersPage .customer-row-details summary {
+  font-size: 0.64rem !important;
 }
