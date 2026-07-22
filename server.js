@@ -3426,8 +3426,11 @@ app.post("/api/send-email", async (req, res) => {
       }
       transporter = nodemailer.createTransport({
         host: "smtp.gmail.com",
-        port: 587,
-        secure: false,
+        port: 465,
+        secure: true,
+        tls: { servername: "smtp.gmail.com" },
+        connectionTimeout: 30000,
+        greetingTimeout: 30000,
         auth: {
           user: sender.email,
           pass: decrypt(sender.appPassword)
