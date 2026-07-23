@@ -1040,7 +1040,15 @@
 
   <dialog id="logDialog">
     <form method="dialog" id="logForm" class="dialog-form">
-      <h3>新增跟進記錄</h3>
+      <section class="log-drafts-section" aria-labelledby="logDraftsTitle">
+        <div class="log-dialog-section-heading">
+          <h3 id="logDraftsTitle">郵件草稿 / Drafts</h3>
+          <span id="logDraftCount" class="status-pill">0</span>
+        </div>
+        <div id="logDraftList" class="log-draft-list"></div>
+      </section>
+      <div class="log-dialog-divider" role="separator"></div>
+      <h3>新增跟進記錄 / Manual Log</h3>
       <input id="logCustomerId" type="hidden">
       <label>日期 <input id="logDate" type="date" required></label>
       <label>管道

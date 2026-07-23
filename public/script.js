@@ -3683,6 +3683,33 @@
     UI.toast("Email contacts saved.", "good");
   }
 
+  function renderLogDrafts(customerId) {
+    if (!dom.logDraftList || !dom.logDraftCount) return;
+    const drafts = Object.values(DB.getLogs())
+      .filter((log) => log.customerId === customerId && log.isDraft)
+      .sort((a, b) => String(b.createdAt || b.logDate || "").localeCompare(String(a.createdAt || a.logDate || "")));
+    const senders = new Map((state.senders || []).map((sender) => [sender.id, sender]));
+    dom.logDraftCount.textContent = String(drafts.length);
+    dom.logDraftList.innerHTML = drafts.length ? drafts.map((draft) => {
+      const sender = senders.get(draft.senderId);
+      const from = sender ? [sender.name, sender.email].filter(Boolean).join(" · ") : (draft.from || "-");
+      return `
+        <article class="log-draft-item">
+          <div class="log-draft-main">
+            <strong>${escapeHtml(draft.subject || "No subject")}</strong>
+            <dl>
+              <div><dt>寄件者</dt><dd>${escapeHtml(from)}</dd></div>
+              <div><dt>收件者</dt><dd>${escapeHtml(draft.to || "-")}</dd></div>
+              <div><dt>生成時間</dt><dd>${escapeHtml(formatDateTime(draft.createdAt || draft.logDate || ""))}</dd></div>
+              <div><dt>狀態</dt><dd><span class="status-pill">${escapeHtml(draft.status || "draft")}</span></dd></div>
+            </dl>
+          </div>
+          <button class="primary-button log-draft-open" data-action="open-email-draft" data-id="${escapeHtml(draft.logId)}" type="button">編輯並發送</button>
+        </article>
+      `;
+    }).join("") : `<div class="empty">此客戶目前沒有郵件草稿。</div>`;
+  }
+
   function openLogDialog(customerId = state.currentCustomerId) {
     if (!customerId) {
       UI.toast("Please load or save a customer first.", "warn");
@@ -3697,6 +3724,7 @@
     dom.logResponse.value = "neutral";
     dom.logNextAction.value = "";
     dom.logNextFollowDate.value = "";
+    renderLogDrafts(customerId);
     dom.logDialog.showModal();
   }
 
@@ -4054,6 +4082,7 @@
     dom.templateBody.value = log.body || "";
     dom.emailTo.value = log.to || customer.contactEmail || "";
     if (log.senderId) dom.senderSelect.value = log.senderId;
+    if (dom.logDialog?.open) dom.logDialog.close();
     UI.showPage("analysisPage");
     UI.renderTimeline(customer.id);
     UI.toast("草稿已載入，可檢查、修改後發送。", "good");
@@ -4649,7 +4678,7 @@
       "dialogCompanyName", "dialogWebsite", "dialogContactName", "dialogContactEmail", "dialogCountry", "dialogMainProducts", "dialogGroup", "dialogCustomerScore",
       "dialogBuyingRole", "dialogCustomerType", "dialogFollowStatus", "dialogNextFollowDate", "saveCustomerDialogBtn",
       "overrideDialog", "overrideForm", "overrideRating", "overrideReason", "saveOverrideBtn",
-      "logDialog", "logForm", "logCustomerId", "logDate", "logChannel", "logContactPerson", "logSubject",
+      "logDialog", "logForm", "logDraftCount", "logDraftList", "logCustomerId", "logDate", "logChannel", "logContactPerson", "logSubject",
       "logSummary", "logResponse", "logNextAction", "logNextFollowDate", "saveLogBtn",
       "sendersNavBtn", "usersNavBtn", "systemNavBtn", "themeToggle", "refreshSendersBtn", "senderForm", "senderId", "senderName", "senderEmail",
       "senderAppPassword", "saveSenderBtn", "resetSenderFormBtn", "senderList",

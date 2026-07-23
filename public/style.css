@@ -9745,3 +9745,74 @@ body.role-user #systemNavBtn {
 #customersPage .customer-row-details summary {
   font-size: 0.64rem !important;
 }
+
+/* Keep email drafts visible above the separate manual follow-up form. */
+.log-drafts-section {
+  display: grid;
+  gap: 12px;
+}
+.log-dialog-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.log-dialog-section-heading h3 {
+  margin: 0;
+}
+.log-draft-list {
+  display: grid;
+  gap: 10px;
+  max-height: min(42vh, 360px);
+  overflow-y: auto;
+}
+.log-draft-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+.log-draft-main {
+  min-width: 0;
+}
+.log-draft-main > strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.log-draft-main dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+  margin: 10px 0 0;
+}
+.log-draft-main dl div {
+  min-width: 0;
+}
+.log-draft-main dt,
+.log-draft-main dd {
+  display: inline;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.log-draft-main dt {
+  margin-right: 6px;
+  color: var(--muted);
+}
+.log-dialog-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+@media (max-width: 680px) {
+  .log-draft-item,
+  .log-draft-main dl {
+    grid-template-columns: 1fr;
+  }
+  .log-draft-open {
+    width: 100%;
+  }
+}
